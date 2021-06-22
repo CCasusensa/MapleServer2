@@ -6,6 +6,8 @@ using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
+using MapleServer2.Database.Types;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
@@ -57,7 +59,7 @@ namespace MapleServer2.PacketHandlers.Game
         {
             NpcMetadata metadata = NpcMetadataStorage.GetNpc(npcFieldObject.Value.Id);
 
-            ShopMetadata shop = ShopMetadataStorage.GetShop(metadata.ShopId);
+            Shop shop = DatabaseManager.GetShop(metadata.ShopId);
             if (shop == null)
             {
                 Console.WriteLine($"Unknown shop ID: {metadata.ShopId}");
@@ -71,11 +73,13 @@ namespace MapleServer2.PacketHandlers.Game
             }
             session.Send(ShopPacket.Reload());
             session.Send(NpcTalkPacket.Respond(npcFieldObject, NpcType.Default, DialogType.None, 0));
+            session.Player.ShopId = shop.Id;
         }
 
         private static void HandleClose(GameSession session)
         {
             session.Send(ShopPacket.Close());
+            session.Player.ShopId = 0;
         }
 
         private static void HandleSell(GameSession session, PacketReader packet)
@@ -102,7 +106,7 @@ namespace MapleServer2.PacketHandlers.Game
             int itemUid = packet.ReadInt();
             int quantity = packet.ReadInt();
 
-            ShopItem shopItem = ShopMetadataStorage.GetItem(itemUid);
+            ShopItem shopItem = DatabaseManager.GetShopItem(itemUid);
 
             switch (shopItem.TokenType)
             {
@@ -142,7 +146,8 @@ namespace MapleServer2.PacketHandlers.Game
             // add item to inventory
             Item item = new(shopItem.ItemId)
             {
-                Amount = quantity * shopItem.Quantity
+                Amount = quantity * shopItem.Quantity,
+                Rarity = shopItem.ItemRank
             };
             InventoryController.Add(session, item, true);
 
@@ -163,7 +168,7 @@ namespace MapleServer2.PacketHandlers.Game
                 return;
             }
 
-            ShopMetadata shop = ShopMetadataStorage.GetShop(item.ShopID);
+            Shop shop = DatabaseManager.GetShop(item.ShopID);
             if (shop == null)
             {
                 Console.WriteLine($"Unknown shop ID: {item.ShopID}");

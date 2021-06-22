@@ -47,8 +47,15 @@ namespace MapleServer2.Packets
             // Stats
             StatPacket.WriteFieldStats(pWriter, player.Stats);
 
-            pWriter.WriteByte();
-            pWriter.WriteByte();
+            pWriter.WriteByte(); // battle stance bool
+            if (player.Guide != null)
+            {
+                pWriter.WriteByte(player.Guide.Value.Type);
+            }
+            else
+            {
+                pWriter.WriteByte();
+            }
             pWriter.WriteInt();
             pWriter.WriteLong();
             pWriter.WriteLong();
@@ -99,12 +106,12 @@ namespace MapleServer2.Packets
             if (true)
             {
                 PacketWriter appearanceBuffer = new PacketWriter();
-                appearanceBuffer.WriteByte((byte) (player.Equips.Count + player.Cosmetics.Count)); // num equips
-                foreach ((ItemSlot slot, Item equip) in player.Equips)
+                appearanceBuffer.WriteByte((byte) (player.Inventory.Equips.Count + player.Inventory.Cosmetics.Count)); // num equips
+                foreach ((ItemSlot slot, Item equip) in player.Inventory.Equips)
                 {
                     CharacterListPacket.WriteEquip(slot, equip, appearanceBuffer);
                 }
-                foreach ((ItemSlot slot, Item equip) in player.Cosmetics)
+                foreach ((ItemSlot slot, Item equip) in player.Inventory.Cosmetics)
                 {
                     CharacterListPacket.WriteEquip(slot, equip, appearanceBuffer);
                 }
@@ -136,7 +143,7 @@ namespace MapleServer2.Packets
                 pWriter.WriteLong(); // Another timestamp
                 pWriter.WriteInt(int.MaxValue);
                 pWriter.WriteByte();
-                pWriter.WriteInt();
+                pWriter.WriteInt(); // MushkingRoyale taileffect kill count
                 pWriter.WriteInt();
                 pWriter.WriteShort();
             }
@@ -183,12 +190,82 @@ namespace MapleServer2.Packets
             return pWriter;
         }
 
+        public static Packet AddItem(IFieldObject<Item> item, IFieldObject<Mob> sourceMob, IFieldObject<Player> targetPlayer)
+        {
+            // Works for meso
+
+            PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_ADD_ITEM);
+            pWriter.WriteInt(item.ObjectId);
+            pWriter.WriteInt(item.Value.Id);
+            pWriter.WriteInt(item.Value.Amount);
+
+            pWriter.WriteByte(1);               // Unknown (GMS2) (character lock flag?)
+            pWriter.WriteLong(targetPlayer.Value.CharacterId);  // Lock drop to character
+
+            pWriter.Write(item.Coord);
+            pWriter.WriteInt(sourceMob.ObjectId);
+            pWriter.WriteInt();                 // Unknown (GMS2)
+            pWriter.WriteByte();
+            pWriter.WriteInt(item.Value.Rarity);
+            pWriter.WriteInt(21);
+
+            if (item.Value.Id >= 90000004 && item.Value.Id <= 90000011)
+            {
+                // Extra for special items
+                pWriter.WriteInt(1);                        // 0 = SP/EP, 1 = quest item?
+                pWriter.WriteInt(0);
+                pWriter.WriteInt(-1);
+                pWriter.WriteInt(targetPlayer.ObjectId);    // Unknown
+                for (int i = 0; i < 14; i++)
+                {
+                    pWriter.WriteInt();
+                }
+                pWriter.WriteInt(-1);
+                for (int i = 0; i < 24; i++)
+                {
+                    pWriter.WriteInt();
+                }
+                pWriter.WriteInt();
+                pWriter.WriteShort();
+                pWriter.WriteInt(1);
+                pWriter.WriteInt();
+                pWriter.WriteInt();
+                pWriter.WriteInt();
+                pWriter.WriteShort();
+                pWriter.WriteInt(6);
+                pWriter.WriteInt();
+                pWriter.WriteInt();
+                pWriter.WriteShort();
+                pWriter.WriteInt(1);
+                pWriter.WriteInt();
+                pWriter.WriteInt();
+                pWriter.WriteInt();
+                pWriter.WriteInt();
+                pWriter.WriteShort();
+            }
+            //pWriter.Write(sourceMob.Coord);
+            //pWriter.WriteItem(item.Value);
+
+            return pWriter;
+        }
+
         public static Packet PickupItem(int objectId, int userObjectId)
         {
             PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_PICKUP_ITEM);
             pWriter.WriteByte(0x01);
             pWriter.WriteInt(objectId);
             pWriter.WriteInt(userObjectId);
+
+            return pWriter;
+        }
+
+        public static Packet PickupItem(int objectId, Item item, int userObjectId)
+        {
+            PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_PICKUP_ITEM);
+            pWriter.WriteByte(0x01);
+            pWriter.WriteInt(objectId);
+            pWriter.WriteInt(userObjectId);
+            pWriter.WriteLong(item.Amount);  // Amount (GUI)
 
             return pWriter;
         }
@@ -286,14 +363,14 @@ namespace MapleServer2.Packets
             pWriter.WriteInt(mob.ObjectId);
             pWriter.WriteInt(mob.Value.Id);
             pWriter.Write(mob.Coord);
-            pWriter.Write(CoordF.From(0, 0, 0)); // Rotation
+            pWriter.Write(mob.Rotation);
             // If NPC is not valid, the packet seems to stop here
 
             StatPacket.DefaultStatsMob(pWriter, mob);
 
             pWriter.WriteLong();
             pWriter.WriteInt();
-            pWriter.WriteInt(0x0E); // Unknown
+            pWriter.WriteInt(0x0E); // NPC level
             pWriter.WriteInt();
             pWriter.WriteByte();
 
@@ -324,10 +401,10 @@ namespace MapleServer2.Packets
             pWriter.WriteBool(portal.Value.IsMinimapVisible);
             pWriter.WriteLong();
             pWriter.WriteByte();
-            pWriter.WriteInt();
+            pWriter.WriteInt(portal.Value.Duration);
             pWriter.WriteShort();
             pWriter.WriteInt();
-            pWriter.WriteBool(false);
+            pWriter.WriteBool(portal.Value.IsPassEnabled);
             pWriter.WriteUnicodeString("");
             pWriter.WriteUnicodeString("");
             pWriter.WriteUnicodeString("");

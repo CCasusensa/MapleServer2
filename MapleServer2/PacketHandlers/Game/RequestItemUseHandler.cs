@@ -5,8 +5,8 @@ using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
-using MapleServer2.Data;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
@@ -81,6 +81,15 @@ namespace MapleServer2.PacketHandlers.Game
                 case "PetExtraction": // Pet skin scroll
                     HandlePetExtraction(session, packet, item);
                     break;
+                case "InstallBillBoard": // ad balloons
+                    HandleInstallBillBoard(session, packet, item);
+                    break;
+                case "ExpendCharacterSlot":
+                    HandleExpandCharacterSlot(session, item);
+                    break;
+                case "ItemChangeBeauty": // special beauty vouchers
+                    HandleBeautyVoucher(session, item);
+                    break;
                 default:
                     Console.WriteLine("Unhandled item function: " + item.Function.Name);
                     break;
@@ -94,7 +103,7 @@ namespace MapleServer2.PacketHandlers.Game
 
         private static void HandleChatEmoticonAdd(GameSession session, Item item)
         {
-            long expiration = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + item.Function.Duration + AccountStorage.TickCount;
+            long expiration = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + item.Function.Duration + Environment.TickCount;
 
             if (item.Function.Duration == 0) // if no duration was set, set it to not expire
             {
@@ -143,7 +152,7 @@ namespace MapleServer2.PacketHandlers.Game
             // Major WIP
 
             string password = packet.ReadUnicodeString();
-            int duration = item.Function.Duration + AccountStorage.TickCount;
+            int duration = item.Function.Duration + Environment.TickCount;
             CoordF portalCoord = session.Player.Coord;
             CoordF portalRotation = session.Player.Rotation;
 
@@ -343,8 +352,53 @@ namespace MapleServer2.PacketHandlers.Game
             if (spawn != null)
             {
                 InventoryController.Consume(session, item.Uid, 1);
-                session.Player.Warp(spawn, fieldID);
+                session.Player.Warp(spawn.Coord.ToFloat(), spawn.Rotation.ToFloat(), fieldID);
             }
+        }
+
+        public static void HandleInstallBillBoard(GameSession session, PacketReader packet, Item item)
+        {
+            string[] parameters = packet.ReadUnicodeString().Split("'");
+            string title = parameters[0];
+            string description = parameters[1];
+            bool publicHouse = parameters[2].Equals("1");
+
+            int balloonUid = GuidGenerator.Int();
+            string uuid = "AdBalloon_" + balloonUid.ToString();
+            InteractObject balloon = new InteractObject(uuid, uuid, Maple2Storage.Enums.InteractObjectType.AdBalloon);
+            balloon.Balloon = new AdBalloon(session.Player, item, title, description, publicHouse);
+            IFieldObject<InteractObject> fieldBalloon = session.FieldManager.RequestFieldObject(balloon);
+            fieldBalloon.Coord = session.FieldPlayer.Coord;
+            fieldBalloon.Rotation = session.FieldPlayer.Rotation;
+            session.FieldManager.AddBalloon(fieldBalloon);
+
+            session.Send(PlayerHostPacket.AdBalloonPlace());
+            InventoryController.Consume(session, item.Uid, 1);
+        }
+
+        public static void HandleExpandCharacterSlot(GameSession session, Item item)
+        {
+            Account account = DatabaseManager.GetAccount(session.Player.AccountId);
+            if (account.CharacterSlots >= 11) // TODO: Move the max character slots (of all users) to a centralized location
+            {
+                session.Send(CouponUsePacket.MaxCharacterSlots());
+                return;
+            }
+
+            account.CharacterSlots++;
+            DatabaseManager.UpdateAccount(account);
+            session.Send(CouponUsePacket.CharacterSlotAdded());
+            InventoryController.Consume(session, item.Uid, 1);
+        }
+
+        public static void HandleBeautyVoucher(GameSession session, Item item)
+        {
+            if (item.Gender != session.Player.Gender)
+            {
+                return;
+            }
+
+            session.Send(CouponUsePacket.BeautyCoupon(session.FieldPlayer, item.Uid));
         }
     }
 }

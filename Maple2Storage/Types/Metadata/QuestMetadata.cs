@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Xml.Serialization;
+using Maple2Storage.Enums;
 
 namespace Maple2Storage.Types.Metadata
 {
@@ -45,9 +46,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 19)]
         public List<QuestNavigation> Navigation = new List<QuestNavigation>();
 
-        public QuestMetadata()
-        {
-        }
+        public QuestMetadata() { }
 
         public override string ToString()
         {
@@ -68,7 +67,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 2)]
         public int Id;
         [XmlElement(Order = 3)]
-        public byte QuestType;
+        public QuestType QuestType;
         [XmlElement(Order = 4)]
         public byte Account;
         [XmlElement(Order = 5)]
@@ -94,9 +93,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 15)]
         public bool UseNavigation;
 
-        public QuestBasic()
-        {
-        }
+        public QuestBasic() { }
 
         public override string ToString()
         {
@@ -117,9 +114,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 3)]
         public string CompleteSoundKey;
 
-        public QuestNotify()
-        {
-        }
+        public QuestNotify() { }
 
         public override string ToString()
         {
@@ -156,9 +151,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 12)]
         public int GearScore;
 
-        public QuestRequire()
-        {
-        }
+        public QuestRequire() { }
 
         public override string ToString()
         {
@@ -182,9 +175,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 5)]
         public int Lu;
 
-        public QuestReward()
-        {
-        }
+        public QuestReward() { }
 
         public override string ToString()
         {
@@ -202,24 +193,19 @@ namespace Maple2Storage.Types.Metadata
         public byte Rank;
         [XmlElement(Order = 3)]
         public int Count;
-        [XmlElement(Order = 4)]
-        public bool JobItem;
 
-        public QuestRewardItem()
-        {
-        }
+        public QuestRewardItem() { }
 
-        public QuestRewardItem(int pItemId, byte pRank, int pCount, bool jobItem)
+        public QuestRewardItem(int pItemId, byte pRank, int pCount)
         {
             Code = pItemId;
             Rank = pRank;
             Count = pCount;
-            JobItem = jobItem;
         }
 
         public override string ToString()
         {
-            return $"\r\nItemId: {Code}, rank: {Rank}, count: {Count}, JobItem: {JobItem}";
+            return $"\r\nItemId: {Code}, rank: {Rank}, count: {Count}";
         }
     }
 
@@ -237,9 +223,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 5)]
         public string Group;
 
-        public QuestGuide()
-        {
-        }
+        public QuestGuide() { }
 
         public override string ToString()
         {
@@ -257,9 +241,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 3)]
         public int GoToPortal;
 
-        public QuestNpc()
-        {
-        }
+        public QuestNpc() { }
 
         public override string ToString()
         {
@@ -278,9 +260,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 3)]
         public int GoToInstanceID;
 
-        public QuestDungeon()
-        {
-        }
+        public QuestDungeon() { }
 
         public override string ToString()
         {
@@ -297,9 +277,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 2)]
         public int RequireField;
 
-        public QuestRemoteAccept()
-        {
-        }
+        public QuestRemoteAccept() { }
 
         public override string ToString()
         {
@@ -317,9 +295,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 3)]
         public int RequireDungeonClear;
 
-        public QuestRemoteComplete()
-        {
-        }
+        public QuestRemoteComplete() { }
 
         public override string ToString()
         {
@@ -334,9 +310,7 @@ namespace Maple2Storage.Types.Metadata
         public int FieldID;
         [XmlElement(Order = 2)]
         public int PortalID;
-        public QuestSummonPortal()
-        {
-        }
+        public QuestSummonPortal() { }
 
         public override string ToString()
         {
@@ -352,25 +326,23 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 2)]
         public string[] Codes;
         [XmlElement(Order = 3)]
-        public int Value;
+        public int Goal;
         [XmlElement(Order = 4)]
         public List<string> Target = new List<string>();
 
-        public QuestCondition()
-        {
-        }
+        public QuestCondition() { }
 
-        public QuestCondition(string type, string[] codes, int value, List<string> target)
+        public QuestCondition(string type, string[] codes, int goal, List<string> target)
         {
             Type = type;
             Codes = codes;
-            Value = value;
+            Goal = goal;
             Target = target;
         }
 
         public override string ToString()
         {
-            return $"\r\ntype: {Type}, codes: {Codes}, value: {Value}, Targets: {string.Join(",", Target)}";
+            return $"\r\ntype: {Type}, codes: {Codes}, Goal: {Goal}, Targets: {string.Join(",", Target)}";
         }
     }
 
@@ -384,9 +356,7 @@ namespace Maple2Storage.Types.Metadata
         [XmlElement(Order = 3)]
         public int Map;
 
-        public QuestNavigation()
-        {
-        }
+        public QuestNavigation() { }
 
         public QuestNavigation(string type, string code, int map)
         {

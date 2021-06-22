@@ -101,6 +101,24 @@ namespace GameDataParser.Parsers
                 }
             }
 
+            // Item rarity
+            Dictionary<int, int> rarities = new Dictionary<int, int>();
+            foreach (PackFileEntry entry in Resources.XmlFiles)
+            {
+                if (!entry.Name.StartsWith("table/na/itemwebfinder"))
+                {
+                    continue;
+                }
+                XmlDocument innerDocument = Resources.XmlMemFile.GetDocument(entry.FileHeader);
+                XmlNodeList nodes = innerDocument.SelectNodes($"/ms2/key");
+                foreach (XmlNode node in nodes)
+                {
+                    int itemId = int.Parse(node.Attributes["id"].Value);
+                    int rarity = int.Parse(node.Attributes["grade"].Value);
+                    rarities[itemId] = rarity;
+                }
+            }
+
             // Items
             List<ItemMetadata> items = new List<ItemMetadata>();
             foreach (PackFileEntry entry in Resources.XmlFiles)
@@ -308,12 +326,10 @@ namespace GameDataParser.Parsers
 
                 // Rarity
                 XmlNode option = item.SelectSingleNode("option");
-                int rarity = 1;
-                if (option.Attributes["constant"].Value.Length == 1)
-                {
-                    rarity = int.Parse(option.Attributes["constant"].Value);
-                }
-                metadata.Rarity = rarity;
+                metadata.OptionStatic = int.Parse(option.Attributes["static"].Value);
+                metadata.OptionRandom = int.Parse(option.Attributes["random"].Value);
+                metadata.OptionConstant = int.Parse(option.Attributes["constant"].Value);
+                metadata.OptionLevelFactor = int.Parse(option.Attributes["optionLevelFactor"].Value);
 
                 // Item boxes
                 XmlNode function = item.SelectSingleNode("function");
@@ -418,7 +434,30 @@ namespace GameDataParser.Parsers
                     metadata.FunctionData.Id = int.Parse(parameters[0]);
                     metadata.FunctionData.Rarity = byte.Parse(parameters[1]);
                 }
-                else if (contentType == "TitleScroll" || contentType == "ItemExchangeScroll" || contentType == "OpenInstrument" || contentType == "StoryBook" || contentType == "FishingRod")
+                else if (contentType == "InstallBillBoard")
+                {
+                    AdBalloonData balloon = new AdBalloonData();
+                    string rawParameter = function.Attributes["parameter"].Value;
+                    string decodedParameter = HttpUtility.HtmlDecode(rawParameter);
+                    XmlDocument xmlParameter = new XmlDocument();
+                    xmlParameter.LoadXml(decodedParameter);
+                    XmlNode functionParameters = xmlParameter.SelectSingleNode("v");
+                    balloon.InteractId = int.Parse(functionParameters.Attributes["interactID"].Value);
+                    balloon.Duration = int.Parse(functionParameters.Attributes["durationSec"].Value);
+                    balloon.Model = functionParameters.Attributes["model"].Value;
+                    if (functionParameters.Attributes["asset"] != null)
+                    {
+                        balloon.Asset = functionParameters.Attributes["asset"].Value;
+                    }
+                    balloon.NormalState = functionParameters.Attributes["normal"].Value;
+                    balloon.Reactable = functionParameters.Attributes["reactable"].Value;
+                    if (functionParameters.Attributes["scale"] != null)
+                    {
+                        balloon.Scale = float.Parse(functionParameters.Attributes["scale"].Value);
+                    }
+                    metadata.AdBalloonData = balloon;
+                }
+                else if (contentType == "TitleScroll" || contentType == "ItemExchangeScroll" || contentType == "OpenInstrument" || contentType == "StoryBook" || contentType == "FishingRod" || contentType == "ItemChangeBeauty")
                 {
                     metadata.FunctionData.Id = int.Parse(function.Attributes["parameter"].Value);
                 }
@@ -464,6 +503,11 @@ namespace GameDataParser.Parsers
                 if (rewards.ContainsKey(itemId))
                 {
                     metadata.BreakRewards = rewards[itemId];
+                }
+
+                if (rarities.ContainsKey(itemId))
+                {
+                    metadata.Rarity = rarities[itemId];
                 }
 
                 items.Add(metadata);

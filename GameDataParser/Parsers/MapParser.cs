@@ -75,6 +75,9 @@ namespace GameDataParser.Parsers
                 MapMetadata metadata = new MapMetadata();
                 metadata.Id = int.Parse(mapIdStr);
 
+                string xblockName = entry.Name[7..];
+                metadata.XBlockName = xblockName.Remove(xblockName.Length - 7, 7);
+
                 XmlDocument document = Resources.ExportedMemFile.GetDocument(entry.FileHeader);
                 XmlNodeList mapEntities = document.SelectNodes("/game/entitySet/entity");
 
@@ -102,6 +105,12 @@ namespace GameDataParser.Parsers
                     if (blockType != null)
                     {
                         mapBlock.Type = blockType?.FirstChild.Attributes["value"].Value;
+                    }
+
+                    XmlNode saleable = node.SelectSingleNode("property[@name='CubeSalableGroup']");
+                    if (saleable != null)
+                    {
+                        mapBlock.SaleableGroup = int.Parse(saleable?.FirstChild.Attributes["value"].Value);
                     }
 
                     if (mapCubes.ContainsKey(modelName))

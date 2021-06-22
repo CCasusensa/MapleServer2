@@ -15,8 +15,9 @@ namespace MapleServer2.Types
             if (mob != null)
             {
                 Id = mob.Id;
-                Animation = 255;
+                Animation = AnimationStorage.GetSequenceIdBySequenceName(mob.Model, "Walk_A"); //Walking animation as default
                 Stats = mob.Stats;
+                Experience = mob.Experience;
                 Friendly = mob.Friendly;
             }
         }
@@ -26,7 +27,7 @@ namespace MapleServer2.Types
             OriginSpawn = originSpawn;
         }
 
-        public void UpdateStats(double damage)
+        public void Damage(double damage)
         {
             Stats.Hp.Total -= (long) damage;
             IsDead = Stats.Hp.Total <= 0;

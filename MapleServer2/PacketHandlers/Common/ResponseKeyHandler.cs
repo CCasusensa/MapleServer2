@@ -1,11 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using Maple2Storage.Types;
-using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data;
-using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Extensions;
 using MapleServer2.Network;
 using MapleServer2.Packets;
@@ -32,16 +31,27 @@ namespace MapleServer2.PacketHandlers.Common
             packet.Skip(-8);
             HandleCommon(session, packet);
 
-            Player player = AccountStorage.GetCharacter(authData.CharacterId);
+            Player player = DatabaseManager.GetCharacter(authData.CharacterId);
+            if (player == default)
+            {
+                throw new ArgumentException("Character not found!");
+            }
+
             player.Session = session;
 
             session.InitPlayer(player);
 
             //session.Send(0x27, 0x01); // Meret market related...?
-            session.Send(BuddyPacket.Initialize());
 
             session.Send(LoginPacket.LoginRequired(accountId));
 
+            if (session.Player.Guild != null)
+            {
+                Guild guild = DatabaseManager.GetGuild(session.Player.Guild.Id);
+                session.Send(GuildPacket.UpdateGuild(guild));
+                session.Send(GuildPacket.MemberJoin(player));
+            }
+            session.Send(BuddyPacket.Initialize());
             session.Send(BuddyPacket.LoadList(player));
             session.Send(BuddyPacket.EndList(player.BuddyList.Count));
 
@@ -75,20 +85,16 @@ namespace MapleServer2.PacketHandlers.Common
                 InventoryController.LoadInventoryTab(session, tab);
             }
 
-            List<QuestMetadata> questList = QuestMetadataStorage.GetAvailableQuests(player.Levels.Level); // TODO: This logic needs to be refactored when DB is implemented
-            questList.Add(QuestMetadataStorage.GetMetadata(60100000)); // Manually adding "the caravan" for testing purposes
+            session.Send(QuestPacket.StartList());
+            session.Send(QuestPacket.Packet1F());
+            session.Send(QuestPacket.Packet20());
 
-            foreach (QuestMetadata quest in questList)
-            {
-                session.Player.QuestList.Add(new QuestStatus(quest));
-            }
-
-            IEnumerable<List<QuestStatus>> packetCount = SplitList(session.Player.QuestList, 200); // Split the quest list in 200 quests per packet, same way kms do
-
+            IEnumerable<List<QuestStatus>> packetCount = SplitList(session.Player.QuestList, 200); // Split the quest list in 200 quests per packet
             foreach (List<QuestStatus> item in packetCount)
             {
                 session.Send(QuestPacket.SendQuests(item));
             }
+            session.Send(QuestPacket.EndList());
 
             session.Send(TrophyPacket.WriteTableStart());
             List<Trophy> trophyList = new List<Trophy>(session.Player.TrophyData.Values);
@@ -99,9 +105,9 @@ namespace MapleServer2.PacketHandlers.Common
                 session.Send(TrophyPacket.WriteTableContent(trophy));
             }
 
-            session.Send(MarketInventoryPacket.Count(0)); // Typically sent after buddylist
-            session.Send(MarketInventoryPacket.StartList());
-            session.Send(MarketInventoryPacket.EndList());
+            session.Send(WarehouseInventoryPacket.Count()); // Typically sent after buddylist
+            session.Send(WarehouseInventoryPacket.StartList());
+            session.Send(WarehouseInventoryPacket.EndList());
             session.Send(FurnishingInventoryPacket.StartList());
             session.Send(FurnishingInventoryPacket.EndList());
             // SendQuest, SendAchieve, SendManufacturer, SendUserMaid
@@ -119,11 +125,12 @@ namespace MapleServer2.PacketHandlers.Common
             // CharacterAbility
             // E1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-            // Normally, options are only requested for a new character. Since we don't have a database, we'll always requests the users bindings
-            session.Send(KeyTablePacket.RequestDefault());
-            // TODO - Ask for mouse or kb controls on new character creation.
-            // Commented out since its annoying to click every time
-            //session.Send(KeyTablePacket.AskKeyboardOrMouse());
+            session.Send(KeyTablePacket.SendFullOptions(player.GameOptions));
+
+            if (player.MapId == 52000065) // tutorial map
+            {
+                session.Send(KeyTablePacket.AskKeyboardOrMouse());
+            }
 
             // Key bindings and skill slots would normally be loaded from a database
             // If the character is not a new character, this is what we would send
@@ -140,8 +147,11 @@ namespace MapleServer2.PacketHandlers.Common
             // SendUgc: 15 01 00 00 00 00 00 00 00 00 00 00 00 4B 00 00 00
             // SendHomeCommand: 00 E1 0F 26 89 7F 98 3C 26 00 00 00 00 00 00 00 00
 
+            // Client is supposed to request SetSessionServerTick packet but it is not.
+            // As a temporary fix, we're sending the packet to set it
+            session.Send(TimeSyncPacket.SetSessionServerTick(0));
             //session.Send("B9 00 00 E1 0F 26 89 7F 98 3C 26 00 00 00 00 00 00 00 00".ToByteArray());
-            //session.Send(ServerEnterPacket.Confirm());
+            session.Send(ServerEnterPacket.Confirm());
 
             //session.Send(0xF0, 0x00, 0x1F, 0x78, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x00, 0x00);
             //session.Send(0x28, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00);

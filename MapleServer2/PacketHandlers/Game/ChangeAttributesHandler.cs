@@ -138,7 +138,7 @@ namespace MapleServer2.PacketHandlers.Game
             Item newItem = new Item(gear);
 
             // Get random stats except stat that is locked
-            List<ItemStat> randomList = ItemStats.RollBonusStatsWithStatLocked(newItem.Id, newItem.Rarity, newItem.Stats.BonusStats.Count, newItem.Level, lockStatId, isSpecialStat);
+            List<ItemStat> randomList = ItemStats.RollBonusStatsWithStatLocked(newItem, lockStatId, isSpecialStat);
 
             for (int i = 0; i < newItem.Stats.BonusStats.Count; i++)
             {
@@ -147,10 +147,11 @@ namespace MapleServer2.PacketHandlers.Game
                 if ((newItem.Stats.BonusStats[i].GetType() == typeof(NormalStat) && !isSpecialStat) || (newItem.Stats.BonusStats[i].GetType() == typeof(SpecialStat) && isSpecialStat))
                 {
                     // If this is the attribute being locked, continue
-                    if (newItem.Stats.BonusStats[i].GetId() == lockStatId)
+                    // TODO Fix this?
+                    /* if (newItem.Stats.BonusStats[i] == lockStatId)
                     {
                         continue;
-                    }
+                    }*/
                 }
 
                 newItem.Stats.BonusStats[i] = randomList[i];

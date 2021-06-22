@@ -1,17 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using Maple2Storage.Types;
-using Maple2Storage.Types.Metadata;
 using MapleServer2.Constants;
-using MapleServer2.Data;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
-using MapleServer2.Tools;
 
 namespace MapleServer2.Types
 {
@@ -22,10 +20,12 @@ namespace MapleServer2.Types
         public readonly long UnknownId = 0x01EF80C2; //0x01CC3721;
         public GameSession Session;
 
+        public readonly Account Account;
         // Constant Values
         public long AccountId { get; private set; }
-        public long CharacterId { get; private set; }
+        public long CharacterId { get; set; }
         public long CreationTime { get; private set; }
+
         public string Name { get; private set; }
         // Gender - 0 = male, 1 = female
         public byte Gender { get; private set; }
@@ -36,103 +36,107 @@ namespace MapleServer2.Types
         public JobCode JobCode => (JobCode) ((int) Job * 10 + (Awakened ? 1 : 0));
 
         // Mutable Values
-        public Levels Levels { get; private set; }
-        public int MapId;
-        public int TitleId;
-        public List<int> Titles = new List<int> { 0 };
-        public List<short> Insignias = new List<short> { 0 };
-        public short InsigniaId;
+        public Levels Levels { get; set; }
+        public int MapId { get; set; }
+        public int TitleId { get; set; }
+        public short InsigniaId { get; set; }
+        public List<int> Titles { get; set; }
+        public List<int> PrestigeRewardsClaimed { get; set; }
+
         public byte Animation;
         public PlayerStats Stats;
         public IFieldObject<Mount> Mount;
         public IFieldObject<Pet> Pet;
         public IFieldObject<GuideObject> Guide;
-        public long VIPExpiration = 0;
+        public IFieldObject<Instrument> Instrument;
+
+        public long VIPExpiration { get; set; }
         public int SuperChat;
+        public int ShopId; // current shop player is interacting
 
         // Combat, Adventure, Lifestyle
-        public int[] TrophyCount = new int[3] { 0, 0, 0 };
+        public int[] TrophyCount;
+
         public Dictionary<int, Trophy> TrophyData = new Dictionary<int, Trophy>();
 
-        public List<ChatSticker> ChatSticker = new List<ChatSticker>() { };
-        public List<int> FavoriteStickers = new List<int> { };
-        public List<int> Emotes = new List<int> { 0 };
+        // DB ONLY
+        public List<Trophy> Trophies;
+
+        public List<ChatSticker> ChatSticker;
+        public List<int> FavoriteStickers;
+        public List<int> Emotes;
+
         public NpcTalk NpcTalk;
 
         public CoordF Coord;
         public CoordF Rotation;
+        public int ReturnMapId;
+        public CoordF ReturnCoord;
         public CoordF SafeBlock = CoordF.From(0, 0, 0);
         public bool OnAirMount = false;
 
         // Appearance
         public SkinColor SkinColor;
 
-        public string GuildName = "";
-        public string ProfileUrl = ""; // profile/e2/5a/2755104031905685000/637207943431921205.png
-        public string Motto = "";
+        public string ProfileUrl; // profile/e2/5a/2755104031905685000/637207943431921205.png
+        public string Motto;
 
-        // Home
-        public int HomeMapId;
-        public int HomeMapPlotId;
+        // TODO: Rework to use class Home
+        public int HomeMapId = 62000000;
+        public int PlotMapId;
+        public int HomePlotNumber;
         public int ApartmentNumber;
-        public long HomeExpiration;
-        public string HomeName = "";
+        public long HomeExpiration; // if player does not have a purchased plot, home expiration needs to be set to a far away date
+        public string HomeName;
 
-        public Vector3 ReturnPosition;
+        public Mapleopoly Mapleopoly = new Mapleopoly();
 
-        public int MaxSkillTabs;
-        public long ActiveSkillTabId;
+        public int MaxSkillTabs { get; set; }
+        public long ActiveSkillTabId { get; set; }
+
         public SkillCast SkillCast = new SkillCast();
 
-        public List<SkillTab> SkillTabs = new List<SkillTab>();
-        public StatDistribution StatPointDistribution = new StatDistribution();
-
-        public Dictionary<ItemSlot, Item> Equips = new Dictionary<ItemSlot, Item>();
-        public Dictionary<ItemSlot, Item> Cosmetics = new Dictionary<ItemSlot, Item>();
-        public List<Item> Badges = new List<Item>();
-        public ItemSlot[] EquipSlots { get; }
-        private ItemSlot DefaultEquipSlot => EquipSlots.Length > 0 ? EquipSlots[0] : ItemSlot.NONE;
-        public bool IsBeauty => DefaultEquipSlot == ItemSlot.HR
-                        || DefaultEquipSlot == ItemSlot.FA
-                        || DefaultEquipSlot == ItemSlot.FD
-                        || DefaultEquipSlot == ItemSlot.CL
-                        || DefaultEquipSlot == ItemSlot.PA
-                        || DefaultEquipSlot == ItemSlot.SH
-                        || DefaultEquipSlot == ItemSlot.ER;
+        public List<SkillTab> SkillTabs;
+        public StatDistribution StatPointDistribution;
 
         public GameOptions GameOptions { get; private set; }
 
-        public Inventory Inventory = new Inventory();
-        public BankInventory BankInventory = new BankInventory();
+        public Inventory Inventory;
+        public BankInventory BankInventory;
         public DismantleInventory DismantleInventory = new DismantleInventory();
         public LockInventory LockInventory = new LockInventory();
         public HairInventory HairInventory = new HairInventory();
 
-        public Mailbox Mailbox = new Mailbox();
+        public Mailbox Mailbox;
 
-        public List<Buddy> BuddyList = new List<Buddy>();
+        public List<Buddy> BuddyList;
 
         public long PartyId;
-
         public long ClubId;
         // TODO make this as an array
 
-        public int[] GroupChatId = new int[3];
+        public int[] GroupChatId;
 
-        public long GuildId;
-        public int GuildContribution;
+        // TODO: Rework to use Class Guild
+        public Guild Guild;
+        public GuildMember GuildMember;
+        public List<GuildApplication> GuildApplications = new List<GuildApplication>();
 
         public Dictionary<int, Fishing> FishAlbum = new Dictionary<int, Fishing>();
         public Item FishingRod; // Possibly temp solution?
-        public Wallet Wallet { get; private set; }
-        public List<QuestStatus> QuestList = new List<QuestStatus>();
 
+        public Wallet Wallet { get; set; }
+        public List<QuestStatus> QuestList;
+
+        private CancellationTokenSource CombatCTS;
         private Task HpRegenThread;
         private Task SpRegenThread;
         private Task StaRegenThread;
-        private Task OnlineDurationThread;
         private TimeInfo Timestamps;
         public Dictionary<int, PlayerStat> GatheringCount = new Dictionary<int, PlayerStat>();
+
+        public List<int> UnlockedTaxis;
+        public List<int> UnlockedMaps;
 
         class TimeInfo
         {
@@ -148,198 +152,76 @@ namespace MapleServer2.Types
             }
         }
 
-        public Player()
+        public Player() { }
+
+        // Initializes all values to be saved into the database
+        public Player(long accountId, string name, byte gender, Job job, SkinColor skinColor)
         {
+            AccountId = accountId;
+            Name = name;
+            Gender = gender;
+            Job = job;
             GameOptions = new GameOptions();
-            Wallet = new Wallet(this);
-            Levels = new Levels(this, 70, 0, 0, 100, 0, new List<MasteryExp>());
+            GameOptions.Initialize();
+            Wallet = new Wallet(this, meso: 0, meret: 0, gameMeret: 0, eventMeret: 0, valorToken: 0, treva: 0, rue: 0,
+                                haviFruit: 0, mesoToken: 0, bank: 0);
+            Levels = new Levels(this, playerLevel: 1, exp: 0, restExp: 0, prestigeLevel: 1, prestigeExp: 0, new List<MasteryExp>()
+            { new MasteryExp(MasteryType.Fishing, 0, 0),
+            new MasteryExp(MasteryType.Performance, 0, 0),
+            new MasteryExp(MasteryType.Mining, 0, 0),
+            new MasteryExp(MasteryType.Foraging, 0, 0),
+            new MasteryExp(MasteryType.Ranching, 0, 0),
+            new MasteryExp(MasteryType.Farming, 0, 0),
+            new MasteryExp(MasteryType.Smithing, 0, 0),
+            new MasteryExp(MasteryType.Handicraft, 0, 0),
+            new MasteryExp(MasteryType.Alchemy, 0, 0),
+            new MasteryExp(MasteryType.Cooking, 0, 0),
+            new MasteryExp(MasteryType.PetTaming, 0, 0)});
             Timestamps = new TimeInfo(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            MapId = 52000065;
+            Coord = CoordF.From(-675, 525, 600); // Intro map (52000065)
+            Stats = new PlayerStats(strBase: 10, dexBase: 10, intBase: 10, lukBase: 10, hpBase: 500, critRateBase: 10);
+            Motto = "Motto";
+            ProfileUrl = "";
+            HomeName = "HomeName";
+            CreationTime = DateTimeOffset.Now.ToUnixTimeSeconds() + Environment.TickCount;
+            TitleId = 0;
+            InsigniaId = 0;
+            Titles = new List<int>();
+            PrestigeRewardsClaimed = new List<int>();
+            ChatSticker = new List<ChatSticker>();
+            FavoriteStickers = new List<int>();
+            Emotes = new List<int>() { 90200011, 90200004, 90200024, 90200041, 90200042, 90200057, 90200043, 90200022, 90200031, 90200005, 90200006, 90200003, 90200092, 90200077, 90200073, 90200023, 90200001, 90200019, 90200020, 90200021 };
+            SkillTabs = new List<SkillTab> { new SkillTab(job) };
+            StatPointDistribution = new StatDistribution(20);
+            Inventory = new Inventory();
+            BankInventory = new BankInventory();
+            Mailbox = new Mailbox();
+            BuddyList = new List<Buddy>();
+            QuestList = new List<QuestStatus>();
+            TrophyCount = new int[3] { 0, 0, 0 };
+            ReturnMapId = (int) Map.Tria;
+            ReturnCoord = CoordF.From(-900, -900, 3000);
+            GroupChatId = new int[3];
+            SkinColor = skinColor;
+            UnlockedTaxis = new List<int>();
+            UnlockedMaps = new List<int>();
+            CharacterId = DatabaseManager.CreateCharacter(this);
         }
 
-        public static Player Char1(long accountId, long characterId, string name = "Char1")
-        {
-            Job job = Job.Archer;
-            PlayerStats stats = new PlayerStats();
-            StatDistribution statPointDistribution = new StatDistribution(totalStats: 18);
-            List<SkillTab> skillTabs = new List<SkillTab>
-            {
-                new SkillTab(job)
-            };
-
-            Player player = new Player
-            {
-                SkillTabs = skillTabs,
-                StatPointDistribution = statPointDistribution,
-                MapId = 2000062,
-                AccountId = accountId,
-                CharacterId = characterId,
-                Name = name,
-                Gender = 1,
-                Motto = "Motto",
-                HomeName = "HomeName",
-                Coord = CoordF.From(2850, 2550, 1800), // Lith Harbor (2000062)
-                // Coord = CoordF.From(500, 500, 15000), // Tria
-                Job = job,
-                SkinColor = new SkinColor()
-                {
-                    Primary = Color.Argb(0xFF, 0xEA, 0xBF, 0xAE)
-                },
-                CreationTime = DateTimeOffset.Now.ToUnixTimeSeconds() + Environment.TickCount,
-                Equips = new Dictionary<ItemSlot, Item> {
-                    { ItemSlot.ER, Item.Ear() },
-                    { ItemSlot.HR, Item.Hair() },
-                    { ItemSlot.FA, Item.Face() },
-                    { ItemSlot.FD, Item.FaceDecoration() }
-                },
-                Stats = stats,
-                Emotes = new List<int>
-                {
-                    90200011, 90200004, 90200024, 90200041, 90200042,
-                90200057, 90200043, 90200022, 90200031, 90200005,
-                90200006, 90200003, 90200092, 90200077, 90200073,
-                90200023, 90200001, 90200019, 90200020, 90200021,
-                90200009, 90200027, 90200010, 90200028, 90200051,
-                90200015, 90200016, 90200055, 90200060, 90200017,
-                90200018, 90200093, 90220033, 90220012, 90220001, 90220033
-                },
-                TitleId = 10000503,
-                InsigniaId = 33,
-                Titles = new List<int> {
-                    10000569, 10000152, 10000570, 10000171, 10000196, 10000195, 10000571, 10000331, 10000190,
-                    10000458, 10000465, 10000503, 10000512, 10000513, 10000514, 10000537, 10000565, 10000602,
-                    10000603, 10000638, 10000644
-                }
-            };
-            player.Equips.Add(ItemSlot.RH, Item.TutorialBow(player));
-            return player;
-        }
-
-        public static Player Char2(long accountId, long characterId, string name = "Char2")
-        {
-            Job job = Job.Archer;
-            PlayerStats stats = new PlayerStats();
-
-            int mapId = (int) Map.Queenstown;
-            MapPlayerSpawn spawn = MapEntityStorage.GetRandomPlayerSpawn(mapId);
-            List<SkillTab> skillTabs = new List<SkillTab>
-            {
-                new SkillTab(job)
-            };
-
-            return new Player
-            {
-                SkillTabs = skillTabs,
-                MapId = mapId,
-                AccountId = accountId,
-                CharacterId = characterId,
-                Name = name,
-                Gender = 0,
-                Motto = "Motto",
-                HomeName = "HomeName",
-                Coord = CoordF.From(spawn.Coord.X, spawn.Coord.Y, spawn.Coord.Z),
-                Job = job,
-                SkinColor = new SkinColor()
-                {
-                    Primary = Color.Argb(0xFF, 0xEA, 0xBF, 0xAE)
-                },
-                CreationTime = DateTimeOffset.Now.ToUnixTimeSeconds() + Environment.TickCount,
-                Equips = new Dictionary<ItemSlot, Item> {
-                    { ItemSlot.ER, Item.EarMale() },
-                    { ItemSlot.HR, Item.HairMale() },
-                    { ItemSlot.FA, Item.FaceMale() },
-                    { ItemSlot.FD, Item.FaceDecorationMale() },
-                    { ItemSlot.CL, Item.CloathMale() },
-                    { ItemSlot.SH, Item.ShoesMale() },
-
-                },
-                Stats = stats
-            };
-        }
-
-        public static Player NewCharacter(byte gender, Job job, string name, SkinColor skinColor, object equips)
-        {
-            PlayerStats stats = new PlayerStats();
-
-            List<SkillTab> skillTabs = new List<SkillTab>
-            {
-                new SkillTab(job)
-            };
-
-            return new Player
-            {
-                SkillTabs = skillTabs,
-                AccountId = AccountStorage.DEFAULT_ACCOUNT_ID,
-                CharacterId = GuidGenerator.Long(),
-                CreationTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + AccountStorage.TickCount,
-                Name = name,
-                Gender = gender,
-                Job = job,
-                MapId = 52000065,
-                Stats = stats,
-                SkinColor = skinColor,
-                Equips = (Dictionary<ItemSlot, Item>) equips,
-                Motto = "Motto",
-                HomeName = "HomeName",
-                Coord = CoordF.From(-675, 525, 600) // Intro map (52000065)
-            };
-        }
-
-        public static Player Priest(long accountId, long characterId, string name = "Priest")
-        {
-            Job job = Job.Priest;
-            PlayerStats stats = new PlayerStats();
-            StatDistribution statPointDistribution = new StatDistribution(totalStats: 18);
-            List<SkillTab> skillTabs = new List<SkillTab>
-            {
-                new SkillTab(job)
-            };
-
-            Player player = new Player
-            {
-                SkillTabs = skillTabs,
-                StatPointDistribution = statPointDistribution,
-                MapId = 2000062,
-                AccountId = accountId,
-                CharacterId = characterId,
-                Name = name,
-                Gender = 1,
-                Motto = "Motto",
-                HomeName = "HomeName",
-                Coord = CoordF.From(2850, 2550, 1800), // Lith Harbor (2000062)
-                // Coord = CoordF.From(500, 500, 15000), // Tria
-                Job = job,
-                SkinColor = new SkinColor()
-                {
-                    Primary = Color.Argb(0xFF, 0xEA, 0xBF, 0xAE)
-                },
-                CreationTime = DateTimeOffset.Now.ToUnixTimeSeconds() + Environment.TickCount,
-                Equips = new Dictionary<ItemSlot, Item> {
-                    { ItemSlot.ER, Item.Ear() },
-                    { ItemSlot.HR, Item.Hair() },
-                    { ItemSlot.FA, Item.Face() },
-                    { ItemSlot.FD, Item.FaceDecoration() }
-                },
-                Stats = stats,
-                GameOptions = new GameOptions(),
-                Mailbox = new Mailbox(),
-                TitleId = 10000503,
-                InsigniaId = 33,
-                Titles = new List<int> {
-                    10000569, 10000152, 10000570, 10000171, 10000196, 10000195, 10000571, 10000331, 10000190,
-                    10000458, 10000465, 10000503, 10000512, 10000513, 10000514, 10000537, 10000565, 10000602,
-                    10000603, 10000638, 10000644
-                },
-            };
-            player.Equips.Add(ItemSlot.RH, Item.DefaultScepter(player));
-            player.Equips.Add(ItemSlot.LH, Item.DefaultCodex(player));
-            return player;
-        }
-
-        public void Warp(MapPlayerSpawn spawn, int mapId)
+        public void Warp(CoordF coord, CoordF rotation, int mapId)
         {
             MapId = mapId;
-            Coord = spawn.Coord.ToFloat();
-            Rotation = spawn.Rotation.ToFloat();
+            Coord = coord;
+            Rotation = rotation;
+            SafeBlock = coord;
+
+            if (!UnlockedMaps.Contains(MapId))
+            {
+                UnlockedMaps.Add(MapId);
+            }
+
+            DatabaseManager.UpdateCharacter(this);
             Session.Send(FieldPacket.RequestEnter(Session.FieldPlayer));
         }
 
@@ -348,9 +230,9 @@ namespace MapleServer2.Types
             switch (tab)
             {
                 case InventoryTab.Gear:
-                    return Equips;
+                    return Inventory.Equips;
                 case InventoryTab.Outfit:
-                    return Cosmetics;
+                    return Inventory.Cosmetics;
                 default:
                     break;
             }
@@ -359,42 +241,165 @@ namespace MapleServer2.Types
 
         public Item GetEquippedItem(long itemUid)
         {
-            Item gearItem = Equips.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
+            Item gearItem = Inventory.Equips.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
             if (gearItem == null)
             {
-                Item cosmeticItem = Cosmetics.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
+                Item cosmeticItem = Inventory.Cosmetics.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
                 return cosmeticItem;
             }
             return gearItem;
         }
 
+        public SkillCast Cast(int skillId, short skillLevel, long skillSN, int unkValue)
+        {
+            SkillCast skillCast = new SkillCast(skillId, skillLevel, skillSN, unkValue);
+            int spiritCost = skillCast.GetSpCost();
+            int staminaCost = skillCast.GetStaCost();
+            if (Stats[PlayerStatId.Spirit].Current >= spiritCost && Stats[PlayerStatId.Stamina].Current >= staminaCost)
+            {
+                ConsumeSp(spiritCost);
+                ConsumeStamina(staminaCost);
+                SkillCast = skillCast;
+
+                if (skillCast.IsBuff())
+                {
+                    // TODO: Add buff timer
+                }
+
+                // Refresh out-of-combat timer
+                if (CombatCTS != null)
+                {
+                    CombatCTS.Cancel();
+                }
+                CombatCTS = new CancellationTokenSource();
+                CombatCTS.Token.Register(() => CombatCTS.Dispose());
+                StartCombatEnd(CombatCTS);
+
+                return skillCast;
+            }
+            return null;
+        }
+
+        private Task StartCombatEnd(CancellationTokenSource ct)
+        {
+            return Task.Run(async () =>
+            {
+                await Task.Delay(5000);
+
+                if (!ct.Token.IsCancellationRequested)
+                {
+                    CombatCTS = null;
+                    ct.Dispose();
+                    Session.Send(UserBattlePacket.UserBattle(Session.FieldPlayer, false));
+                }
+            }, ct.Token);
+        }
+
+        public void RecoverHp(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            lock (Stats)
+            {
+                PlayerStat stat = Stats[PlayerStatId.Hp];
+                if (stat.Current < stat.Max)
+                {
+                    Stats.Increase(PlayerStatId.Hp, Math.Min(amount, stat.Max - stat.Current));
+                    Session.Send(StatPacket.UpdateStats(Session.FieldPlayer, PlayerStatId.Hp));
+                }
+            }
+        }
+
         public void ConsumeHp(int amount)
         {
-            Stats.Decrease(PlayerStatId.Hp, amount);
+            if (amount <= 0)
+            {
+                return;
+            }
 
-            // TODO: merge regen updates with larger packets
+            lock (Stats)
+            {
+                PlayerStat stat = Stats[PlayerStatId.Hp];
+                Stats.Decrease(PlayerStatId.Hp, Math.Min(amount, stat.Current));
+            }
+
             if (HpRegenThread == null || HpRegenThread.IsCompleted)
             {
                 HpRegenThread = StartRegen(PlayerStatId.Hp, PlayerStatId.HpRegen, PlayerStatId.HpRegenTime);
             }
         }
 
+        public void RecoverSp(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            lock (Stats)
+            {
+                PlayerStat stat = Stats[PlayerStatId.Spirit];
+                if (stat.Current < stat.Max)
+                {
+                    Stats.Increase(PlayerStatId.Spirit, Math.Min(amount, stat.Max - stat.Current));
+                    Session.Send(StatPacket.UpdateStats(Session.FieldPlayer, PlayerStatId.Spirit));
+                }
+            }
+        }
+
         public void ConsumeSp(int amount)
         {
-            Stats.Decrease(PlayerStatId.Spirit, amount);
+            if (amount <= 0)
+            {
+                return;
+            }
 
-            // TODO: merge regen updates with larger packets
+            lock (Stats)
+            {
+                PlayerStat stat = Stats[PlayerStatId.Spirit];
+                Stats.Decrease(PlayerStatId.Spirit, Math.Min(amount, stat.Current));
+            }
+
             if (SpRegenThread == null || SpRegenThread.IsCompleted)
             {
                 SpRegenThread = StartRegen(PlayerStatId.Spirit, PlayerStatId.SpRegen, PlayerStatId.SpRegenTime);
             }
         }
 
+        public void RecoverStamina(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            lock (Stats)
+            {
+                PlayerStat stat = Stats[PlayerStatId.Stamina];
+                if (stat.Current < stat.Max)
+                {
+                    Stats.Increase(PlayerStatId.Stamina, Math.Min(amount, stat.Max - stat.Current));
+                    Session.Send(StatPacket.UpdateStats(Session.FieldPlayer, PlayerStatId.Stamina));
+                }
+            }
+        }
+
         public void ConsumeStamina(int amount)
         {
-            Stats.Decrease(PlayerStatId.Stamina, amount);
+            if (amount <= 0)
+            {
+                return;
+            }
 
-            // TODO: merge regen updates with larger packets
+            lock (Stats)
+            {
+                PlayerStat stat = Stats[PlayerStatId.Stamina];
+                Stats.Decrease(PlayerStatId.Stamina, Math.Min(amount, stat.Current));
+            }
+
             if (StaRegenThread == null || StaRegenThread.IsCompleted)
             {
                 StaRegenThread = StartRegen(PlayerStatId.Stamina, PlayerStatId.StaRegen, PlayerStatId.StaRegenTime);
@@ -403,19 +408,24 @@ namespace MapleServer2.Types
 
         private Task StartRegen(PlayerStatId statId, PlayerStatId regenStatId, PlayerStatId timeStatId)
         {
+            // TODO: merge regen updates with larger packets
             return Task.Run(async () =>
             {
-                await Task.Delay(Stats[timeStatId].Current);
-
-                // TODO: Check if regen-enabled
-                while (Stats[statId].Current < Stats[statId].Max)
+                while (true)
                 {
+                    await Task.Delay(Stats[timeStatId].Current);
+
                     lock (Stats)
                     {
+                        if (Stats[statId].Current >= Stats[statId].Max)
+                        {
+                            return;
+                        }
+
+                        // TODO: Check if regen-enabled
                         Stats[statId] = AddStatRegen(statId, regenStatId);
                         Session.Send(StatPacket.UpdateStats(Session.FieldPlayer, statId));
                     }
-                    await Task.Delay(Stats[timeStatId].Current);
                 }
             });
         }
@@ -452,7 +462,7 @@ namespace MapleServer2.Types
         {
             if (!TrophyData.ContainsKey(trophyId))
             {
-                TrophyData[trophyId] = new Trophy(trophyId);
+                TrophyData[trophyId] = new Trophy(this, trophyId);
             }
             TrophyData[trophyId].AddCounter(Session, addAmount);
             if (TrophyData[trophyId].Counter % sendUpdateInterval == 0)

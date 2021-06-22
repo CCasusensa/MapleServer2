@@ -12,8 +12,11 @@ namespace MapleServer2.Types
         public readonly ConcurrentDictionary<int, IFieldObject<Portal>> Portals;
         public readonly ConcurrentDictionary<int, IFieldObject<MobSpawn>> MobSpawns;
         public readonly ConcurrentDictionary<int, IFieldObject<Mob>> Mobs;
-        public readonly ConcurrentDictionary<string, IFieldObject<InteractActor>> InteractActors;
+        public readonly ConcurrentDictionary<string, IFieldObject<InteractObject>> InteractObjects;
         public readonly ConcurrentDictionary<int, IFieldObject<GuideObject>> Guide;
+        public readonly ConcurrentDictionary<int, IFieldObject<Cube>> Cubes;
+        public readonly ConcurrentDictionary<int, IFieldObject<HealingSpot>> HealingSpots;
+        public readonly ConcurrentDictionary<int, IFieldObject<Instrument>> Instruments;
 
         public FieldState()
         {
@@ -23,8 +26,11 @@ namespace MapleServer2.Types
             Portals = new ConcurrentDictionary<int, IFieldObject<Portal>>();
             MobSpawns = new ConcurrentDictionary<int, IFieldObject<MobSpawn>>();
             Mobs = new ConcurrentDictionary<int, IFieldObject<Mob>>();
-            InteractActors = new ConcurrentDictionary<string, IFieldObject<InteractActor>>();
+            InteractObjects = new ConcurrentDictionary<string, IFieldObject<InteractObject>>();
             Guide = new ConcurrentDictionary<int, IFieldObject<GuideObject>>();
+            Cubes = new ConcurrentDictionary<int, IFieldObject<Cube>>();
+            HealingSpots = new ConcurrentDictionary<int, IFieldObject<HealingSpot>>();
+            Instruments = new ConcurrentDictionary<int, IFieldObject<Instrument>>();
         }
 
         public bool TryGetItem(int objectId, out IFieldObject<Item> item)
@@ -75,9 +81,19 @@ namespace MapleServer2.Types
             return Portals.Remove(objectId, out _);
         }
 
-        public void AddInteractActor(IFieldObject<InteractActor> actor)
+        public void AddInteractObject(IFieldObject<InteractObject> interactObject)
         {
-            InteractActors[actor.Value.Uuid] = actor;
+            InteractObjects[interactObject.Value.Uuid] = interactObject;
+        }
+
+        public void AddBalloon(IFieldObject<InteractObject> balloon)
+        {
+            InteractObjects[balloon.Value.Name] = balloon;
+        }
+
+        public bool RemoveBalloon(string name)
+        {
+            return InteractObjects.Remove(name, out _);
         }
 
         public void AddGuide(IFieldObject<GuideObject> guide)
@@ -88,6 +104,26 @@ namespace MapleServer2.Types
         public bool RemoveGuide(int objectId)
         {
             return Guide.Remove(objectId, out _);
+        }
+
+        public void AddCube(IFieldObject<Cube> ugcCube)
+        {
+            Cubes[ugcCube.ObjectId] = ugcCube;
+        }
+
+        public bool RemoveCube(int objectId)
+        {
+            return Cubes.Remove(objectId, out _);
+        }
+
+        public void AddInstrument(IFieldObject<Instrument> instrument)
+        {
+            Instruments[instrument.ObjectId] = instrument;
+        }
+
+        public bool RemoveInstrument(int objectId)
+        {
+            return Instruments.Remove(objectId, out _);
         }
 
         public void AddMobSpawn(IFieldObject<MobSpawn> spawn)
@@ -108,6 +144,11 @@ namespace MapleServer2.Types
         public bool RemoveMob(int objectId)
         {
             return Mobs.Remove(objectId, out _);
+        }
+
+        public void AddHealingSpot(IFieldObject<HealingSpot> healingSpot)
+        {
+            HealingSpots[healingSpot.ObjectId] = healingSpot;
         }
     }
 }

@@ -5,12 +5,14 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple2.Trigger;
+using Maple2Storage.Enums;
 using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Data.Static;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
+using MapleServer2.Tools;
 using MapleServer2.Triggers;
 using MapleServer2.Types;
 using NLog;
@@ -32,7 +34,8 @@ namespace MapleServer2.Servers.Game
         private readonly HashSet<GameSession> Sessions = new HashSet<GameSession>();
         private readonly TriggerScript[] Triggers;
 
-        private Task HealingSpotThread;
+        private Task MapLoopTask;
+
         private readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
         public FieldManager(int mapId)
@@ -94,22 +97,35 @@ namespace MapleServer2.Servers.Game
                 AddPortal(fieldPortal);
             }
 
-            // Load default InteractActors
-            List<IFieldObject<InteractActor>> actors = new List<IFieldObject<InteractActor>> { };
-            foreach (MapInteractActor actor in MapEntityStorage.GetInteractActors(mapId))
+            // Load default InteractObjects
+            List<IFieldObject<InteractObject>> actors = new List<IFieldObject<InteractObject>> { };
+            foreach (MapInteractObject interactObject in MapEntityStorage.GetInteractObject(mapId))
             {
                 // TODO: Group these fieldActors by their correct packet type. 
-                actors.Add(RequestFieldObject(new InteractActor(actor.Uuid, actor.Name, actor.Type) { }));
+                actors.Add(RequestFieldObject(new InteractObject(interactObject.Uuid, interactObject.Name, interactObject.Type) { }));
             }
-            AddInteractActor(actors);
+            AddInteractObject(actors);
 
-            string mapName = MapMetadataStorage.GetMetadata(mapId).Name;
-            Triggers = TriggerLoader.GetTriggers(mapName).Select(initializer =>
+            string xBlockName = MapMetadataStorage.GetMetadata(mapId).XBlockName;
+            Triggers = TriggerLoader.GetTriggers(xBlockName).Select(initializer =>
             {
                 TriggerContext context = new TriggerContext(this, Logger);
                 TriggerState startState = initializer.Invoke(context);
                 return new TriggerScript(context, startState);
             }).ToArray();
+
+            if (MapEntityStorage.HasHealingSpot(MapId))
+            {
+                List<CoordS> healingSpots = MapEntityStorage.GetHealingSpot(MapId);
+                if (State.HealingSpots.IsEmpty)
+                {
+                    foreach (CoordS coord in healingSpots)
+                    {
+                        int objectId = GuidGenerator.Int();
+                        State.AddHealingSpot(RequestFieldObject(new HealingSpot(objectId, coord)));
+                    }
+                }
+            }
         }
 
         // Gets a list of packets to update the state of all field objects for client.
@@ -181,19 +197,54 @@ namespace MapleServer2.Servers.Game
                 sender.Send(FieldPacket.AddMob(existingMob));
                 sender.Send(FieldObjectPacket.LoadMob(existingMob));
             }
-            if (State.InteractActors.Values.Count > 0)
+            if (State.InteractObjects.Values.Count > 0)
             {
-                sender.Send(InteractActorPacket.AddInteractActors(State.InteractActors.Values));
-            }
-            if (MapEntityStorage.HasHealingSpot(MapId))
-            {
-                if (HealingSpotThread == null || HealingSpotThread.IsCompleted)
+                ICollection<IFieldObject<InteractObject>> balloons = State.InteractObjects.Values.Where(x => x.Value.Type == InteractObjectType.AdBalloon).ToList();
+                if (balloons.Count > 0)
                 {
-                    HealingSpotThread = StartHealingSpot(sender, player);
+                    foreach (IFieldObject<InteractObject> balloon in balloons)
+                    {
+                        sender.Send(InteractObjectPacket.AddAdBallons(balloon));
+                    }
                 }
-                sender.Send(RegionSkillPacket.Send(player, MapEntityStorage.GetHealingSpot(MapId), new SkillCast(70000018, 1, 0, 1)));
+                ICollection<IFieldObject<InteractObject>> objects = State.InteractObjects.Values.Where(x => x.Value.Type != InteractObjectType.AdBalloon).ToList();
+                if (objects.Count > 0)
+                {
+                    sender.Send(InteractObjectPacket.AddInteractObjects(objects));
+                }
             }
+            if (State.Cubes.Values.Count > 0)
+            {
+                sender.Send(CubePacket.LoadCubes(State.Cubes.Values));
+            }
+            foreach (IFieldObject<GuideObject> guide in State.Guide.Values)
+            {
+                sender.Send(GuideObjectPacket.Add(guide));
+            }
+
+            foreach (IFieldObject<HealingSpot> healingSpot in State.HealingSpots.Values)
+            {
+                sender.Send(RegionSkillPacket.Send(healingSpot.ObjectId, healingSpot.Value.Coord, new SkillCast(70000018, 1, 0, 1)));
+            }
+
+            foreach (IFieldObject<Instrument> instrument in State.Instruments.Values)
+            {
+                if (instrument.Value.Improvise)
+                {
+                    sender.Send(InstrumentPacket.StartImprovise(instrument));
+                }
+                else
+                {
+                    sender.Send(InstrumentPacket.PlayScore(instrument));
+                }
+            }
+
             State.AddPlayer(player);
+
+            if (MapLoopTask == null)
+            {
+                MapLoopTask = StartMapLoop(); //TODO: find a better place to initialise MapLoopTask
+            }
 
             // Broadcast new player to all players in map
             Broadcast(session =>
@@ -233,6 +284,21 @@ namespace MapleServer2.Servers.Game
             });
         }
 
+        public bool RemoveNpc(IFieldObject<Npc> fieldNpc)
+        {
+            if (!State.RemoveNpc(fieldNpc.ObjectId))
+            {
+                return false;
+            }
+
+            Broadcast(session =>
+            {
+                // TODO: Add field remove NPC packet
+                session.Send(FieldObjectPacket.RemoveNpc(fieldNpc));
+            });
+            return true;
+        }
+
         public void AddMob(IFieldObject<Mob> fieldMob)
         {
             State.AddMob(fieldMob);
@@ -244,7 +310,29 @@ namespace MapleServer2.Servers.Game
                 session.Send(FieldPacket.AddMob(fieldMob));
                 session.Send(FieldObjectPacket.LoadMob(fieldMob));
                 // TODO: Add spawn buff (ID: 0x055D4DAE)
+                //session.Send();
             });
+        }
+
+        public bool RemoveMob(IFieldObject<Mob> mob)
+        {
+            if (!State.RemoveMob(mob.ObjectId))
+            {
+                return false;
+            }
+
+            IFieldObject<MobSpawn> originSpawn = mob.Value.OriginSpawn;
+            if (originSpawn != null && originSpawn.Value.Mobs.Remove(mob) && originSpawn.Value.Mobs.Count == 0)
+            {
+                StartSpawnTimer(originSpawn);
+            }
+
+            Broadcast(session =>
+            {
+                session.Send(FieldPacket.RemoveMob(mob));
+                session.Send(FieldObjectPacket.RemoveMob(mob));
+            });
+            return true;
         }
 
         public void AddGuide(IFieldObject<GuideObject> fieldGuide)
@@ -257,26 +345,62 @@ namespace MapleServer2.Servers.Game
             return State.RemoveGuide(fieldGuide.ObjectId);
         }
 
+        public void AddCube(IFieldObject<Cube> cube, IFieldObject<Player> player)
+        {
+            State.AddCube(cube);
+            BroadcastPacket(ResponseCubePacket.PlaceFurnishing(cube, player));
+        }
+
+        public bool RemoveCube(IFieldObject<Cube> cube)
+        {
+            return State.RemoveCube(cube.ObjectId);
+        }
+
+        public void AddInstrument(IFieldObject<Instrument> instrument)
+        {
+            State.AddInstrument(instrument);
+        }
+
+        public bool RemoveInstrument(IFieldObject<Instrument> instrument)
+        {
+            return State.RemoveInstrument(instrument.ObjectId);
+        }
+
         public void AddPortal(IFieldObject<Portal> portal)
         {
             State.AddPortal(portal);
             BroadcastPacket(FieldPacket.AddPortal(portal));
         }
 
-        public void AddInteractActor(ICollection<IFieldObject<Types.InteractActor>> actors)
+        public void AddInteractObject(ICollection<IFieldObject<InteractObject>> objects)
         {
-            foreach (IFieldObject<InteractActor> actor in actors)
+            foreach (IFieldObject<InteractObject> interactObject in objects)
             {
-                State.AddInteractActor(actor);
+                State.AddInteractObject(interactObject);
             }
 
-            if (actors.Count > 0)
+            if (objects.Count > 0)
             {
                 Broadcast(session =>
                 {
-                    session.Send(InteractActorPacket.AddInteractActors(actors));
+                    session.Send(InteractObjectPacket.AddInteractObjects(objects));
                 });
             }
+        }
+
+        public void AddBalloon(IFieldObject<InteractObject> balloon)
+        {
+            State.AddBalloon(balloon);
+
+            Broadcast(session =>
+            {
+                session.Send(InteractObjectPacket.AddAdBallons(balloon));
+            });
+        }
+
+        public bool RemoveBalloon(IFieldObject<InteractObject> balloon)
+        {
+            return State.RemoveBalloon(balloon.Value.Name);
         }
 
         public void SendChat(Player player, string message, ChatType type)
@@ -302,36 +426,32 @@ namespace MapleServer2.Servers.Game
 
         public bool RemoveItem(int objectId, out Item item)
         {
-            if (!State.RemoveItem(objectId, out item))
+            if (!State.RemoveItem(objectId, out Item itemResult))
             {
+                item = itemResult;
                 return false;
             }
+            item = itemResult;
 
             Broadcast(session =>
             {
-                session.Send(FieldPacket.PickupItem(objectId, session.FieldPlayer.ObjectId));
+                session.Send(FieldPacket.PickupItem(objectId, itemResult, session.FieldPlayer.ObjectId));
                 session.Send(FieldPacket.RemoveItem(objectId));
             });
             return true;
         }
 
-        public bool RemoveMob(IFieldObject<Mob> mob)
+        public void AddResource(Item item, IFieldObject<Mob> source, IFieldObject<Player> targetPlayer)
         {
-            if (!State.RemoveMob(mob.ObjectId))
-            {
-                return false;
-            }
+            FieldObject<Item> fieldItem = WrapObject(item);
+            fieldItem.Coord = source.Coord;
 
-            if (mob.Value.OriginSpawn.Value.Mobs.Remove(mob) && mob.Value.OriginSpawn.Value.Mobs.Count == 0)
-            {
-                StartSpawnTimer(mob.Value.OriginSpawn);
-            }
+            State.AddItem(fieldItem);
 
             Broadcast(session =>
             {
-                session.Send(FieldPacket.RemoveMob(mob));
+                session.Send(FieldPacket.AddItem(fieldItem, source, targetPlayer));
             });
-            return true;
         }
 
         //Broadcast a packet after the specified delay.
@@ -394,28 +514,56 @@ namespace MapleServer2.Servers.Game
             }
         }
 
-        private Task StartHealingSpot(GameSession session, IFieldObject<Player> player)
+        private Task StartMapLoop()
         {
-            int healAmount = 30;
-            Status status = new Status(new SkillCast(70000018, 1, 0, 1), player.ObjectId, player.ObjectId, 1, healAmount);
-
             return Task.Run(async () =>
             {
                 while (!State.Players.IsEmpty)
                 {
-                    CoordS healingCoord = MapEntityStorage.GetHealingSpot(MapId);
-
-                    if ((healingCoord - player.Coord.ToShort()).Length() < Block.BLOCK_SIZE * 2 && healingCoord.Z == player.Coord.ToShort().Z - 1) // 3x3x1 area
-                    {
-                        session.Send(BuffPacket.SendBuff(0, status));
-                        session.Send(SkillDamagePacket.ApplyHeal(player, status));
-                        session.Player.Stats.Increase(PlayerStatId.Hp, healAmount);
-                        session.Send(StatPacket.UpdateStats(player, PlayerStatId.Hp));
-                    }
-
+                    HealingSpot();
+                    MonsterMovement();
                     await Task.Delay(1000);
                 }
             });
+        }
+
+        private void MonsterMovement()
+        {
+            Random rand = new Random();
+            foreach (IFieldObject<Mob> mob in State.Mobs.Values)
+            {
+                short x = (short) rand.Next(-Block.BLOCK_SIZE, Block.BLOCK_SIZE);
+
+                mob.Coord += mob.Value.Speed.ToFloat(); //current position that is given to ControlMob Packet
+                mob.Value.Speed = CoordS.From(x, 0, 0); //speed vector given to ControlMob Packet
+                mob.Value.ZRotation = (short) (x * 10); //looking direction of the monster
+                //TODO:Calculate based on xml/npc probability (<prob>) the chance for sending either Walk,Bore or Run.
+                //MonsterMovement has to be adjusted to send Movement vectors based on these probabiltiies:
+                //Movement Vector of (0,0,0) with Idle animation.
+                //mob.Value.Animation = AnimationStorage.GetSequenceIdBySequenceName(mob.Model, "Walk_A");
+            }
+        }
+
+        private void HealingSpot()
+        {
+            foreach (IFieldObject<HealingSpot> healingSpot in State.HealingSpots.Values)
+            {
+                CoordS healingCoord = healingSpot.Value.Coord;
+                foreach (IFieldObject<Player> player in State.Players.Values)
+                {
+                    if ((healingCoord - player.Coord.ToShort()).Length() < Block.BLOCK_SIZE * 2 && healingCoord.Z == player.Coord.ToShort().Z - 1) // 3x3x1 area
+                    {
+                        int healAmount = (int) (player.Value.Stats[PlayerStatId.Hp].Max * 0.03);
+                        Status status = new Status(new SkillCast(70000018, 1, 0, 1), owner: player.ObjectId, source: healingSpot.ObjectId, duration: 100, stacks: 1);
+
+                        player.Value.Session.Send(BuffPacket.SendBuff(0, status));
+                        BroadcastPacket(SkillDamagePacket.ApplyHeal(status, healAmount));
+
+                        player.Value.Session.Player.Stats.Increase(PlayerStatId.Hp, healAmount);
+                        player.Value.Session.Send(StatPacket.UpdateStats(player, PlayerStatId.Hp));
+                    }
+                }
+            }
         }
 
         private void SpawnMobs(IFieldObject<MobSpawn> mobSpawn)

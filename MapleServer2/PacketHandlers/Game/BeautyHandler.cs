@@ -6,8 +6,8 @@ using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
-using MapleServer2.Data;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
@@ -30,11 +30,13 @@ namespace MapleServer2.PacketHandlers.Game
             ModifyExistingBeauty = 0x5,
             ModifySkin = 0x6,
             RandomHair = 0x7,
+            Teleport = 0xA,
             ChooseRandomHair = 0xC,
             SaveHair = 0x10,
             DeleteSavedHair = 0x12,
             ChangeToSavedHair = 0x15,
-            DyeItem = 0x16
+            DyeItem = 0x16,
+            BeautyVoucher = 0x17,
         }
 
         public override void Handle(GameSession session, PacketReader packet)
@@ -64,6 +66,9 @@ namespace MapleServer2.PacketHandlers.Game
                 case BeautyMode.SaveHair:
                     HandleSaveHair(session, packet);
                     break;
+                case BeautyMode.Teleport:
+                    HandleTeleport(session, packet);
+                    break;
                 case BeautyMode.DeleteSavedHair:
                     HandleDeleteSavedHair(session, packet);
                     break;
@@ -72,6 +77,9 @@ namespace MapleServer2.PacketHandlers.Game
                     break;
                 case BeautyMode.DyeItem:
                     HandleDyeItem(session, packet);
+                    break;
+                case BeautyMode.BeautyVoucher:
+                    HandleBeautyVoucher(session, packet);
                     break;
                 default:
                     IPacketHandler<GameSession>.LogUnknownMode(mode);
@@ -134,8 +142,14 @@ namespace MapleServer2.PacketHandlers.Game
             int beautyItemId = packet.ReadInt();
             EquipColor equipColor = packet.Read<EquipColor>();
 
-            Item beautyItem = new Item(beautyItemId) { Color = equipColor, IsTemplate = false };
-            BeautyMetadata beautyShop = BeautyMetadataStorage.GetCosmeticShopByItemId(beautyItem.Id);
+            Item beautyItem = new Item(beautyItemId)
+            {
+                Color = equipColor,
+                IsTemplate = false,
+                IsEquipped = true,
+                Owner = session.Player
+            };
+            BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(session.Player.ShopId);
 
             if (useVoucher)
             {
@@ -146,13 +160,14 @@ namespace MapleServer2.PacketHandlers.Game
             }
             else
             {
-                if (!PayWithShopItemTokenCost(session, beautyItemId))
+                if (!PayWithShopItemTokenCost(session, beautyItemId, beautyShop))
                 {
                     return;
                 }
             }
 
             ModifyBeauty(session, packet, beautyItem);
+            session.Player.ShopId = 0;
         }
 
         private static void HandleModifyExistingBeauty(GameSession session, PacketReader packet)
@@ -167,12 +182,12 @@ namespace MapleServer2.PacketHandlers.Game
             if (beautyItem.ItemSlot == ItemSlot.CP)
             {
                 HatData hatData = packet.Read<HatData>();
-                beautyItem.HatD = hatData;
+                beautyItem.HatData = hatData;
                 session.FieldManager.BroadcastPacket(ItemExtraDataPacket.Update(session.FieldPlayer, beautyItem));
                 return;
             }
 
-            BeautyMetadata beautyShop = BeautyMetadataStorage.GetCosmeticShopByItemId(beautyItem.Id);
+            BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(session.Player.ShopId);
 
             if (!HandleShopPay(session, beautyShop, useVoucher))
             {
@@ -181,6 +196,7 @@ namespace MapleServer2.PacketHandlers.Game
 
             beautyItem.Color = equipColor;
             ModifyBeauty(session, packet, beautyItem);
+            session.Player.ShopId = 0;
         }
 
         private static void HandleModifySkin(GameSession session, PacketReader packet)
@@ -198,6 +214,7 @@ namespace MapleServer2.PacketHandlers.Game
 
             session.Player.SkinColor = skinColor;
             session.FieldManager.BroadcastPacket(SkinColorPacket.Update(session.FieldPlayer, skinColor));
+            session.Player.ShopId = 0;
         }
         private static void HandleRandomHair(GameSession session, PacketReader packet)
         {
@@ -236,27 +253,30 @@ namespace MapleServer2.PacketHandlers.Game
             int indexColor = random.Next(palette.DefaultColors.Count);
             MixedColor color = palette.DefaultColors[indexColor];
 
-            Dictionary<ItemSlot, Item> equippedInventory = session.Player.GetEquippedInventory(InventoryTab.Gear);
-
             Item newHair = new Item(chosenHair.ItemId)
             {
                 Color = EquipColor.Argb(color, indexColor, palette.PaletteId),
-                HairD = new HairData((float) chosenBackLength, (float) chosenFrontLength, chosenPreset.BackPositionCoord, chosenPreset.BackPositionRotation, chosenPreset.FrontPositionCoord, chosenPreset.FrontPositionRotation),
-                IsTemplate = false
+                HairData = new HairData((float) chosenBackLength, (float) chosenFrontLength, chosenPreset.BackPositionCoord, chosenPreset.BackPositionRotation, chosenPreset.FrontPositionCoord, chosenPreset.FrontPositionRotation),
+                IsTemplate = false,
+                IsEquipped = true,
+                Owner = session.Player
             };
+            Dictionary<ItemSlot, Item> cosmetics = session.Player.Inventory.Cosmetics;
 
             //Remove old hair
-            if (session.Player.Equips.Remove(ItemSlot.HR, out Item previousHair))
+            if (cosmetics.Remove(ItemSlot.HR, out Item previousHair))
             {
                 previousHair.Slot = -1;
                 session.Player.HairInventory.RandomHair = previousHair; // store the previous hair
+                DatabaseManager.Delete(previousHair);
                 session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(session.FieldPlayer, previousHair));
             }
 
-            equippedInventory[ItemSlot.HR] = newHair;
+            cosmetics[ItemSlot.HR] = newHair;
 
             session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.FieldPlayer, newHair, ItemSlot.HR));
             session.Send(BeautyPacket.RandomHairOption(previousHair, newHair));
+            session.Player.ShopId = 0;
         }
 
         private static void HandleChooseRandomHair(GameSession session, PacketReader packet)
@@ -265,16 +285,16 @@ namespace MapleServer2.PacketHandlers.Game
 
             if (selection == 0) // player chose previous hair
             {
-                Dictionary<ItemSlot, Item> equippedInventory = session.Player.GetEquippedInventory(InventoryTab.Gear);
-
+                Dictionary<ItemSlot, Item> cosmetics = session.Player.Inventory.Cosmetics;
                 //Remove current hair
-                if (session.Player.Equips.Remove(ItemSlot.HR, out Item newHair))
+                if (cosmetics.Remove(ItemSlot.HR, out Item newHair))
                 {
                     newHair.Slot = -1;
+                    DatabaseManager.Delete(newHair);
                     session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(session.FieldPlayer, newHair));
                 }
 
-                equippedInventory[ItemSlot.HR] = session.Player.HairInventory.RandomHair; // apply the previous hair
+                cosmetics[ItemSlot.HR] = session.Player.HairInventory.RandomHair; // apply the previous hair
 
                 session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.FieldPlayer, session.Player.HairInventory.RandomHair, ItemSlot.HR));
 
@@ -295,7 +315,7 @@ namespace MapleServer2.PacketHandlers.Game
         {
             long hairUid = packet.ReadLong();
 
-            Item hair = session.Player.Equips.FirstOrDefault(x => x.Value.Uid == hairUid).Value;
+            Item hair = session.Player.Inventory.Cosmetics.FirstOrDefault(x => x.Value.Uid == hairUid).Value;
             if (hair == null || hair.ItemSlot != ItemSlot.HR)
             {
                 return;
@@ -308,14 +328,38 @@ namespace MapleServer2.PacketHandlers.Game
 
             Item hairCopy = new Item(hair.Id)
             {
-                HairD = hair.HairD,
+                HairData = hair.HairData,
                 Color = hair.Color,
-                CreationTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + AccountStorage.TickCount
+                CreationTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + Environment.TickCount
             };
 
             session.Player.HairInventory.SavedHair.Add(hairCopy);
 
             session.Send(BeautyPacket.SaveHair(hair, hairCopy));
+        }
+
+        private static void HandleTeleport(GameSession session, PacketReader packet)
+        {
+            byte teleportId = packet.ReadByte();
+
+            Map mapId;
+            switch (teleportId)
+            {
+                case 1:
+                    mapId = Map.RosettaBeautySalon;
+                    break;
+                case 3:
+                    mapId = Map.TriaPlasticSurgery;
+                    break;
+                case 5:
+                    mapId = Map.DouglasDyeWorkshop;
+                    break;
+                default:
+                    Console.WriteLine($"teleportId: {teleportId} not found");
+                    return;
+            }
+
+            MoveFieldHandler.HandleInstanceMove(session, (int) mapId);
         }
 
         private static void HandleDeleteSavedHair(GameSession session, PacketReader packet)
@@ -349,15 +393,14 @@ namespace MapleServer2.PacketHandlers.Game
                 return;
             }
 
-            if (session.Player.Equips.Remove(hair.ItemSlot, out Item removeItem))
+            Dictionary<ItemSlot, Item> cosmetics = session.Player.Inventory.Cosmetics;
+            if (cosmetics.Remove(hair.ItemSlot, out Item removeItem))
             {
                 removeItem.Slot = -1;
                 session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(session.FieldPlayer, removeItem));
             }
 
-            Dictionary<ItemSlot, Item> equippedInventory = session.Player.GetEquippedInventory(InventoryTab.Gear);
-
-            equippedInventory[removeItem.ItemSlot] = hair;
+            cosmetics[removeItem.ItemSlot] = hair;
 
             session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.FieldPlayer, hair, hair.ItemSlot));
             session.Send(BeautyPacket.ChangetoSavedHair());
@@ -407,22 +450,46 @@ namespace MapleServer2.PacketHandlers.Game
 
                 item.Color = equipColor[i];
                 session.FieldManager.BroadcastPacket(ItemExtraDataPacket.Update(session.FieldPlayer, item));
+                session.Player.ShopId = 0;
             }
+        }
+
+        private static void HandleBeautyVoucher(GameSession session, PacketReader packet)
+        {
+            long itemUid = packet.ReadLong();
+
+            Item voucher = session.Player.Inventory.Items[itemUid];
+            if (voucher == null || voucher.Function.Name != "ItemChangeBeauty")
+            {
+                return;
+            }
+
+            BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(voucher.Function.Id);
+            if (beautyShop == null)
+            {
+                return;
+            }
+
+            List<BeautyItem> beautyItems = BeautyMetadataStorage.GetGenderItems(beautyShop.ShopId, session.Player.Gender);
+
+            session.Player.ShopId = beautyShop.ShopId;
+            session.Send(BeautyPacket.LoadBeautyShop(beautyShop, beautyItems));
+            InventoryController.Consume(session, voucher.Uid, 1);
         }
 
         private static void ModifyBeauty(GameSession session, PacketReader packet, Item beautyItem)
         {
             ItemSlot itemSlot = ItemMetadataStorage.GetSlot(beautyItem.Id);
+            Dictionary<ItemSlot, Item> cosmetics = session.Player.Inventory.Cosmetics;
 
             // remove current item
-            if (session.Player.Equips.Remove(itemSlot, out Item removeItem))
+            if (cosmetics.Remove(itemSlot, out Item removeItem))
             {
                 removeItem.Slot = -1;
+                DatabaseManager.Delete(removeItem);
                 session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(session.FieldPlayer, removeItem));
             }
             // equip new item
-
-            Dictionary<ItemSlot, Item> equippedInventory = session.Player.GetEquippedInventory(InventoryTab.Gear);
 
             switch (itemSlot)
             {
@@ -434,24 +501,24 @@ namespace MapleServer2.PacketHandlers.Game
                     CoordF frontPositionCoord = packet.Read<CoordF>();
                     CoordF frontPositionRotation = packet.Read<CoordF>();
 
-                    beautyItem.HairD = new HairData(backLength, frontLength, backPositionCoord, backPositionRotation, frontPositionCoord, frontPositionRotation);
+                    beautyItem.HairData = new HairData(backLength, frontLength, backPositionCoord, backPositionRotation, frontPositionCoord, frontPositionRotation);
 
-                    equippedInventory[itemSlot] = beautyItem;
+                    cosmetics[itemSlot] = beautyItem;
 
                     session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.FieldPlayer, beautyItem, itemSlot));
                     break;
                 case ItemSlot.FA:
 
-                    equippedInventory[itemSlot] = beautyItem;
+                    cosmetics[itemSlot] = beautyItem;
 
                     session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.FieldPlayer, beautyItem, itemSlot));
                     break;
                 case ItemSlot.FD:
                     byte[] faceDecorationPosition = packet.Read(16);
 
-                    beautyItem.FaceDecorationD = faceDecorationPosition;
+                    beautyItem.FaceDecorationData = faceDecorationPosition;
 
-                    equippedInventory[itemSlot] = beautyItem;
+                    cosmetics[itemSlot] = beautyItem;
 
                     session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.FieldPlayer, beautyItem, itemSlot));
                     break;
@@ -460,21 +527,7 @@ namespace MapleServer2.PacketHandlers.Game
 
         private static bool HandleShopPay(GameSession session, BeautyMetadata shop, bool useVoucher)
         {
-            if (useVoucher)
-            {
-                if (!PayWithVoucher(session, shop))
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                if (!PayWithShopTokenCost(session, shop))
-                {
-                    return false;
-                }
-            }
-            return true;
+            return useVoucher ? PayWithVoucher(session, shop) : PayWithShopTokenCost(session, shop);
         }
 
         private static bool PayWithVoucher(GameSession session, BeautyMetadata shop)
@@ -527,23 +580,14 @@ namespace MapleServer2.PacketHandlers.Game
                 cost = beautyShop.SpecialCost;
             }
 
-            if (!Pay(session, beautyShop.TokenType, cost, beautyShop.RequiredItemId))
-            {
-                return false;
-            }
-            return true;
+            return Pay(session, beautyShop.TokenType, cost, beautyShop.RequiredItemId);
         }
 
-        private static bool PayWithShopItemTokenCost(GameSession session, int beautyItemId)
+        private static bool PayWithShopItemTokenCost(GameSession session, int beautyItemId, BeautyMetadata beautyShop)
         {
-            BeautyMetadata beautyShop = BeautyMetadataStorage.GetCosmeticShopByItemId(beautyItemId);
             BeautyItem item = beautyShop.Items.FirstOrDefault(x => x.ItemId == beautyItemId);
 
-            if (!Pay(session, item.TokenType, item.TokenCost, item.RequiredItemId))
-            {
-                return false;
-            }
-            return true;
+            return Pay(session, item.TokenType, item.TokenCost, item.RequiredItemId);
         }
 
         private static bool Pay(GameSession session, ShopCurrencyType type, int tokenCost, int requiredItemId)
@@ -551,56 +595,35 @@ namespace MapleServer2.PacketHandlers.Game
             switch (type)
             {
                 case ShopCurrencyType.Meso:
-                    if (!session.Player.Wallet.Meso.Modify(-tokenCost))
-                    {
-                        return false;
-                    }
-                    break;
+                    return session.Player.Wallet.Meso.Modify(-tokenCost);
                 case ShopCurrencyType.ValorToken:
-                    if (!session.Player.Wallet.ValorToken.Modify(-tokenCost))
-                    {
-                        return false;
-                    }
-                    break;
+                    return session.Player.Wallet.ValorToken.Modify(-tokenCost);
                 case ShopCurrencyType.Treva:
-                    if (!session.Player.Wallet.Treva.Modify(-tokenCost))
-                    {
-                        return false;
-                    }
-                    break;
+                    return session.Player.Wallet.Treva.Modify(-tokenCost);
                 case ShopCurrencyType.Rue:
-                    if (!session.Player.Wallet.Rue.Modify(-tokenCost))
-                    {
-                        return false;
-                    }
-                    break;
+                    return session.Player.Wallet.Rue.Modify(-tokenCost);
                 case ShopCurrencyType.HaviFruit:
-                    if (!session.Player.Wallet.HaviFruit.Modify(-tokenCost))
-                    {
-                        return false;
-                    }
-                    break;
+                    return session.Player.Wallet.HaviFruit.Modify(-tokenCost);
                 case ShopCurrencyType.Meret:
                 case ShopCurrencyType.GameMeret:
                 case ShopCurrencyType.EventMeret:
-                    if (!session.Player.Wallet.RemoveMerets(tokenCost))
+                    return session.Player.Wallet.RemoveMerets(tokenCost);
+                case ShopCurrencyType.Item:
+                    Item itemCost = session.Player.Inventory.Items.FirstOrDefault(x => x.Value.Id == requiredItemId).Value;
+                    if (itemCost == null)
                     {
                         return false;
                     }
-                    break;
-                case ShopCurrencyType.Item:
-                    Item itemCost = session.Player.Inventory.Items.FirstOrDefault(x => x.Value.Id == requiredItemId).Value;
                     if (itemCost.Amount < tokenCost)
                     {
                         return false;
                     }
                     InventoryController.Consume(session, itemCost.Uid, tokenCost);
-                    break;
+                    return true;
                 default:
                     session.SendNotice($"Unknown currency: {type}");
                     return false;
             }
-            return true;
         }
     }
 }

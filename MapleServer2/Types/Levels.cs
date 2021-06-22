@@ -2,13 +2,15 @@
 using System.Linq;
 using MapleServer2.Data.Static;
 using MapleServer2.Enums;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 
 namespace MapleServer2.Types
 {
     public class Levels
     {
-        private readonly Player Player;
+        public readonly long Id;
+        public readonly Player Player;
         public short Level { get; private set; }
         public long Exp { get; private set; }
         public long RestExp { get; private set; }
@@ -16,8 +18,10 @@ namespace MapleServer2.Types
         public long PrestigeExp { get; private set; }
         public List<MasteryExp> MasteryExp { get; private set; }
 
+        public Levels() { }
+
         public Levels(Player player, short playerLevel, long exp, long restExp, int prestigeLevel, long prestigeExp,
-            List<MasteryExp> masteryExp)
+            List<MasteryExp> masteryExp, long id = 0)
         {
             Player = player;
             Level = playerLevel;
@@ -26,6 +30,7 @@ namespace MapleServer2.Types
             PrestigeLevel = prestigeLevel;
             PrestigeExp = prestigeExp;
             MasteryExp = masteryExp;
+            Id = id;
         }
 
         public void SetLevel(short level)
@@ -34,6 +39,8 @@ namespace MapleServer2.Types
             Exp = 0;
             Player.Session.Send(ExperiencePacket.ExpUp(0, Exp, 0));
             Player.Session.Send(ExperiencePacket.LevelUp(Player.Session.FieldPlayer, Level));
+
+            QuestHelper.GetNewQuests(Player.Session, Level);
         }
 
         public bool LevelUp()
@@ -44,10 +51,13 @@ namespace MapleServer2.Types
             }
 
             Level++;
-            // TODO: Gain max HP and heal to max hp
             Player.StatPointDistribution.AddTotalStatPoints(5);
-            Player.Session.Send(StatPointPacket.WriteTotalStatPoints(Player));
             Player.Session.Send(ExperiencePacket.LevelUp(Player.Session.FieldPlayer, Level));
+            // TODO: Gain max HP
+            Player.RecoverHp(Player.Stats[PlayerStatId.Hp].Max);
+            Player.Session.Send(StatPointPacket.WriteTotalStatPoints(Player));
+
+            QuestHelper.GetNewQuests(Player.Session, Level);
             return true;
         }
 
