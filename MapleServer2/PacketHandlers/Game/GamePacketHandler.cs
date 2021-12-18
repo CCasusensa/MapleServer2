@@ -1,23 +1,22 @@
 ﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Servers.Game;
-using Microsoft.Extensions.Logging;
+using NLog;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public abstract class GamePacketHandler : IPacketHandler<GameSession>
 {
-    public abstract class GamePacketHandler : IPacketHandler<GameSession>
+    public abstract RecvOp OpCode { get; }
+
+    protected static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
+    protected GamePacketHandler() { }
+
+    public abstract void Handle(GameSession session, PacketReader packet);
+
+    public override string ToString()
     {
-        public abstract RecvOp OpCode { get; }
-
-        protected readonly ILogger Logger;
-
-        protected GamePacketHandler(ILogger<GamePacketHandler> logger)
-        {
-            Logger = logger;
-        }
-
-        public abstract void Handle(GameSession session, PacketReader packet);
-
-        public override string ToString() => $"[{OpCode}] Game.{GetType().Name}";
+        return $"[{OpCode}] Game.{GetType().Name}";
     }
 }

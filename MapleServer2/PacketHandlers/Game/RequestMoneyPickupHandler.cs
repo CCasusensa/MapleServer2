@@ -1,32 +1,39 @@
 ﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public class RequestMoneyPickupHandler : GamePacketHandler
 {
-    public class RequestMoneyPickupHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.REQUEST_MONEY_PICKUP;
+
+    public RequestMoneyPickupHandler() : base() { }
+
+    public override void Handle(GameSession session, PacketReader packet)
     {
-        public override RecvOp OpCode => RecvOp.REQUEST_MONEY_PICKUP;
+        int objectCount = packet.ReadByte();
 
-        public RequestMoneyPickupHandler(ILogger<GamePacketHandler> logger) : base(logger) { }
-
-        public override void Handle(GameSession session, PacketReader packet)
+        for (int i = 0; i < objectCount; i++)
         {
-            int objectCount = packet.ReadByte();
+            int objectId = packet.ReadInt();
 
-            for (int i = 0; i < objectCount; i++)
+            bool foundItem = session.FieldManager.State.TryGetItem(objectId, out IFieldObject<Item> fieldItem);
+            if (!foundItem || fieldItem.Value.Id is < 90000001 or > 90000003)
             {
-                int objectId = packet.ReadInt();
-
-                bool foundItem = session.FieldManager.State.TryGetItem(objectId, out IFieldObject<Item> fieldItem);
-                if (foundItem && fieldItem.Value.Id >= 90000001 && fieldItem.Value.Id <= 90000003)
-                {
-                    session.Player.Wallet.Meso.Modify(fieldItem.Value.Amount);
-                    session.FieldManager.RemoveItem(objectId, out Item item);
-                }
+                continue;
             }
+
+            if (!session.FieldManager.RemoveItem(objectId, out Item item))
+            {
+                continue;
+            }
+
+            session.Player.Wallet.Meso.Modify(fieldItem.Value.Amount);
+            session.FieldManager.BroadcastPacket(FieldItemPacket.PickupItem(objectId, item, session.Player.FieldPlayer.ObjectId));
+            session.FieldManager.BroadcastPacket(FieldItemPacket.RemoveItem(objectId));
         }
     }
 }

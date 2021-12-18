@@ -1,40 +1,40 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
-using MapleServer2.Constants;
 using ProtoBuf;
 
-namespace MapleServer2.Data.Static
+namespace MapleServer2.Data.Static;
+
+public static class UGCMapMetadataStorage
 {
-    public static class UGCMapMetadataStorage
+    private static readonly Dictionary<int, UGCMapMetadata> map = new();
+
+    public static void Init()
     {
-        private static readonly Dictionary<int, UGCMapMetadata> map = new Dictionary<int, UGCMapMetadata>();
-
-        static UGCMapMetadataStorage()
+        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-ugc-map-metadata");
+        List<UGCMapMetadata> items = Serializer.Deserialize<List<UGCMapMetadata>>(stream);
+        foreach (UGCMapMetadata item in items)
         {
-            using FileStream stream = File.OpenRead($"{Paths.RESOURCES}/ms2-ugc-map-metadata");
-            List<UGCMapMetadata> items = Serializer.Deserialize<List<UGCMapMetadata>>(stream);
-            foreach (UGCMapMetadata item in items)
-            {
-                map[item.MapId] = item;
-            }
+            map[item.MapId] = item;
         }
+    }
 
-        public static bool IsValid(int mapId)
-        {
-            return map.ContainsKey(mapId);
-        }
+    public static bool IsValid(int mapId)
+    {
+        return map.ContainsKey(mapId);
+    }
 
-        public static UGCMapGroup GetMetadata(int mapId, byte groupId)
-        {
-            UGCMapMetadata mapMetadata = map.GetValueOrDefault(mapId);
-            return mapMetadata.Groups.FirstOrDefault(x => x.Id == groupId);
-        }
+    public static UGCMapGroup GetGroupMetadata(int mapId, byte groupId)
+    {
+        return GetMetadata(mapId).Groups.FirstOrDefault(x => x.Id == groupId);
+    }
 
-        public static int GetId(int exchangeId)
-        {
-            return map.GetValueOrDefault(exchangeId).MapId;
-        }
+    public static UGCMapMetadata GetMetadata(int mapId)
+    {
+        return map.GetValueOrDefault(mapId);
+    }
+
+    public static int GetId(int exchangeId)
+    {
+        return map.GetValueOrDefault(exchangeId).MapId;
     }
 }

@@ -1,104 +1,127 @@
 ﻿using Maple2.Trigger;
-using MapleServer2.Servers.Game;
+using Maple2Storage.Types.Metadata;
+using MapleServer2.Data.Static;
+using MapleServer2.Managers;
+using MapleServer2.Types;
 using NLog;
 
-namespace MapleServer2.Triggers
+namespace MapleServer2.Triggers;
+
+public partial class TriggerContext : ITriggerContext
 {
-    public partial class TriggerContext : ITriggerContext
+    public int NextTick;
+    public TriggerState SkipSceneState;
+
+    private readonly FieldManager Field;
+    private readonly ILogger Logger;
+
+    public TriggerContext(FieldManager field, ILogger logger)
     {
-        public int NextTick;
+        Field = field;
+        Logger = logger;
+    }
 
-        private readonly FieldManager Field;
-        private readonly ILogger Logger;
+    public void WriteLog(string arg1, int arg2, string arg3, byte arg4, string arg5)
+    {
+    }
 
-        public TriggerContext(FieldManager field, ILogger logger)
+    public void DebugString(string message, string feature)
+    {
+        Logger.Debug(message);
+    }
+
+    public int GetDungeonFirstUserMissionScore()
+    {
+        return 0;
+    }
+
+    public int GetDungeonId()
+    {
+        return 0;
+    }
+
+    public int GetDungeonLevel()
+    {
+        return 3;
+    }
+
+    public int GetDungeonMaxUserCount()
+    {
+        return 1;
+    }
+
+    public int GetDungeonPlayTime()
+    {
+        return 0;
+    }
+
+    public int GetDungeonRoundsRequired()
+    {
+        return int.MaxValue;
+    }
+
+    public string GetDungeonState()
+    {
+        return string.Empty;
+    }
+
+    public bool GetDungeonVariable(int id)
+    {
+        return false;
+    }
+
+    public float GetNpcDamageRate(int spawnPointId)
+    {
+        return 1.0f;
+    }
+
+    public int GetNpcExtraData(int spawnPointId, string extraDataKey)
+    {
+        return 0;
+    }
+
+    public float GetNpcHpRate(int spawnPointId)
+    {
+        return 1.0f;
+    }
+
+    public int GetScoreBoardScore()
+    {
+        return 0;
+    }
+
+    public int GetShadowExpeditionPoints()
+    {
+        return 0;
+    }
+
+    public int GetUserCount(int boxId, int userTagId)
+    {
+        if (boxId != 0)
         {
-            Field = field;
-            Logger = logger;
-        }
+            List<IFieldActor<Player>> players = Field.State.Players.Values.ToList();
+            MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, boxId);
+            int userCount = 0;
 
-        public void WriteLog(string arg1, int arg2, string arg3, byte arg4, string arg5)
-        {
+            foreach (IFieldActor<Player> player in players)
+            {
+                if (FieldManager.IsPlayerInBox(box, player))
+                {
+                    userCount++;
+                }
+            }
+            return userCount;
         }
+        return Field.State.Players.Values.Count;
+    }
 
-        public void DebugString(string message, string feature)
-        {
-            Logger.Debug(message);
-        }
-
-        public int GetDungeonFirstUserMissionScore()
+    public int GetUserValue(string key)
+    {
+        IFieldObject<Player> player = Field.State.Players.Values.FirstOrDefault(x => x.Value.Triggers.Any(x => x.Key == key));
+        if (player == null)
         {
             return 0;
         }
-
-        public int GetDungeonId()
-        {
-            return 0;
-        }
-
-        public int GetDungeonLevel()
-        {
-            return 3;
-        }
-
-        public int GetDungeonMaxUserCount()
-        {
-            return 1;
-        }
-
-        public int GetDungeonPlayTime()
-        {
-            return 0;
-        }
-
-        public int GetDungeonRoundsRequired()
-        {
-            return int.MaxValue;
-        }
-
-        public string GetDungeonState()
-        {
-            return string.Empty;
-        }
-
-        public bool GetDungeonVariable(int id)
-        {
-            return false;
-        }
-
-        public float GetNpcDamageRate(int spawnPointId)
-        {
-            return 1.0f;
-        }
-
-        public int GetNpcExtraData(int spawnPointId, string extraDataKey)
-        {
-            return 0;
-        }
-
-        public float GetNpcHpRate(int spawnPointId)
-        {
-            return 1.0f;
-        }
-
-        public int GetScoreBoardScore()
-        {
-            return 0;
-        }
-
-        public int GetShadowExpeditionPoints()
-        {
-            return 0;
-        }
-
-        public int GetUserCount(int boxId, int userTagId)
-        {
-            return 0;
-        }
-
-        public int GetUserValue(string key)
-        {
-            return 0;
-        }
+        return player.Value.Triggers.FirstOrDefault(x => x.Key == key).Value;
     }
 }

@@ -1,149 +1,208 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
+using Maple2Storage.Types;
 using MaplePacketLib2.Tools;
+using MapleServer2.Constants;
 using MapleServer2.Network;
+using NLog;
 
-namespace MapleServer2.Tools
+namespace MapleServer2.Tools;
+
+/*
+* This class is a way to resolve packets sent by the server.
+* It will try to find the packet structure using the client error logging system.
+* It will save the packet structure in the packet structure file located in the MapleServer2\PacketStructure folder.
+* You can change each packet value in the file and it'll try to continue resolving from the last value.
+* If you want to start from the beginning, you can delete the file.
+* The resolver will ignore the lines starting with # and 'PacketWriter'.
+* More info in the mapleme.me/docs/tutorials/packet-resolver
+*/
+public class PacketStructureResolver
 {
-    public class PacketStructureResolver
+    private const int HEADER_LENGTH = 6;
+
+    private readonly string DefaultValue;
+    private readonly ushort OpCode;
+    private readonly string PacketName;
+    private readonly PacketWriter Packet;
+    private readonly Dictionary<uint, SockHintInfo> Overrides;
+    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
+    private static readonly Regex infoRegex = new(@"\[type=(\d+)\]\[offset=(\d+)\]\[hint=(\w+)\]");
+
+    private PacketStructureResolver(ushort opCode)
     {
-        private const int HEADER_LENGTH = 6;
+        DefaultValue = "0";
+        OpCode = opCode;
+        Packet = PacketWriter.Of(opCode);
+        PacketName = Enum.GetName(typeof(SendOp), opCode);
+        Overrides = new();
+    }
 
-        private string DefaultValue;
+    // resolve opcode
+    // Example: resolve 81
+    public static PacketStructureResolver Parse(string input)
+    {
+        string[] args = input.Split(" ", StringSplitOptions.RemoveEmptyEntries);
 
-        private readonly ushort OpCode;
-        private readonly PacketWriter Packet;
-        private readonly Dictionary<uint, SockHintInfo> Overrides;
-
-        private static readonly Regex infoRegex = new Regex(@"\[type=(\d+)\]\[offset=(\d+)\]\[hint=(\w+)\]");
-
-        private PacketStructureResolver(ushort opCode)
+        // Parse opCode: 81 0081 0x81 0x0081
+        ushort opCode;
+        string firstArg = args[0];
+        if (firstArg.ToLower().StartsWith("0x"))
         {
-            DefaultValue = "0";
-            OpCode = opCode;
-            Packet = PacketWriter.Of(opCode);
-            Overrides = new Dictionary<uint, SockHintInfo>();
+            opCode = Convert.ToUInt16(firstArg, 16);
         }
-
-        // resolve opcode (offset,type,value) (offset2,type2,value2) ...
-        // Example: resolve 0015 (8,Decode8,100)
-        public static PacketStructureResolver Parse(string input)
+        else
         {
-            Regex overrideRegex = new Regex(@"\((\d+),(\w+),(-?\w+)(?:,(\w+))?\)");
-            string[] args = input.Split(" ", StringSplitOptions.RemoveEmptyEntries);
-
-            // Parse opCode: 81 0081 0x81 0x0081
-            ushort opCode;
-            if (args[0].ToLower().StartsWith("0x"))
+            if (firstArg.Length == 2)
             {
-                opCode = Convert.ToUInt16(args[0], 16);
+                opCode = firstArg.ToByte();
+            }
+            else if (firstArg.Length == 4)
+            {
+                // Reverse bytes
+                byte[] bytes = firstArg.ToByteArray();
+                Array.Reverse(bytes);
+
+                opCode = BitConverter.ToUInt16(bytes);
             }
             else
             {
-                if (args[0].Length == 2)
-                {
-                    opCode = args[0].ToByte();
-                }
-                else if (args[0].Length == 4)
-                {
-                    // Reverse bytes
-                    byte[] bytes = args[0].ToByteArray();
-                    Array.Reverse(bytes);
-
-                    opCode = BitConverter.ToUInt16(bytes);
-                }
-                else
-                {
-                    Console.WriteLine("Invalid opcode.");
-                    return null;
-                }
+                Logger.Info("Invalid opcode.");
+                return null;
             }
+        }
 
-            PacketStructureResolver resolver = new PacketStructureResolver(opCode);
-            for (int i = 1; i < args.Length; i++)
-            {
-                Match match = overrideRegex.Match(args[i]);
-                if (!match.Success)
-                {
-                    Console.WriteLine($"Invalid override:{args[i]} skipped.");
-                }
-                else
-                {
-                    uint offset = uint.Parse(match.Groups[1].Value);
-                    SockHint type = match.Groups[2].Value.ToSockHint();
-                    string value = match.Groups[3].Value;
-                    string name = "Override";
-                    if (match.Groups.Count > 4 && !string.IsNullOrEmpty(match.Groups[4].Value))
-                    {
-                        name = match.Groups[4].Value;
-                    }
-                    resolver.Overrides.Add(offset, new SockHintInfo(type, value, name));
-                }
-            }
+        PacketStructureResolver resolver = new(opCode);
+        DirectoryInfo dir = Directory.CreateDirectory($"{Paths.SOLUTION_DIR}/MapleServer2/PacketStructures");
 
+        string filePath = $"{dir.FullName}/{resolver.OpCode:X4} - {resolver.PacketName}.txt";
+        if (!File.Exists(filePath))
+        {
+            StreamWriter writer = File.CreateText(filePath);
+            writer.WriteLine("# Generated by MapleServer2 PacketStructureResolver");
+            IEnumerable<char> enumerable = opCode.ToString("D4").Reverse();
+            writer.WriteLine($"PacketWriter pWriter = PacketWriter.Of(SendOp.{resolver.PacketName});");
+            writer.Close();
             return resolver;
         }
 
-        public void SetDefault(string value)
+        string[] fileLines = File.ReadAllLines(filePath);
+        foreach (string line in fileLines)
         {
-            DefaultValue = value;
-        }
-
-        public void Start(Session session)
-        {
-            session.OnError = AppendAndRetry;
-
-            // Start off the feedback loop
-            session.Send(Packet);
-        }
-
-        private void AppendAndRetry(object session, string err)
-        {
-            SockExceptionInfo info = ParseError(err);
-            Debug.Assert(OpCode == info.Type, $"Error for unexpected op code:{info.Type:X4}");
-            Debug.Assert(Packet.Length + HEADER_LENGTH == info.Offset,
-                $"Offset:{info.Offset} does not match Packet length:{Packet.Length + HEADER_LENGTH}");
-
-            if (Overrides.ContainsKey(info.Offset))
+            if (string.IsNullOrEmpty(line) || line.StartsWith("#") || line.StartsWith("PacketWriter"))
             {
-                SockHintInfo @override = Overrides[info.Offset];
-                Debug.Assert(@override.Hint == info.Hint, $"Override does not match expected hint:{info.Hint}");
-                @override.Update(Packet);
-                Console.WriteLine(info.Hint.GetScript($"{@override.Name}+{info.Offset}"));
-            }
-            else
-            {
-                new SockHintInfo(info.Hint, DefaultValue).Update(Packet);
-                Console.WriteLine(info.Hint.GetScript($"Unknown+{info.Offset}"));
+                continue;
             }
 
-            //Console.WriteLine($"Updated with hint:{info.Hint}, offset:{info.Offset}");
-            (session as Session)?.Send(Packet);
-        }
-
-        private static SockExceptionInfo ParseError(string error)
-        {
-            Match match = infoRegex.Match(error);
-            if (match.Groups.Count != 4)
+            string[] packetLine = line.Split("(");
+            string type = packetLine[0][13..];
+            string valueAsString = packetLine[1].Split(")")[0];
+            valueAsString = string.IsNullOrEmpty(valueAsString) ? "0" : valueAsString;
+            try
             {
-                throw new ArgumentException($"Failed to parse error: {error}");
+                switch (type)
+                {
+                    case "Byte":
+                        resolver.Packet.WriteByte(byte.Parse(valueAsString));
+                        break;
+                    case "Short":
+                        resolver.Packet.WriteShort(short.Parse(valueAsString));
+                        break;
+                    case "Int":
+                        resolver.Packet.WriteInt(int.Parse(valueAsString));
+                        break;
+                    case "Long":
+                        resolver.Packet.WriteLong(long.Parse(valueAsString));
+                        break;
+                    case "Float":
+                        resolver.Packet.WriteFloat(float.Parse(valueAsString));
+                        break;
+                    case "UnicodeString":
+                        resolver.Packet.WriteUnicodeString(valueAsString.Replace("\"", ""));
+                        break;
+                    case "String":
+                        resolver.Packet.WriteString(valueAsString.Replace("\"", ""));
+                        break;
+                    default:
+                        Logger.Info($"Unknown type: {type}");
+                        break;
+                }
             }
-
-            SockExceptionInfo info;
-            info.Type = ushort.Parse(match.Groups[1].Value);
-            info.Offset = uint.Parse(match.Groups[2].Value);
-            info.Hint = match.Groups[3].Value.ToSockHint();
-
-            return info;
+            catch
+            {
+                Logger.Info($"Couldn't parse value on function: {line}");
+                return null;
+            }
         }
+        return resolver;
+    }
 
-        private struct SockExceptionInfo
+    public void Start(Session session)
+    {
+        session.OnError = AppendAndRetry;
+
+        // Start off the feedback loop
+        session.Send(Packet);
+    }
+
+    private void AppendAndRetry(object session, string err)
+    {
+        SockExceptionInfo info = ParseError(err);
+        if (info.Type == 0)
         {
-            public ushort Type;
-            public uint Offset;
-            public SockHint Hint;
+            return;
         }
+        if (OpCode != info.Type)
+        {
+            Logger.Warn($"Error for unexpected op code:{info.Type:X4}");
+            return;
+        }
+        if (Packet.Length + HEADER_LENGTH != info.Offset)
+        {
+            Logger.Warn($"Offset:{info.Offset} does not match Packet length:{Packet.Length + HEADER_LENGTH}");
+            return;
+        }
+
+        new SockHintInfo(info.Hint, DefaultValue).Update(Packet);
+        string hint = info.Hint switch
+        {
+            SockHint.Decode1 => $"pWriter.WriteByte();\r\n",
+            SockHint.Decode2 => $"pWriter.WriteShort();\r\n",
+            SockHint.Decode4 => $"pWriter.WriteInt();\r\n",
+            SockHint.Decodef => $"pWriter.WriteFloat();\r\n",
+            SockHint.Decode8 => $"pWriter.WriteLong();\r\n",
+            SockHint.DecodeStr => $"pWriter.WriteUnicodeString();\r\n",
+            SockHint.DecodeStrA => $"pWriter.WriteString();\r\n",
+            _ => $"[]\r\n"
+        };
+        DirectoryInfo dir = Directory.CreateDirectory($"{Paths.SOLUTION_DIR}/MapleServer2/PacketStructures");
+        StreamWriter file = File.AppendText($"{dir.FullName}/{OpCode:X4} - {PacketName}.txt");
+        file.Write(hint);
+        file.Close();
+
+        (session as Session)?.Send(Packet);
+    }
+
+    private static SockExceptionInfo ParseError(string error)
+    {
+        Match match = infoRegex.Match(error);
+        if (match.Groups.Count != 4)
+        {
+            throw new ArgumentException($"Failed to parse error: {error}");
+        }
+
+        SockExceptionInfo info;
+        info.Type = ushort.Parse(match.Groups[1].Value);
+        info.Offset = uint.Parse(match.Groups[2].Value);
+        info.Hint = match.Groups[3].Value.ToSockHint();
+
+        return info;
+    }
+
+    private struct SockExceptionInfo
+    {
+        public ushort Type;
+        public uint Offset;
+        public SockHint Hint;
     }
 }

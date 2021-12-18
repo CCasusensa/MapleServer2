@@ -1,126 +1,127 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Maple2Storage.Enums;
+﻿using Maple2Storage.Enums;
+using Maple2Storage.Tools;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
-using MapleServer2.Enums;
 using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+internal class InteractObjectHandler : GamePacketHandler
 {
-    class InteractObjectHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.INTERACT_OBJECT;
+
+    public InteractObjectHandler() : base() { }
+
+    private enum InteractObjectMode : byte
     {
-        public override RecvOp OpCode => RecvOp.INTERACT_OBJECT;
+        Cast = 0x0B,
+        Interact = 0x0C
+    }
 
-        public InteractObjectHandler(ILogger<InteractObjectHandler> logger) : base(logger) { }
+    public override void Handle(GameSession session, PacketReader packet)
+    {
+        InteractObjectMode mode = (InteractObjectMode) packet.ReadByte();
 
-        private enum InteractObjectMode : byte
+        switch (mode)
         {
-            Cast = 0x0B,
-            Use = 0x0C,
+            case InteractObjectMode.Cast:
+                HandleCast(session, packet);
+                break;
+            case InteractObjectMode.Interact:
+                HandleInteract(session, packet);
+                break;
+        }
+    }
+
+    private static void HandleCast(GameSession session, PacketReader packet)
+    {
+        string id = packet.ReadString();
+        InteractObject interactObject = session.FieldManager.State.InteractObjects[id];
+        if (interactObject == null)
+        {
+            return;
         }
 
-        private static readonly int[] RarityChance = new int[] { 0, 100, 80, 60, 40, 20 };         // drop rate of each rarity level
+        // TODO: Change state of object only if player succeeds in the cast.
+    }
 
-        public override void Handle(GameSession session, PacketReader packet)
+    private static void HandleInteract(GameSession session, PacketReader packet)
+    {
+        string id = packet.ReadString();
+        InteractObject interactObject = session.FieldManager.State.InteractObjects[id];
+        if (interactObject == null)
         {
-            InteractObjectMode mode = (InteractObjectMode) packet.ReadByte();
-
-            switch (mode)
-            {
-                case InteractObjectMode.Cast:
-                    HandleStart(session, packet);
-                    break;
-                case InteractObjectMode.Use:
-                    HandleUse(session, packet);
-                    break;
-            }
+            return;
         }
 
-        private static void HandleStart(GameSession session, PacketReader packet)
+        InteractObjectMetadata metadata = InteractObjectMetadataStorage.GetInteractObjectMetadata(interactObject.InteractId);
+
+        switch (interactObject.Type)
         {
-            string uuid = packet.ReadMapleString();
-            MapInteractObject interactObject = MapEntityStorage.GetInteractObject(session.Player.MapId).FirstOrDefault(x => x.Uuid == uuid);
-            if (interactObject.Type == InteractObjectType.Gathering)
-            {
-                // things to do when player starts gathering
-            }
-        }
-
-        private static void HandleUse(GameSession session, PacketReader packet)
-        {
-            string uuid = packet.ReadMapleString();
-            IFieldObject<InteractObject> interactObject = session.FieldManager.State.InteractObjects[uuid];
-            if (interactObject == null)
-            {
-                return;
-            }
-
-            MapInteractObject mapObject = MapEntityStorage.GetInteractObject(session.Player.MapId).FirstOrDefault(x => x.Uuid == uuid);
-            int numDrop = 0;
-
-            switch (interactObject.Value.Type)
-            {
-                case InteractObjectType.Binoculars:
-                    QuestHelper.UpdateExplorationQuest(session, mapObject.InteractId.ToString(), "interact_object_rep");
-                    break;
-                case InteractObjectType.Gathering:
-                    RecipeMetadata recipe = RecipeMetadataStorage.GetRecipe(mapObject.RecipeId);
-
-                    session.Player.Levels.GainMasteryExp((MasteryType) recipe.MasteryType, 0);
-                    long currentMastery = session.Player.Levels.MasteryExp.FirstOrDefault(x => x.Type == (MasteryType) recipe.MasteryType).CurrentExp;
-                    if (currentMastery < recipe.RequireMastery)
+            case InteractObjectType.Binoculars:
+                session.Send(InteractObjectPacket.Use(interactObject));
+                QuestHelper.UpdateExplorationQuest(session, interactObject.InteractId.ToString(), "interact_object_rep");
+                break;
+            case InteractObjectType.Ui:
+                session.Send(InteractObjectPacket.Use(interactObject));
+                break;
+            case InteractObjectType.RankBoard:
+                session.Send(WebOpenPacket.Open(metadata.Web.Url));
+                break;
+            case InteractObjectType.AdBalloon:
+                session.Send(PlayerHostPacket.AdBalloonWindow((AdBalloon) interactObject));
+                break;
+            case InteractObjectType.Gathering:
+                GatheringHelper.HandleGathering(session, metadata.Gathering.RecipeId, out int numDrop);
+                session.Send(InteractObjectPacket.Use(interactObject, (short) (numDrop > 0 ? 0 : 1), numDrop));
+                break;
+            case InteractObjectType.Common:
+                foreach ((int questId, QuestState state) in metadata.Quests)
+                {
+                    if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State != state)
                     {
-                        return;
+                        continue;
                     }
 
-                    session.Player.IncrementGatheringCount(mapObject.RecipeId, 0);
-                    int numCount = session.Player.GatheringCount[mapObject.RecipeId].Current;
+                    QuestHelper.UpdateQuest(session, interactObject.InteractId.ToString(), "interact_object");
+                    session.Send(InteractObjectPacket.QuestUse(interactObject));
+                    session.Send(InteractObjectPacket.Interact(interactObject));
 
-                    List<RecipeItem> items = RecipeMetadataStorage.GetResult(recipe);
-                    Random rand = new Random();
-                    int masteryDiffFactor = numCount switch
+                    foreach (int boxId in metadata.Drop.IndividualDropBoxId)
                     {
-                        int n when n < recipe.HighPropLimitCount => MasteryFactorMetadataStorage.GetFactor(0),
-                        int n when n < recipe.NormalPropLimitCount => MasteryFactorMetadataStorage.GetFactor(1),
-                        int n when n < (int) (recipe.NormalPropLimitCount * 1.3) => MasteryFactorMetadataStorage.GetFactor(2),
-                        _ => MasteryFactorMetadataStorage.GetFactor(3),
-                    };
-
-                    foreach (RecipeItem item in items)
-                    {
-                        int prob = (int) (RarityChance[item.Rarity] * masteryDiffFactor) / 10000;
-                        if (rand.Next(100) >= prob)
+                        ItemDropMetadata itemDropMetadataStorage = ItemDropMetadataStorage.GetItemDropMetadata(boxId);
+                        if (itemDropMetadataStorage is null)
                         {
                             continue;
                         }
-                        for (int i = 0; i < item.Amount; i++)
+
+                        foreach (DropGroup dropGroup in itemDropMetadataStorage.DropGroups)
                         {
-                            session.FieldManager.AddItem(session, new Item(item.Id));
+                            foreach (DropGroupContent dropGroupContent in dropGroup.Contents)
+                            {
+                                foreach (int itemId in dropGroupContent.ItemIds)
+                                {
+                                    Item item = new(itemId)
+                                    {
+                                        Amount = RandomProvider.Get().Next((int) dropGroupContent.MinAmount, (int) dropGroupContent.MaxAmount),
+                                        Rarity = dropGroupContent.Rarity
+                                    };
+
+                                    session.FieldManager.AddItem(session, item);
+                                }
+                            }
                         }
-                        numDrop += item.Amount;
                     }
-                    if (numDrop > 0)
-                    {
-                        session.Player.IncrementGatheringCount(mapObject.RecipeId, numDrop);
-                        session.Player.Levels.GainMasteryExp((MasteryType) recipe.MasteryType, recipe.RewardMastery);
-                    }
-                    break;
-                case InteractObjectType.AdBalloon:
-                    session.Send(PlayerHostPacket.AdBalloonWindow(interactObject));
-                    return;
-                default:
-                    break;
-            }
-            session.Send(InteractObjectPacket.UseObject(mapObject, (short) (numDrop > 0 ? 0 : 1), numDrop));
-            session.Send(InteractObjectPacket.Extra(mapObject));
+                }
+
+                break;
         }
+
+        session.Send(InteractObjectPacket.Interact(interactObject));
     }
 }

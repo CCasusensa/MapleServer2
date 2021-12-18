@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+﻿using Maple2Storage.Enums;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Database;
@@ -6,53 +6,57 @@ using MapleServer2.Database.Types;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public class FieldEnterHandler : GamePacketHandler
 {
-    public class FieldEnterHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.RESPONSE_FIELD_ENTER;
+
+    public FieldEnterHandler() : base() { }
+
+    public override void Handle(GameSession session, PacketReader packet)
     {
-        public override RecvOp OpCode => RecvOp.RESPONSE_FIELD_ENTER;
+        packet.ReadInt(); // ?
 
-        public FieldEnterHandler(ILogger<FieldEnterHandler> logger) : base(logger) { }
+        // Liftable: 00 00 00 00 00
+        // SendBreakable
+        // Self
+        Player player = session.Player;
+        Account account = player.Account;
+        session.EnterField(player);
+        session.Send(StatPacket.SetStats(session.Player.FieldPlayer));
+        session.Send(StatPointPacket.WriteTotalStatPoints(player));
 
-        public override void Handle(GameSession session, PacketReader packet)
+        if (account.IsVip())
         {
-            packet.ReadInt(); // ?
-
-            // Liftable: 00 00 00 00 00
-            // SendBreakable
-            // Self
-            session.EnterField(session.Player.MapId);
-            session.Send(StatPacket.SetStats(session.FieldPlayer));
-            session.Send(StatPointPacket.WriteTotalStatPoints(session.Player));
-            if (session.Player.IsVip())
-            {
-                session.Send(PremiumClubPacket.ActivatePremium(session.FieldPlayer, session.Player.VIPExpiration));
-            }
-            session.Send(EmotePacket.LoadEmotes(session.Player));
-            session.Send(ChatStickerPacket.LoadChatSticker(session.Player));
-            session.Send(ResponseCubePacket.LoadHome(session.FieldPlayer));
-
-            // Normally skill layout would be loaded from a database
-            QuickSlot arrowStream = QuickSlot.From(10500001);
-            QuickSlot arrowBarrage = QuickSlot.From(10500011);
-            QuickSlot eagleGlide = QuickSlot.From(10500151);
-            QuickSlot testSkill = QuickSlot.From(10500153);
-
-            if (session.Player.GameOptions.TryGetHotbar(0, out Hotbar mainHotbar))
-            {
-                /*
-                mainHotbar.MoveQuickSlot(4, arrowStream);
-                mainHotbar.MoveQuickSlot(5, arrowBarrage);
-                mainHotbar.MoveQuickSlot(6, eagleGlide);
-                mainHotbar.MoveQuickSlot(7, testSkill);
-                */
-                session.Send(KeyTablePacket.SendHotbars(session.Player.GameOptions));
-            }
-
-            List<GameEvent> gameEvents = DatabaseManager.GetGameEvents();
-            session.Send(GameEventPacket.Load(gameEvents));
+            session.Send(BuffPacket.SendBuff(0, new(100000014, session.Player.FieldPlayer.ObjectId, session.Player.FieldPlayer.ObjectId, 1, (int) account.VIPExpiration, 1)));
+            session.Send(PremiumClubPacket.ActivatePremium(session.Player.FieldPlayer, account.VIPExpiration));
         }
+
+        session.Send(EmotePacket.LoadEmotes(player));
+        session.Send(ChatStickerPacket.LoadChatSticker(player));
+
+        session.Send(HomeCommandPacket.LoadHome(player));
+        session.Send(ResponseCubePacket.DecorationScore(account.Home));
+        session.Send(ResponseCubePacket.LoadHome(session.Player.FieldPlayer.ObjectId, session.Player.Account.Home));
+        session.Send(ResponseCubePacket.ReturnMap(player.ReturnMapId));
+        session.Send(LapenshardPacket.Load(player.Inventory.LapenshardStorage));
+
+        IEnumerable<Cube> cubes = session.FieldManager.State.Cubes.Values.Where(x => x.Value.PlotNumber == 1
+                                                                                    && x.Value.Item.HousingCategory is ItemHousingCategory.Farming or ItemHousingCategory.Ranching).Select(x => x.Value);
+        foreach (Cube cube in cubes)
+        {
+            session.Send(FunctionCubePacket.UpdateFunctionCube(cube.CoordF.ToByte(), 2, 1));
+        }
+        if (player.Party != null)
+        {
+            session.Send(PartyPacket.UpdatePlayer(player));
+        }
+
+        session.Send(KeyTablePacket.SendHotbars(player.GameOptions));
+
+        List<GameEvent> gameEvents = DatabaseManager.Events.FindAll();
+        session.Send(GameEventPacket.Load(gameEvents));
     }
 }

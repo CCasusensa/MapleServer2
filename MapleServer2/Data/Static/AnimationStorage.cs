@@ -1,42 +1,38 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
-using MapleServer2.Constants;
 using ProtoBuf;
 
-namespace MapleServer2.Data.Static
+namespace MapleServer2.Data.Static;
+
+public static class AnimationStorage
 {
-    public static class AnimationStorage
+    private static readonly Dictionary<string, AnimationMetadata> Animations = new();
+
+    public static void Init()
     {
-        private static readonly Dictionary<string, AnimationMetadata> Animations = new Dictionary<string, AnimationMetadata>();
-
-        static AnimationStorage()
+        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-animation-metadata");
+        List<AnimationMetadata> animations = Serializer.Deserialize<List<AnimationMetadata>>(stream);
+        foreach (AnimationMetadata animation in animations)
         {
-            using FileStream stream = File.OpenRead($"{Paths.RESOURCES}/ms2-animation-metadata");
-            List<AnimationMetadata> animations = Serializer.Deserialize<List<AnimationMetadata>>(stream);
-            foreach (AnimationMetadata animation in animations)
-            {
-                Animations.Add(animation.ActorId, animation);
-            }
+            Animations.Add(animation.ActorId, animation);
+        }
+    }
+
+    public static List<SequenceMetadata> GetSequencesByActorId(string actorId)
+    {
+        return Animations.GetValueOrDefault(actorId.ToLower()).Sequence;
+    }
+
+    public static short GetSequenceIdBySequenceName(string actorId, string sequenceName)
+    {
+        List<SequenceMetadata> sequences = GetSequencesByActorId(actorId);
+        SequenceMetadata metadata = sequences.FirstOrDefault(s => s.SequenceName == sequenceName);
+
+        if (metadata != default)
+        {
+            return metadata.SequenceId;
         }
 
-        public static List<SequenceMetadata> GetSequencesByActorId(string actorId)
-        {
-            return Animations.GetValueOrDefault(actorId.ToLower()).Sequence;
-        }
-
-        public static short GetSequenceIdBySequenceName(string actorId, string sequenceName)
-        {
-            List<SequenceMetadata> sequences = GetSequencesByActorId(actorId);
-            SequenceMetadata metadata = sequences.FirstOrDefault(s => s.SequenceName == sequenceName);
-
-            if (metadata != default)
-            {
-                return metadata.SequenceId;
-            }
-
-            return 0;
-        }
+        return 0;
     }
 }

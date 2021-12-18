@@ -1,14 +1,11 @@
-﻿using System.Collections.Generic;
+﻿namespace MapleServer2.Types;
 
-namespace MapleServer2.Types
+public class HairInventory
 {
-    public class HairInventory
-    {
-        public List<Item> SavedHair = new List<Item>();
-        public Item RandomHair;
+    public List<Item> SavedHair = new();
+    public Item RandomHair;
 
-        public HairInventory()
-        {
-        }
+    public HairInventory()
+    {
     }
 }

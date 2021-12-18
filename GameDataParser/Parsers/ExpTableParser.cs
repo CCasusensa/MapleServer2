@@ -1,45 +1,42 @@
-﻿using System.Collections.Generic;
-using System.Xml;
-using GameDataParser.Crypto.Common;
+﻿using System.Xml;
 using GameDataParser.Files;
+using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Types.Metadata;
 
-namespace GameDataParser.Parsers
+namespace GameDataParser.Parsers;
+
+internal class ExpParser : Exporter<List<ExpMetadata>>
 {
-    class ExpParser : Exporter<List<ExpMetadata>>
+    public ExpParser(MetadataResources resources) : base(resources, "exp") { }
+
+    protected override List<ExpMetadata> Parse()
     {
-        public ExpParser(MetadataResources resources) : base(resources, "exp") { }
-
-        protected override List<ExpMetadata> Parse()
+        List<ExpMetadata> expList = new();
+        foreach (PackFileEntry entry in Resources.XmlReader.Files)
         {
-            List<ExpMetadata> expList = new List<ExpMetadata>();
-            foreach (PackFileEntry entry in Resources.XmlFiles)
+            if (!entry.Name.StartsWith("table/nextexp"))
             {
+                continue;
+            }
 
-                if (!entry.Name.StartsWith("table/nextexp"))
+            XmlDocument document = Resources.XmlReader.GetXmlDocument(entry);
+            XmlNodeList nodes = document.SelectNodes("/ms2/exp");
+
+            foreach (XmlNode node in nodes)
+            {
+                byte level = byte.Parse(node.Attributes["level"].Value);
+                if (level == 0)
                 {
                     continue;
                 }
 
-                XmlDocument document = Resources.XmlMemFile.GetDocument(entry.FileHeader);
-                foreach (XmlNode node in document.DocumentElement.ChildNodes)
-                {
-                    ExpMetadata expTable = new ExpMetadata();
-
-                    if (node.Name == "exp")
-                    {
-                        byte level = byte.Parse(node.Attributes["level"].Value);
-                        if (level != 0)
-                        {
-                            expTable.Level = level;
-                            expTable.Experience = long.Parse(node.Attributes["value"].Value);
-                            expList.Add(expTable);
-                        }
-                    }
-                }
+                ExpMetadata expTable = new();
+                expTable.Level = level;
+                expTable.Experience = long.Parse(node.Attributes["value"].Value);
+                expList.Add(expTable);
             }
-
-            return expList;
         }
+
+        return expList;
     }
 }

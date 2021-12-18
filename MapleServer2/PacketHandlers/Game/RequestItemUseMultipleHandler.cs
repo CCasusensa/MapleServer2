@@ -1,92 +1,104 @@
-﻿using System.Collections.Generic;
-using System.Linq;
+﻿using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Data.Static;
 using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
-using MapleServer2.Tools;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public class RequestItemUseMultipleHandler : GamePacketHandler
 {
-    public class RequestItemUseMultipleHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.REQUEST_ITEM_USE_MULTIPLE;
+
+    public RequestItemUseMultipleHandler() : base() { }
+
+    private enum BoxType : byte
     {
-        public override RecvOp OpCode => RecvOp.REQUEST_ITEM_USE_MULTIPLE;
+        OPEN = 0x00,
+        SELECT = 0x01
+    }
 
-        public RequestItemUseMultipleHandler(ILogger<RequestItemUseMultipleHandler> logger) : base(logger) { }
+    public override void Handle(GameSession session, PacketReader packet)
+    {
+        int itemId = packet.ReadInt();
+        packet.ReadShort(); // Unknown
+        int amount = packet.ReadInt();
+        BoxType boxType = (BoxType) packet.ReadShort();
 
-        private enum BoxType : byte
+        string functionName = ItemMetadataStorage.GetFunction(itemId).Name;
+        if (functionName != "SelectItemBox" && functionName != "OpenItemBox")
         {
-            OPEN = 0x00,
-            SELECT = 0x01
+            return;
         }
 
-        public override void Handle(GameSession session, PacketReader packet)
+        Dictionary<long, Item> items = new(session.Player.Inventory.Items.Where(x => x.Value.Id == itemId)); // Make copy of items in-case new item is added
+        if (items.Count == 0)
         {
-            int boxId = packet.ReadInt();
-            packet.ReadShort(); // Unknown
-            int amount = packet.ReadInt();
-            BoxType boxType = (BoxType) packet.ReadShort();
+            return;
+        }
 
-            int index = 0;
-            if (boxType == BoxType.SELECT)
+        int index = 0;
+        if (boxType == BoxType.SELECT)
+        {
+            index = packet.ReadShort() - 0x30; // Starts at 0x30 for some reason
+            if (index < 0)
             {
-                index = packet.ReadShort() - 0x30; // Starts at 0x30 for some reason
-                if (index < 0)
-                {
-                    return;
-                }
+                return;
             }
+            SelectItemBox selectBox = ItemMetadataStorage.GetFunction(itemId).SelectItemBox;
+            HandleSelectBox(session, items, selectBox, index, amount);
+            return;
+        }
 
-            int opened = 0;
-            Dictionary<long, Item> items = new Dictionary<long, Item>(session.Player.Inventory.Items.Where(x => x.Value.Id == boxId)); // Make copy of items in-case new item is added
+        OpenItemBox openBox = ItemMetadataStorage.GetFunction(itemId).OpenItemBox;
+        HandleOpenBox(session, items, /*openBox,*/ amount);
+    }
 
-            foreach (KeyValuePair<long, Item> kvp in items)
+    private static void HandleSelectBox(GameSession session, Dictionary<long, Item> items, SelectItemBox box, int index, int amount)
+    {
+        ItemDropMetadata metadata = ItemDropMetadataStorage.GetItemDropMetadata(box.BoxId);
+        int opened = 0;
+        foreach (KeyValuePair<long, Item> kvp in items)
+        {
+            Item item = kvp.Value;
+
+            for (int i = opened; i < amount; i++)
             {
-                Item item = kvp.Value;
-                // Do nothing if box has no data stored
-                if (item.Content.Count <= 0)
+                if (item.Amount <= 0)
                 {
                     break;
                 }
 
-                for (int i = opened; i < amount; i++)
-                {
-                    bool breakOut = false; // Needed to remove box before adding item to prevent item duping
-
-                    if (item.Amount <= 1)
-                    {
-                        breakOut = true; // Break out of the amount loop because this stack of boxes is empty, look for next stack
-                    }
-
-                    opened++;
-                    InventoryController.Consume(session, item.Uid, 1);
-
-                    // Handle selection box
-                    if (boxType == BoxType.SELECT)
-                    {
-                        if (index < item.Content.Count)
-                        {
-                            ItemUseHelper.GiveItem(session, item.Content[index]);
-                        }
-                    }
-
-                    // Handle open box
-                    else if (boxType == BoxType.OPEN)
-                    {
-                        ItemUseHelper.OpenBox(session, item.Content);
-                    }
-
-                    if (breakOut)
-                    {
-                        break;
-                    }
-                }
+                opened++;
+                ItemBoxHelper.GiveItemFromSelectBox(session, item, index);
             }
-
-            session.Send(ItemUsePacket.Use(boxId, amount));
         }
+
+        session.Send(ItemUsePacket.Use(items.FirstOrDefault().Value.Id, amount));
+    }
+
+    private static void HandleOpenBox(GameSession session, Dictionary<long, Item> items, /*OpenItemBox box,*/ int amount)
+    {
+        int opened = 0;
+        foreach (KeyValuePair<long, Item> kvp in items)
+        {
+            Item item = kvp.Value;
+
+            for (int i = opened; i < amount; i++)
+            {
+                if (item.Amount <= 0)
+                {
+                    break;
+                }
+
+                opened++;
+                ItemBoxHelper.GiveItemFromOpenBox(session, item);
+            }
+        }
+
+        session.Send(ItemUsePacket.Use(items.FirstOrDefault().Value.Id, amount));
     }
 }

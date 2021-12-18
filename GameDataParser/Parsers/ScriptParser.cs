@@ -1,166 +1,155 @@
-﻿using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Xml;
-using GameDataParser.Crypto.Common;
+﻿using System.Xml;
 using GameDataParser.Files;
+using Maple2.File.IO.Crypto.Common;
+using Maple2Storage.Enums;
 using Maple2Storage.Types.Metadata;
 
-namespace GameDataParser.Parsers
+namespace GameDataParser.Parsers;
+
+public class ScriptParser : Exporter<List<ScriptMetadata>>
 {
-    public class ScriptParser : Exporter<List<ScriptMetadata>>
+    public ScriptParser(MetadataResources resources) : base(resources, "script") { }
+
+    protected override List<ScriptMetadata> Parse()
     {
-        public ScriptParser(MetadataResources resources) : base(resources, "script") { }
+        List<ScriptMetadata> entities = ParseNpc(Resources);
+        entities.AddRange(ParseQuest(Resources));
+        return entities;
+    }
 
-        protected override List<ScriptMetadata> Parse()
+    private static List<ScriptMetadata> ParseNpc(MetadataResources resources)
+    {
+        List<ScriptMetadata> scripts = new();
+        foreach (PackFileEntry entry in resources.XmlReader.Files)
         {
-            List<ScriptMetadata> entities = ParseNpc(Resources);
-            entities.AddRange(ParseQuest(Resources));
-            return entities;
-        }
-
-        private static List<ScriptMetadata> ParseNpc(MetadataResources resources)
-        {
-            List<ScriptMetadata> scripts = new List<ScriptMetadata>();
-            foreach (PackFileEntry entry in resources.XmlFiles)
+            if (!entry.Name.StartsWith("script/npc"))
             {
+                continue;
+            }
 
-                if (!entry.Name.StartsWith("script/npc"))
+            ScriptMetadata metadata = new();
+            int npcId = int.Parse(Path.GetFileNameWithoutExtension(entry.Name));
+            XmlDocument document = resources.XmlReader.GetXmlDocument(entry);
+            foreach (XmlNode node in document.DocumentElement.ChildNodes)
+            {
+                if (node.Name == "monologue")
+                {
+                    continue;
+                }
+                // Skip locales other than NA and null
+                string locale = node.Attributes["locale"]?.Value ?? "";
+
+                if (locale != "NA" && locale != "")
                 {
                     continue;
                 }
 
-                ScriptMetadata metadata = new ScriptMetadata();
-                int npcId = int.Parse(Path.GetFileNameWithoutExtension(entry.Name));
-                XmlDocument document = resources.XmlMemFile.GetDocument(entry.FileHeader);
-                foreach (XmlNode node in document.DocumentElement.ChildNodes)
+                ScriptType type = ScriptType.Script;
+                if (node.Name == "select")
                 {
-                    if (node.Name == "monologue")
-                    {
-                        continue;
-                    }
-                    // Skip locales other than NA and null
-                    string locale = string.IsNullOrEmpty(node.Attributes["locale"]?.Value) ? "" : node.Attributes["locale"].Value;
-
-                    if (locale != "NA" && locale != "")
-                    {
-                        continue;
-                    }
-
-                    ScriptType type = ScriptType.Script;
-                    List<int> gotoList = new List<int>();
-                    List<int> gotoFailList = new List<int>();
-                    if (node.Name == "select")
-                    {
-                        type = ScriptType.Select;
-                    }
-                    int id = int.Parse(node.Attributes["id"].Value);
-                    int amountContent = 0;
-                    if (type == ScriptType.Script)
-                    {
-                        foreach (XmlNode content in node.ChildNodes)
-                        {
-                            if (content.Name != "content")
-                            {
-                                continue;
-                            }
-                            amountContent++;
-
-                            foreach (XmlNode distractor in content.ChildNodes)
-                            {
-                                if (distractor.Name != "distractor")
-                                {
-                                    continue;
-                                }
-
-                                if (!string.IsNullOrEmpty(distractor.Attributes["goto"]?.Value))
-                                {
-                                    gotoList.AddRange(distractor.Attributes["goto"].Value.Split(",").Select(int.Parse).ToList());
-                                }
-                                if (!string.IsNullOrEmpty(distractor.Attributes["gotoFail"]?.Value))
-                                {
-                                    gotoFailList.AddRange(distractor.Attributes["gotoFail"].Value.Split(",").Select(int.Parse).ToList());
-                                }
-                            }
-                        }
-                    }
-                    metadata.Options.Add(new Option(type, id, gotoList, gotoFailList, amountContent));
+                    type = ScriptType.Select;
                 }
 
-                metadata.Id = npcId;
+                int id = int.Parse(node.Attributes["id"].Value);
+                string buttonSet = node.Attributes["buttonSet"]?.Value;
+                byte jobCondition = byte.Parse(node.Attributes["jobCondition"]?.Value ?? "0");
+
+                List<Content> contents = new();
+
+                if (type == ScriptType.Script)
+                {
+                    ParseContents(node, contents);
+                }
+
+                metadata.Options.Add(new(type, id, contents, buttonSet, jobCondition));
+            }
+
+            metadata.Id = npcId;
+            scripts.Add(metadata);
+        }
+
+        return scripts;
+    }
+
+    private static List<ScriptMetadata> ParseQuest(MetadataResources resources)
+    {
+        List<ScriptMetadata> scripts = new();
+        foreach (PackFileEntry entry in resources.XmlReader.Files)
+        {
+            if (!entry.Name.StartsWith("script/quest"))
+            {
+                continue;
+            }
+
+            string filename = Path.GetFileNameWithoutExtension(entry.Name);
+            if (filename.Contains("eventjp") || filename.Contains("eventkr") || filename.Contains("eventcn"))
+            {
+                continue;
+            }
+
+            XmlDocument document = resources.XmlReader.GetXmlDocument(entry);
+            foreach (XmlNode questNode in document.DocumentElement.ChildNodes)
+            {
+                // Skip locales other than NA and null
+                string locale = questNode.Attributes["locale"]?.Value ?? "";
+
+                if (locale != "NA" && locale != "")
+                {
+                    continue;
+                }
+
+                ScriptMetadata metadata = new();
+                int questId = int.Parse(questNode.Attributes["id"].Value);
+                string buttonSet = questNode.Attributes["buttonSet"]?.Value;
+
+                foreach (XmlNode script in questNode.ChildNodes)
+                {
+                    int id = int.Parse(script.Attributes["id"].Value);
+                    byte jobCondition = byte.Parse(script.Attributes["jobCondition"]?.Value ?? "0");
+
+                    List<Content> contents = new();
+
+                    ParseContents(script, contents);
+
+                    metadata.Options.Add(new(ScriptType.Script, id, contents, buttonSet, jobCondition));
+                }
+
+                metadata.Id = questId;
+                metadata.IsQuestScript = true;
+
                 scripts.Add(metadata);
             }
-
-            return scripts;
         }
+        return scripts;
+    }
 
-        private static List<ScriptMetadata> ParseQuest(MetadataResources resources)
+    private static void ParseContents(XmlNode node, List<Content> contents)
+    {
+        foreach (XmlNode content in node.ChildNodes)
         {
-            List<ScriptMetadata> scripts = new List<ScriptMetadata>();
-            foreach (PackFileEntry entry in resources.XmlFiles)
+            if (content.Name != "content")
             {
-
-                if (!entry.Name.StartsWith("script/quest"))
-                {
-                    continue;
-                }
-                string filename = Path.GetFileNameWithoutExtension(entry.Name);
-                if (filename.Contains("eventjp") || filename.Contains("eventkr") || filename.Contains("eventcn"))
-                {
-                    continue;
-                }
-
-                XmlDocument document = resources.XmlMemFile.GetDocument(entry.FileHeader);
-                foreach (XmlNode questNode in document.DocumentElement.ChildNodes)
-                {
-                    // Skip locales other than NA and null
-                    string locale = string.IsNullOrEmpty(questNode.Attributes["locale"]?.Value) ? "" : questNode.Attributes["locale"].Value;
-
-                    if (locale != "NA" && locale != "")
-                    {
-                        continue;
-                    }
-
-                    ScriptMetadata metadata = new ScriptMetadata();
-                    int questId = int.Parse(questNode.Attributes["id"].Value);
-                    foreach (XmlNode script in questNode.ChildNodes)
-                    {
-                        List<int> gotoList = new List<int>();
-                        List<int> gotoFailList = new List<int>();
-                        int id = int.Parse(script.Attributes["id"].Value);
-                        int amountContent = 0;
-                        foreach (XmlNode content in script.ChildNodes)
-                        {
-                            if (content.Name != "content")
-                            {
-                                continue;
-                            }
-                            amountContent++;
-
-                            foreach (XmlNode distractor in content.ChildNodes)
-                            {
-                                if (distractor.Name != "distractor")
-                                {
-                                    continue;
-                                }
-                                if (!string.IsNullOrEmpty(distractor.Attributes["goto"]?.Value))
-                                {
-                                    gotoList.AddRange(distractor.Attributes["goto"].Value.Split(",").Select(int.Parse).ToList());
-                                }
-                                if (!string.IsNullOrEmpty(distractor.Attributes["gotoFail"]?.Value))
-                                {
-                                    gotoFailList.AddRange(distractor.Attributes["gotoFail"].Value.Split(",").Select(int.Parse).ToList());
-                                }
-                            }
-                        }
-                        metadata.Options.Add(new Option(ScriptType.Script, id, gotoList, gotoFailList, amountContent));
-                    }
-                    metadata.Id = questId;
-                    metadata.IsQuestScript = true;
-                    scripts.Add(metadata);
-                }
+                continue;
             }
-            return scripts;
+
+            string functionId = content.Attributes["functionID"]?.Value;
+            DialogType dialogType = (DialogType) int.Parse(content.Attributes["buttonSet"]?.Value ?? "0");
+
+            List<Distractor> distractors = new();
+            foreach (XmlNode distractorNode in content.ChildNodes)
+            {
+                List<int> gotoList = new();
+                List<int> gotoFailList = new();
+                if (distractorNode.Name != "distractor")
+                {
+                    continue;
+                }
+
+                gotoList.AddRange(distractorNode.Attributes["goto"]?.Value.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(int.Parse).ToList());
+                gotoFailList.AddRange(distractorNode.Attributes["gotoFail"]?.Value.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(int.Parse).ToList());
+                distractors.Add(new(gotoList, gotoFailList));
+            }
+            contents.Add(new(functionId, dialogType, distractors));
         }
     }
 }

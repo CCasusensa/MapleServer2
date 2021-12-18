@@ -1,52 +1,62 @@
-﻿using System;
-using Maple2Storage.Enums;
+﻿using Maple2Storage.Enums;
+using Maple2Storage.Types;
+using Maple2Storage.Types.Metadata;
 
-namespace MapleServer2.Types
+namespace MapleServer2.Types;
+
+public class InteractObject
 {
-    public class InteractObject
-    {
-        public string Uuid;
-        public string Name;
-        public InteractObjectType Type;
-        public AdBalloon Balloon;
+    public string Id;
+    public int InteractId;
+    public InteractObjectState State;
+    public InteractObjectType Type;
 
-        public InteractObject(string uuid, string name, InteractObjectType type)
-        {
-            Uuid = uuid;
-            Name = name;
-            Type = type;
-        }
+    public InteractObject(string id, int interactId, InteractObjectType type, InteractObjectState state)
+    {
+        Id = id;
+        InteractId = interactId;
+        State = state;
+        // enabling all interact objects. Seems like the default status in the xblock/flat files has it disabled.
+        // TODO: find out where these are actually turned on?
+        Type = type;
     }
+}
+public enum InteractObjectState : byte
+{
+    Disable = 0,
+    Default = 1,
+    Activated = 2
+}
+public class AdBalloon : InteractObject
+{
+    public string Model;
+    public string Asset;
+    public string NormalState;
+    public string Reactable;
+    public float Scale;
+    public Player Owner;
+    public CoordF Position;
+    public CoordF Rotation;
+    public string Title;
+    public string Description;
+    public bool PublicHouse;
+    public long CreationTimestamp;
+    public long ExpirationTimestamp; // TODO: Remove from field if expired
 
-    public class AdBalloon
+    public AdBalloon(string id, int interactId, InteractObjectState state, InteractObjectType type, IFieldObject<Player> owner, InstallBillboard metadata, string title, string description, bool publicHouse) : base(id, interactId, type, state)
     {
-        public int InteractId;
-        public string Model;
-        public string Asset;
-        public string NormalState;
-        public string Reactable;
-        public float Scale;
-        public Player Owner;
-        public string Title;
-        public string Description;
-        public bool PublicHouse;
-        public long CreationTimestamp;
-        public long ExpirationTimestamp; // TODO: Remove from field if expired
-
-        public AdBalloon(Player owner, Item item, string title, string description, bool publicHouse)
-        {
-            Owner = owner;
-            InteractId = item.AdBalloon.InteractId;
-            Model = item.AdBalloon.Model;
-            Asset = item.AdBalloon.Asset;
-            NormalState = item.AdBalloon.NormalState;
-            Reactable = item.AdBalloon.Reactable;
-            Scale = item.AdBalloon.Scale;
-            Title = title;
-            Description = description;
-            PublicHouse = publicHouse;
-            CreationTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + Environment.TickCount;
-            ExpirationTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + Environment.TickCount + item.AdBalloon.Duration;
-        }
+        Owner = owner.Value;
+        Position = owner.Coord;
+        Rotation = owner.Rotation;
+        Model = metadata.Model;
+        Asset = metadata.Asset;
+        NormalState = metadata.NormalState;
+        Reactable = metadata.Reactable;
+        Scale = metadata.Scale;
+        Title = title;
+        Description = description;
+        PublicHouse = publicHouse;
+        CreationTimestamp = TimeInfo.Now() + Environment.TickCount;
+        ExpirationTimestamp = TimeInfo.Now() + Environment.TickCount + metadata.Duration;
     }
 }

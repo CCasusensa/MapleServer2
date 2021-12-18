@@ -1,11 +1,14 @@
-﻿namespace Maple2Storage.Enums
+﻿namespace Maple2Storage.Enums;
+
+public enum InteractObjectType : byte
 {
-    public enum InteractObjectType : byte
-    {
-        Unknown = 0,
-        Binoculars = 2,
-        Extractor = 3,
-        Gathering = 6,
-        AdBalloon = 8
-    }
+    None = 0,
+    Common = 1,
+    Binoculars = 2,
+    Ui = 3,
+    RankBoard = 5,
+    Gathering = 6,
+    GuildPoster = 7,
+    AdBalloon = 8,
+    MushkingTower = 9
 }

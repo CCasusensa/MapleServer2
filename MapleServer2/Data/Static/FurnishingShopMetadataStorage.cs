@@ -1,33 +1,30 @@
-﻿using System.Collections.Generic;
-using System.IO;
+﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
-using MapleServer2.Constants;
 using ProtoBuf;
 
-namespace MapleServer2.Data.Static
+namespace MapleServer2.Data.Static;
+
+public static class FurnishingShopMetadataStorage
 {
-    public static class FurnishingShopMetadataStorage
+    private static readonly Dictionary<int, FurnishingShopMetadata> map = new();
+
+    public static void Init()
     {
-        private static readonly Dictionary<int, FurnishingShopMetadata> map = new Dictionary<int, FurnishingShopMetadata>();
-
-        static FurnishingShopMetadataStorage()
+        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-furnishing-shop-metadata");
+        List<FurnishingShopMetadata> items = Serializer.Deserialize<List<FurnishingShopMetadata>>(stream);
+        foreach (FurnishingShopMetadata item in items)
         {
-            using FileStream stream = File.OpenRead($"{Paths.RESOURCES}/ms2-furnishing-shop-metadata");
-            List<FurnishingShopMetadata> items = Serializer.Deserialize<List<FurnishingShopMetadata>>(stream);
-            foreach (FurnishingShopMetadata item in items)
-            {
-                map[item.ItemId] = item;
-            }
+            map[item.ItemId] = item;
         }
+    }
 
-        public static bool IsValid(int itemId)
-        {
-            return map.ContainsKey(itemId);
-        }
+    public static bool IsValid(int itemId)
+    {
+        return map.ContainsKey(itemId);
+    }
 
-        public static FurnishingShopMetadata GetMetadata(int itemId)
-        {
-            return map.GetValueOrDefault(itemId);
-        }
+    public static FurnishingShopMetadata GetMetadata(int itemId)
+    {
+        return map.GetValueOrDefault(itemId);
     }
 }

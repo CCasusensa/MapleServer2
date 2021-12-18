@@ -3,53 +3,51 @@ using MapleServer2.Constants;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public class PlayerHostHandler : GamePacketHandler
 {
-    public class PlayerHostHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.PLAYER_HOST;
+
+    public PlayerHostHandler() : base() { }
+
+    private enum PlayerHostMode : byte
     {
-        public override RecvOp OpCode => RecvOp.PLAYER_HOST;
+        Claim = 0x1
+    }
 
-        public PlayerHostHandler(ILogger<PlayerHostHandler> logger) : base(logger) { }
+    public override void Handle(GameSession session, PacketReader packet)
+    {
+        PlayerHostMode mode = (PlayerHostMode) packet.ReadByte();
 
-        private enum PlayerHostMode : byte
+        switch (mode)
         {
-            Claim = 0x1,
+            case PlayerHostMode.Claim:
+                HandleClaim(session, packet);
+                break;
+            default:
+                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                break;
+        }
+    }
+
+    private static void HandleClaim(GameSession session, PacketReader packet)
+    {
+        int hongBaoId = packet.ReadInt();
+
+        HongBao hongBao = GameServer.HongBaoManager.GetHongBaoById(hongBaoId);
+        if (hongBao == null)
+        {
+            return;
         }
 
-        public override void Handle(GameSession session, PacketReader packet)
+        if (hongBao.Active == false)
         {
-            PlayerHostMode mode = (PlayerHostMode) packet.ReadByte();
-
-            switch (mode)
-            {
-                case PlayerHostMode.Claim:
-                    HandleClaim(session, packet);
-                    break;
-                default:
-                    IPacketHandler<GameSession>.LogUnknownMode(mode);
-                    break;
-            }
+            session.Send(PlayerHostPacket.HongbaoGiftNotice(session.Player, hongBao, 0));
+            return;
         }
 
-        private static void HandleClaim(GameSession session, PacketReader packet)
-        {
-            int hongBaoId = packet.ReadInt();
-
-            HongBao hongBao = GameServer.HongBaoManager.GetHongBaoById(hongBaoId);
-            if (hongBao == null)
-            {
-                return;
-            }
-
-            if (hongBao.Active == false)
-            {
-                session.Send(PlayerHostPacket.HongbaoGiftNotice(session.Player, hongBao, 0));
-                return;
-            }
-
-            hongBao.AddReceiver(session.Player);
-        }
+        hongBao.AddReceiver(session.Player);
     }
 }

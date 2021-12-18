@@ -1,68 +1,84 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using Maple2Storage.Types.Metadata;
+﻿using Maple2Storage.Types.Metadata;
 using MapleServer2.Constants.Skills;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Enums;
-using MapleServer2.Tools;
 
-namespace MapleServer2.Types
+namespace MapleServer2.Types;
+
+public class SkillTab
 {
-    public class SkillTab
+    public long Uid { get; private set; }
+    public long TabId { get; set; }
+    public string Name { get; set; }
+
+    public List<int> Order { get; private set; }
+    public Dictionary<int, SkillMetadata> SkillJob { get; private set; }
+    public Dictionary<int, short> SkillLevels { get; private set; }
+
+    public SkillTab() { }
+
+    public SkillTab(long characterId, Job job, long id, string name)
     {
-        public long Id { get; set; }
-        public string Name { get; private set; }
+        Name = name;
+        ResetSkillTree(job);
+        TabId = id;
+        Uid = DatabaseManager.SkillTabs.Insert(this, characterId);
+    }
 
-        public Player Player;
+    public SkillTab(string name, int jobId, long tabId, long uid, Dictionary<int, short> skillLevels)
+    {
+        Name = name;
+        TabId = tabId;
+        Uid = uid;
+        GenerateSkills((Job) jobId);
+        SkillLevels = skillLevels;
+    }
 
-        public List<int> Order { get; private set; }
-        public Dictionary<int, SkillMetadata> SkillJob { get; private set; }
-        public Dictionary<int, int> SkillLevels { get; private set; }
+    public static Dictionary<int, SkillMetadata> AddOnDictionary(Job job)
+    {
+        Dictionary<int, SkillMetadata> skillJob = new();
 
-        public SkillTab() { }
-
-        public SkillTab(Job job)
+        foreach (SkillMetadata skill in SkillMetadataStorage.GetJobSkills(job))
         {
-            Id = GuidGenerator.Long();
-            Name = "";
-            Order = SkillTreeOrdered.GetListOrdered(job);
-            SkillJob = AddOnDictionary(job);
-            SkillLevels = SkillJob.ToDictionary(x => x.Key, x => (int) x.Value.Learned);
+            skillJob[skill.SkillId] = skill;
+        }
+        return skillJob;
+    }
+
+    public void AddOrUpdate(int id, short level, bool isLearned)
+    {
+        SkillLevels[id] = isLearned ? level : (short) 0;
+        if (!SkillJob.ContainsKey(id))
+        {
+            return;
         }
 
-        public static Dictionary<int, SkillMetadata> AddOnDictionary(Job job)
+        foreach (int sub in SkillJob[id].SubSkills)
         {
-            Dictionary<int, SkillMetadata> skillJob = new Dictionary<int, SkillMetadata>();
-
-            foreach (SkillMetadata skill in SkillMetadataStorage.GetJobSkills(job))
-            {
-                skillJob[skill.SkillId] = skill;
-            }
-            return skillJob;
+            SkillLevels[sub] = isLearned ? level : (short) 0;
         }
+    }
 
-        public void AddOrUpdate(int id, short level, bool isLearned)
-        {
-            SkillLevels[id] = isLearned ? level : 0;
-            foreach (int sub in SkillJob[id].SubSkills)
-            {
-                SkillLevels[sub] = isLearned ? level : 0;
-            }
-        }
+    public void GenerateSkills(Job job)
+    {
+        Order = SkillTreeOrdered.GetListOrdered(job);
+        SkillJob = AddOnDictionary(job);
+    }
 
-        public void Rename(string name)
-        {
-            Name = name;
-        }
+    public void ResetSkillTree(Job job)
+    {
+        GenerateSkills(job);
+        SkillLevels = SkillJob.ToDictionary(x => x.Key, x => x.Value.CurrentLevel);
+    }
 
-        public static List<SkillMetadata> GetJobFeatureSkills(Job job) => SkillMetadataStorage.GetJobSkills(job);
+    public static List<SkillMetadata> GetJobFeatureSkills(Job job)
+    {
+        return SkillMetadataStorage.GetJobSkills(job);
+    }
 
-        public override string ToString() => $"SkillTab(Id:{Id},Name:{Name},Skills:{string.Join(",", SkillJob)})";
-
-        public void GenerateSkills(Job job)
-        {
-            Order = SkillTreeOrdered.GetListOrdered(job);
-            SkillJob = AddOnDictionary(job);
-        }
+    public override string ToString()
+    {
+        return $"SkillTab(Id:{Uid},Name:{Name},Skills:{string.Join(",", SkillJob)})";
     }
 }

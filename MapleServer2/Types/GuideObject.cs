@@ -1,18 +1,14 @@
-﻿using MapleServer2.Tools;
+﻿namespace MapleServer2.Types;
 
-namespace MapleServer2.Types
+public class GuideObject
 {
-    public class GuideObject
-    {
-        public readonly int Id;
-        public long BoundCharacterId;
-        public byte Type;
+    public long BoundCharacterId;
+    public byte Type;
+    public bool IsBall;
 
-        public GuideObject(byte type, long characterId)
-        {
-            Id = GuidGenerator.Int();
-            Type = type;
-            BoundCharacterId = characterId;
-        }
+    public GuideObject(byte type, long characterId)
+    {
+        Type = type;
+        BoundCharacterId = characterId;
     }
 }

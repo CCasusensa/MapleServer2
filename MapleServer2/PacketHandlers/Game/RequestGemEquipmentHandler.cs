@@ -1,114 +1,111 @@
-﻿using System.Collections.Generic;
-using MaplePacketLib2.Tools;
+﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
-using MapleServer2.Tools;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public class RequestGemEquipmentHandler : GamePacketHandler
 {
-    public class RequestGemEquipmentHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.REQUEST_GEM_EQUIPMENT;
+
+    public RequestGemEquipmentHandler() : base() { }
+
+    private enum RequestGemEquipmentMode : byte
     {
-        public override RecvOp OpCode => RecvOp.REQUEST_GEM_EQUIPMENT;
+        EquipItem = 0x00,
+        UnequipItem = 0x01,
+        Transprency = 0x03
+    }
 
-        public RequestGemEquipmentHandler(ILogger<RequestGemEquipmentHandler> logger) : base(logger) { }
+    public override void Handle(GameSession session, PacketReader packet)
+    {
+        RequestGemEquipmentMode mode = (RequestGemEquipmentMode) packet.ReadByte();
 
-        private enum RequestGemEquipmentMode : byte
+        switch (mode)
         {
-            EquipItem = 0x00,
-            UnequipItem = 0x01,
-            Transprency = 0x03
+            case RequestGemEquipmentMode.EquipItem:
+                HandleEquipItem(session, packet);
+                break;
+            case RequestGemEquipmentMode.UnequipItem:
+                HandleUnequipItem(session, packet);
+                break;
+            case RequestGemEquipmentMode.Transprency:
+                HandleTransparency(session, packet);
+                break;
+            default:
+                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                break;
+        }
+    }
+
+    private static void HandleEquipItem(GameSession session, PacketReader packet)
+    {
+        long itemUid = packet.ReadLong();
+
+        // Remove from inventory
+        bool success = session.Player.Inventory.RemoveItem(session, itemUid, out Item item);
+
+        if (!success)
+        {
+            return;
         }
 
-        public override void Handle(GameSession session, PacketReader packet)
+        // Unequip existing item in slot
+        Item[] badges = session.Player.Inventory.Badges;
+        int index = Array.FindIndex(badges, x => x != null && x.GemSlot == item.GemSlot);
+        if (index >= 0)
         {
-            RequestGemEquipmentMode mode = (RequestGemEquipmentMode) packet.ReadByte();
-
-            switch (mode)
-            {
-                case RequestGemEquipmentMode.EquipItem:
-                    HandleEquipItem(session, packet);
-                    break;
-                case RequestGemEquipmentMode.UnequipItem:
-                    HandleUnequipItem(session, packet);
-                    break;
-                case RequestGemEquipmentMode.Transprency:
-                    HandleTransparency(session, packet);
-                    break;
-                default:
-                    IPacketHandler<GameSession>.LogUnknownMode(mode);
-                    break;
-            }
-        }
-
-        private static void HandleEquipItem(GameSession session, PacketReader packet)
-        {
-            long itemUid = packet.ReadLong();
-
-            // Remove from inventory
-            bool success = InventoryController.Remove(session, itemUid, out Item item);
-
-            if (!success)
-            {
-                return;
-            }
-
-            // Unequip existing item in slot
-            List<Item> badges = session.Player.Inventory.Badges;
-            int index = badges.FindIndex(i => i.GemSlot == item.GemSlot);
-            if (index >= 0)
-            {
-                // Add to inventory
-                badges[index].IsEquipped = false;
-                InventoryController.Add(session, badges[index], false);
-
-                // Unequip
-                badges.RemoveAt(index);
-                session.FieldManager.BroadcastPacket(GemPacket.UnequipItem(session, (byte) item.GemSlot));
-            }
-
-            // Equip
-            item.IsEquipped = true;
-            badges.Add(item);
-            session.FieldManager.BroadcastPacket(GemPacket.EquipItem(session, item));
-        }
-
-        private static void HandleUnequipItem(GameSession session, PacketReader packet)
-        {
-            byte index = packet.ReadByte();
-
-            List<Item> badges = session.Player.Inventory.Badges;
-            if (badges.Count < index + 1)
-            {
-                return;
-            }
-
-            Item item = badges[index];
-
             // Add to inventory
-            item.IsEquipped = false;
-            InventoryController.Add(session, item, false);
+            badges[index].IsEquipped = false;
+            session.Player.Inventory.AddItem(session, badges[index], false);
 
             // Unequip
-            bool removed = badges.Remove(item);
-            if (removed)
-            {
-                session.FieldManager.BroadcastPacket(GemPacket.UnequipItem(session, (byte) item.GemSlot));
-            }
+            badges[index] = default;
+            session.FieldManager.BroadcastPacket(GemPacket.UnequipItem(session, item.GemSlot));
         }
 
-        private static void HandleTransparency(GameSession session, PacketReader packet)
+        // Equip
+        item.IsEquipped = true;
+        int emptyIndex = Array.FindIndex(badges, x => x == default);
+        if (emptyIndex == -1)
         {
-            byte slot = packet.ReadByte();
-            byte[] transparencyBools = packet.Read(10);
-
-            Item item = session.Player.Inventory.Badges[slot];
-
-            item.TransparencyBadgeBools = transparencyBools;
-
-            session.FieldManager.BroadcastPacket(GemPacket.EquipItem(session, item));
+            return;
         }
+        badges[emptyIndex] = item;
+        session.FieldManager.BroadcastPacket(GemPacket.EquipItem(session, item, emptyIndex));
+    }
+
+    private static void HandleUnequipItem(GameSession session, PacketReader packet)
+    {
+        byte index = packet.ReadByte();
+
+        Item[] badges = session.Player.Inventory.Badges;
+
+        Item item = badges[index];
+        if (item == null)
+        {
+            return;
+        }
+        // Add to inventory
+        item.IsEquipped = false;
+        session.Player.Inventory.AddItem(session, item, false);
+
+        // Unequip
+        badges[index] = default;
+        session.FieldManager.BroadcastPacket(GemPacket.UnequipItem(session, item.GemSlot));
+    }
+
+    private static void HandleTransparency(GameSession session, PacketReader packet)
+    {
+        byte index = packet.ReadByte();
+        byte[] transparencyBools = packet.ReadBytes(10);
+
+        Item item = session.Player.Inventory.Badges[index];
+
+        item.TransparencyBadgeBools = transparencyBools;
+
+        session.FieldManager.BroadcastPacket(GemPacket.EquipItem(session, item, index));
     }
 }

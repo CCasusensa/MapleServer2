@@ -1,56 +1,39 @@
-﻿using System.Collections.Generic;
-using System.Xml;
-using GameDataParser.Crypto.Common;
+﻿using System.Xml;
 using GameDataParser.Files;
+using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Types.Metadata;
 
-namespace GameDataParser.Parsers
+namespace GameDataParser.Parsers;
+
+public class InstrumentCategoryInfoParser : Exporter<List<InstrumentCategoryInfoMetadata>>
 {
-    public class InstrumentCategoryInfoParser : Exporter<List<InstrumentCategoryInfoMetadata>>
+    public InstrumentCategoryInfoParser(MetadataResources resources) : base(resources, "instrument-category-info") { }
+
+    protected override List<InstrumentCategoryInfoMetadata> Parse()
     {
-        public InstrumentCategoryInfoParser(MetadataResources resources) : base(resources, "instrument-category-info") { }
-
-        protected override List<InstrumentCategoryInfoMetadata> Parse()
+        List<InstrumentCategoryInfoMetadata> instrument = new();
+        foreach (PackFileEntry entry in Resources.XmlReader.Files)
         {
-            List<InstrumentCategoryInfoMetadata> instrument = new List<InstrumentCategoryInfoMetadata>();
-            foreach (PackFileEntry entry in Resources.XmlFiles)
+            if (!entry.Name.StartsWith("table/instrumentcategoryinfo"))
             {
-
-                if (!entry.Name.StartsWith("table/instrumentcategoryinfo"))
-                {
-                    continue;
-                }
-
-                XmlDocument document = Resources.XmlMemFile.GetDocument(entry.FileHeader);
-                foreach (XmlNode node in document.DocumentElement.ChildNodes)
-                {
-                    InstrumentCategoryInfoMetadata metadata = new InstrumentCategoryInfoMetadata();
-
-                    if (node.Name == "category")
-                    {
-                        metadata.CategoryId = byte.Parse(node.Attributes["id"].Value);
-
-                        if (node.Attributes["GMId"] != null)
-                        {
-                            metadata.GMId = byte.Parse(node.Attributes["GMId"].Value);
-                        }
-
-                        if (node.Attributes["defaultOctave"] != null)
-                        {
-                            metadata.Octave = node.Attributes["defaultOctave"].Value;
-                        }
-
-                        if (node.Attributes["percussionId"] != null)
-                        {
-                            metadata.PercussionId = byte.Parse(node.Attributes["percussionId"].Value);
-                        }
-
-                        instrument.Add(metadata);
-                    }
-                }
+                continue;
             }
-            return instrument;
+
+            XmlDocument document = Resources.XmlReader.GetXmlDocument(entry);
+            XmlNodeList nodes = document.SelectNodes("/ms2/category");
+
+            foreach (XmlNode node in nodes)
+            {
+                InstrumentCategoryInfoMetadata metadata = new();
+
+                metadata.CategoryId = byte.Parse(node.Attributes["id"].Value);
+                metadata.GMId = byte.Parse(node.Attributes["GMId"]?.Value ?? "0");
+                metadata.Octave = node.Attributes["defaultOctave"]?.Value ?? "";
+                metadata.PercussionId = byte.Parse(node.Attributes["percussionId"]?.Value ?? "0");
+
+                instrument.Add(metadata);
+            }
         }
+        return instrument;
     }
 }
-

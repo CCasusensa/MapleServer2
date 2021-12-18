@@ -1,56 +1,65 @@
 ﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
-using MapleServer2.Tools;
 using MapleServer2.Types;
-using Microsoft.Extensions.Logging;
 
-namespace MapleServer2.PacketHandlers.Game
+namespace MapleServer2.PacketHandlers.Game;
+
+public class RequestItemPickupHandler : GamePacketHandler
 {
-    public class RequestItemPickupHandler : GamePacketHandler
+    public override RecvOp OpCode => RecvOp.REQUEST_ITEM_PICKUP;
+
+    public RequestItemPickupHandler() : base() { }
+
+    public override void Handle(GameSession session, PacketReader packet)
     {
-        public override RecvOp OpCode => RecvOp.REQUEST_ITEM_PICKUP;
+        int objectId = packet.ReadInt();
 
-        public RequestItemPickupHandler(ILogger<GamePacketHandler> logger) : base(logger) { }
-
-        public override void Handle(GameSession session, PacketReader packet)
+        if (!session.FieldManager.State.TryGetItem(objectId, out IFieldObject<Item> fieldItem))
         {
-            int objectId = packet.ReadInt();
+            return;
+        }
 
-            bool foundItem = session.FieldManager.State.TryGetItem(objectId, out IFieldObject<Item> fieldItem);
-            if (foundItem)
-            {
-                switch (fieldItem.Value.Id)
+        switch (fieldItem.Value.Id)
+        {
+            case 90000004:
+            case 90000011:
+            case 90000015:
+            case 90000016:
+            case 90000020:
+                session.Player.Account.Meret.Modify(fieldItem.Value.Amount);
+                break;
+            case 90000008:
+                session.Player.Levels.GainExp(fieldItem.Value.Amount);
+                break;
+            case 90000009:
+                session.Player.FieldPlayer.RecoverSp(fieldItem.Value.Amount);
+                break;
+            case 90000010:
+                session.Player.FieldPlayer.RecoverStamina(fieldItem.Value.Amount);
+                break;
+            default:
+                if (!session.Player.Inventory.CanHold(fieldItem.Value))
                 {
-                    case 90000004:
-                    case 90000011:
-                    case 90000015:
-                    case 90000016:
-                    case 90000020:
-                        session.Player.Wallet.Meret.Modify(fieldItem.Value.Amount);
-                        break;
-                    case 90000008:
-                        session.Player.Levels.GainExp(fieldItem.Value.Amount);
-                        break;
-                    case 90000009:
-                        session.Player.RecoverSp(fieldItem.Value.Amount);
-                        break;
-                    case 90000010:
-                        session.Player.RecoverStamina(fieldItem.Value.Amount);
-                        break;
-                    default:
-                        // TODO: This will be bugged when you have a full inventory, check inventory before looting
-                        InventoryController.Add(session, fieldItem.Value, true);
-                        break;
+                    // No need to send "Inventory full" message since it's client sided.
+                    return;
                 }
 
-                session.FieldManager.RemoveItem(objectId, out Item item);
-            }
+                fieldItem.Value.Slot = -1; // add to first empty slot
+                session.Player.Inventory.AddItem(session, fieldItem.Value, true);
+                break;
+        }
 
-            int countExtra = packet.ReadByte();
-            for (int i = 0; i < countExtra; i++)
-            {
-            }
+        if (session.FieldManager.RemoveItem(objectId, out Item item))
+        {
+            session.FieldManager.BroadcastPacket(FieldItemPacket.PickupItem(objectId, item, session.Player.FieldPlayer.ObjectId));
+            session.FieldManager.BroadcastPacket(FieldItemPacket.RemoveItem(objectId));
+        }
+
+        int countExtra = packet.ReadByte();
+        for (int i = 0; i < countExtra; i++)
+        {
         }
     }
 }

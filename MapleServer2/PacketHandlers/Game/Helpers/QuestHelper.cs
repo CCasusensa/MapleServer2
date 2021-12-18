@@ -1,84 +1,111 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Maple2Storage.Enums;
+﻿using Maple2Storage.Enums;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
 
-namespace MapleServer2.PacketHandlers.Game.Helpers
+namespace MapleServer2.PacketHandlers.Game.Helpers;
+
+public static class QuestHelper
 {
-    public class QuestHelper
+    public static void UpdateExplorationQuest(GameSession session, string code, string type)
     {
-        public static void UpdateExplorationQuest(GameSession session, string code, string type)
+        IEnumerable<QuestStatus> quests = session.Player.QuestData.Values.Where(quest =>
+                quest.Basic.QuestType is QuestType.Exploration
+                && quest.Condition is not null
+                && quest.State is QuestState.Started
+                && quest.Condition.Any(condition => condition.Type == type && condition.Codes.Contains(code)));
+        foreach (QuestStatus quest in quests)
         {
-            List<QuestStatus> questList = session.Player.QuestList;
-            foreach (QuestStatus quest in questList.Where(x => x.Basic.QuestType == QuestType.Exploration && x.Condition != null))
+            Condition condition = quest.Condition.FirstOrDefault(condition =>
+                condition.Type == type
+                && condition.Codes.Contains(code)
+                && !condition.Completed);
+            if (condition == null)
             {
-                Condition condition = quest.Condition.Where(x => x.Type == type)
-                    .FirstOrDefault(x => x.Codes.Length != 0 && x.Codes.Contains(code));
-                if (condition == null)
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                if (condition.Goal != condition.Current)
-                {
-                    condition.Current++;
-                }
+            condition.Current++;
 
-                session.Send(QuestPacket.UpdateCondition(quest.Basic.Id, quest.Condition.IndexOf(condition) + 1, condition.Current));
+            if (condition.Current >= condition.Goal)
+            {
+                condition.Completed = true;
+            }
 
-                if (condition.Goal != condition.Current) // Quest completed
-                {
-                    return;
-                }
-                quest.Completed = true;
-                quest.CompleteTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            session.Send(QuestPacket.UpdateCondition(quest.Basic.Id, quest.Condition));
 
-                session.Player.Levels.GainExp(quest.Reward.Exp);
-                session.Player.Wallet.Meso.Modify(quest.Reward.Money);
-                session.Send(QuestPacket.CompleteQuest(quest.Basic.Id, false));
+            if (!condition.Completed)
+            {
                 return;
             }
+
+            quest.State = QuestState.Finished;
+            quest.CompleteTimestamp = TimeInfo.Now();
+            DatabaseManager.Quests.Update(quest);
+
+            session.Player.Levels.GainExp(quest.Reward.Exp);
+            session.Player.Wallet.Meso.Modify(quest.Reward.Money);
+            session.Send(QuestPacket.CompleteQuest(quest.Basic.Id, false));
+            return;
         }
+    }
 
-        public static void UpdateQuest(GameSession session, string code, string type)
+    public static void UpdateQuest(GameSession session, string code, string type, string target = "")
+    {
+        IEnumerable<QuestStatus> questList = session.Player.QuestData.Values.Where(quest =>
+            quest.Condition is not null
+            && quest.State is QuestState.Started
+            && quest.Condition.Any(condition => condition.Codes is not null
+                                                && condition.Target is not null
+                                                && condition.Type == type
+                                                && condition.Codes.Contains(code)
+                                                && (condition.Target.Contains(target) || condition.Target.Count == 0)));
+        foreach (QuestStatus quest in questList)
         {
-            List<QuestStatus> questList = session.Player.QuestList;
-            foreach (QuestStatus quest in questList.Where(x => x.Condition != null))
+            Condition condition = quest.Condition.FirstOrDefault(condition =>
+                condition.Codes.Contains(code)
+                && (condition.Target.Contains(target) || condition.Target.Count == 0)
+                && !condition.Completed);
+            if (condition == null)
             {
-                Condition condition = quest.Condition.Where(x => x.Type == type).FirstOrDefault(x => x.Codes != null && x.Codes.Length != 0 && x.Codes.Contains(code));
-                if (condition == null)
-                {
-                    continue;
-                }
+                continue;
+            }
 
+            if (condition.Goal != 0)
+            {
                 if (condition.Goal == condition.Current)
                 {
                     return;
                 }
-                condition.Current++;
-                session.Send(QuestPacket.UpdateCondition(quest.Basic.Id, quest.Condition.IndexOf(condition) + 1, condition.Current));
-                return;
             }
-        }
 
-        public static void GetNewQuests(GameSession session, int level)
-        {
-            List<QuestMetadata> questList = QuestMetadataStorage.GetAvailableQuests(level);
-            foreach (QuestMetadata quest in questList)
+            condition.Current++;
+            if (condition.Current >= condition.Goal)
             {
-                if (session.Player.QuestList.Exists(x => x.Basic.Id == quest.Basic.Id))
-                {
-                    continue;
-                }
-                session.Player.QuestList.Add(new QuestStatus(session.Player, quest));
+                condition.Completed = true;
             }
 
-            session.Send(QuestPacket.SendQuests(session.Player.QuestList));
+            session.Send(QuestPacket.UpdateCondition(quest.Basic.Id, quest.Condition));
+            DatabaseManager.Quests.Update(quest);
         }
+    }
+
+    public static void GetNewQuests(Player player)
+    {
+        List<QuestMetadata> questList = QuestMetadataStorage.GetAvailableQuests(player.Levels.Level, player.Job);
+        foreach (QuestMetadata quest in questList)
+        {
+            if (player.QuestData.ContainsKey(quest.Basic.Id))
+            {
+                continue;
+            }
+
+            player.QuestData.Add(quest.Basic.Id, new(player, quest));
+        }
+
+        player.Session.Send(QuestPacket.SendQuests(player.QuestData.Values.ToList()));
     }
 }

@@ -1,20 +1,19 @@
-﻿using System.Collections.Generic;
+﻿using Maple2Storage.Types.Metadata;
 
-namespace MapleServer2.Types
+namespace MapleServer2.Types;
+
+public class NpcTalk
 {
-    public class NpcTalk
-    {
-        public int ScriptId;
-        public int QuestId;
-        public int ContentIndex;
-        public Npc Npc;
-        public List<QuestStatus> Quests;
-        public bool IsQuest;
+    public int ScriptId;
+    public int QuestId;
+    public int ContentIndex;
+    public NpcMetadata Npc;
+    public List<QuestStatus> Quests;
+    public bool IsQuest;
 
-        public NpcTalk(Npc npc, List<QuestStatus> quests)
-        {
-            Npc = npc;
-            Quests = quests;
-        }
+    public NpcTalk(NpcMetadata npc, List<QuestStatus> quests)
+    {
+        Npc = npc;
+        Quests = quests;
     }
 }
