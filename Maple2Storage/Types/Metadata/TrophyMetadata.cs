@@ -13,25 +13,14 @@ public class TrophyMetadata
     [XmlElement(Order = 3)]
     public bool AccountWide;
     [XmlElement(Order = 4)]
-    public List<TrophyGradeMetadata> Grades;
-
-    // Required for deserialization
-    public TrophyMetadata()
-    {
-        Grades = new();
-    }
-
-    public TrophyMetadata(int id, List<TrophyGradeMetadata> grades)
-    {
-        Id = id;
-        Grades = grades;
-    }
+    public List<TrophyGradeMetadata> Grades = new();
 
     public override string ToString()
     {
         return $"TrophyMetadata(Id:{Id},Categories:{string.Join(",", Categories)},Grades:{string.Join(",", Grades)}";
     }
 }
+
 [XmlType]
 public class TrophyGradeMetadata
 {
@@ -51,9 +40,6 @@ public class TrophyGradeMetadata
     public int RewardCode;
     [XmlElement(Order = 8)]
     public int RewardValue;
-
-    // Required for deserialization
-    public TrophyGradeMetadata() { }
 
     public override string ToString()
     {

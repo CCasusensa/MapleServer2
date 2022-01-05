@@ -10,7 +10,7 @@ namespace MapleServer2.Data.Static;
 // This is an in-memory storage to help with determining some metadata of items
 public static class ItemMetadataStorage
 {
-    private static readonly Dictionary<int, ItemMetadata> map = new();
+    private static readonly Dictionary<int, ItemMetadata> ItemMetadatas = new();
 
     public static void Init()
     {
@@ -18,19 +18,21 @@ public static class ItemMetadataStorage
         List<ItemMetadata> items = Serializer.Deserialize<List<ItemMetadata>>(stream);
         foreach (ItemMetadata item in items)
         {
-            map[item.Id] = item;
+            ItemMetadatas[item.Id] = item;
         }
     }
 
-    public static bool IsValid(int itemId) => map.ContainsKey(itemId);
+    public static bool IsValid(int itemId) => ItemMetadatas.ContainsKey(itemId);
 
-    public static ItemMetadata GetMetadata(int itemId) => map.GetValueOrDefault(itemId);
+    public static ItemMetadata GetMetadata(int itemId) => ItemMetadatas.GetValueOrDefault(itemId);
 
     public static string GetName(int itemId) => GetMetadata(itemId).Name;
 
     public static ItemSlot GetSlot(int itemId) => GetMetadata(itemId).Slot;
 
     public static GemSlot GetGem(int itemId) => GetMetadata(itemId).Gem;
+
+    public static MedalSlot GetMedalSlot(int itemId) => GetMetadata(itemId).Medal;
 
     public static InventoryTab GetTab(int itemId) => GetMetadata(itemId).Tab;
 
@@ -68,9 +70,11 @@ public static class ItemMetadataStorage
 
     public static int GetRepackageConsumeCount(int itemId) => GetMetadata(itemId).RepackageItemConsumeCount;
 
+    public static string GetCategory(int itemId) => GetMetadata(itemId).Category;
+
     public static List<Job> GetRecommendJobs(int itemId)
     {
-        Converter<int, Job> converter = new((integer) => (Job) integer);
+        Converter<int, Job> converter = integer => (Job) integer;
 
         return GetMetadata(itemId).RecommendJobs.ConvertAll(converter);
     }
@@ -152,5 +156,5 @@ public static class ItemMetadataStorage
 
     public static string GetBlackMarketCategory(int itemId) => GetMetadata(itemId).BlackMarketCategory;
 
-    public static IEnumerable<ItemMetadata> GetAll() => map.Values;
+    public static IEnumerable<ItemMetadata> GetAll() => ItemMetadatas.Values;
 }

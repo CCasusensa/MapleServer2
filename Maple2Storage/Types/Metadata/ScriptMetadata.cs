@@ -13,13 +13,12 @@ public class ScriptMetadata
     [XmlElement(Order = 3)]
     public List<Option> Options = new();
 
-    public ScriptMetadata() { }
-
     public override string ToString()
     {
         return $"IsQuestScript: {IsQuestScript}, Id: {Id}, Options: ({string.Join(", ", Options)})";
     }
 }
+
 [XmlType]
 public class Option
 {
@@ -50,6 +49,7 @@ public class Option
         return $"Type: {Type}, Id: {Id}, AmountContent: {Contents.Count}, Contents: {string.Join("\n", Contents)})\r\n";
     }
 }
+
 [XmlType]
 public class Content
 {
@@ -74,6 +74,7 @@ public class Content
         return $"FunctionId: {FunctionId}, ButtonSet: {ButtonSet}, Distractor: ({string.Join("\r\n", Distractor)})";
     }
 }
+
 [XmlType]
 public class Distractor
 {
@@ -95,6 +96,7 @@ public class Distractor
         return $"Goto: {string.Join(", ", Goto)}, GotoFail: {string.Join(", ", GotoFail)}";
     }
 }
+
 public enum ScriptType
 {
     Select = 0,

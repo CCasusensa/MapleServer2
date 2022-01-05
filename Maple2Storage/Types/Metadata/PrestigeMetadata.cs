@@ -6,19 +6,14 @@ namespace Maple2Storage.Types.Metadata;
 public class PrestigeMetadata
 {
     [XmlElement(Order = 1)]
-    public readonly List<PrestigeReward> Rewards;
-
-    // Required for deserialization
-    public PrestigeMetadata()
-    {
-        Rewards = new();
-    }
+    public readonly List<PrestigeReward> Rewards = new();
 
     public override string ToString()
     {
         return $"PrestigeMetadata(Rewards:{string.Join(",", Rewards)})";
     }
 }
+
 [XmlType]
 public class PrestigeReward
 {
@@ -31,7 +26,6 @@ public class PrestigeReward
     [XmlElement(Order = 4)]
     public readonly int Value;
 
-    // Required for deserialization
     public PrestigeReward() { }
 
     public PrestigeReward(int level, string type, int id, int value)

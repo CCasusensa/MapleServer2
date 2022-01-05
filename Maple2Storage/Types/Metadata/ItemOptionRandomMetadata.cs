@@ -9,9 +9,8 @@ public class ItemOptionRandomMetadata
     public int Id;
     [XmlElement(Order = 2)]
     public List<ItemOptionRandom> ItemOptions = new();
-
-    public ItemOptionRandomMetadata() { }
 }
+
 [XmlType]
 public class ItemOptionRandom
 {
@@ -25,6 +24,4 @@ public class ItemOptionRandom
     public List<ParserStat> Stats = new();
     [XmlElement(Order = 5)]
     public List<ParserSpecialStat> SpecialStats = new();
-
-    public ItemOptionRandom() { }
 }

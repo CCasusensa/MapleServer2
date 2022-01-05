@@ -20,7 +20,7 @@ public class TitleParser : Exporter<List<TitleMetadata>>
         }
 
         XmlDocument document = Resources.XmlReader.GetXmlDocument(file);
-        XmlNodeList nodes = document.SelectNodes($"/ms2/key");
+        XmlNodeList nodes = document.SelectNodes("/ms2/key");
         foreach (XmlNode node in nodes)
         {
             int id = int.Parse(node.Attributes["id"].Value);
@@ -31,7 +31,7 @@ public class TitleParser : Exporter<List<TitleMetadata>>
 
             string name = node.Attributes["name"].Value;
             string feature = node.Attributes["feature"]?.Value ?? string.Empty;
-            metadatas.Add(new TitleMetadata(id, name, feature));
+            metadatas.Add(new(id, name, feature));
         }
 
         return metadatas;

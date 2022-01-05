@@ -2,18 +2,16 @@
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
+using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
-using Instrument = MapleServer2.Types.Instrument;
 
 namespace MapleServer2.PacketHandlers.Game;
 
 public class InstrumentHandler : GamePacketHandler
 {
     public override RecvOp OpCode => RecvOp.PLAY_INSTRUMENT;
-
-    public InstrumentHandler() : base() { }
 
     private enum InstrumentMode : byte
     {
@@ -82,7 +80,7 @@ public class InstrumentHandler : GamePacketHandler
 
         Item item = session.Player.Inventory.Items[itemUid];
 
-        InsturmentInfoMetadata instrumentInfo = InstrumentInfoMetadataStorage.GetMetadata(item.Function.Id);
+        InstrumentInfoMetadata instrumentInfo = InstrumentInfoMetadataStorage.GetMetadata(item.Function.Id);
         InstrumentCategoryInfoMetadata instrumentCategory = InstrumentCategoryInfoMetadataStorage.GetMetadata(instrumentInfo.Category);
 
         Instrument instrument = new(instrumentCategory.GMId, instrumentCategory.PercussionId, false, session.Player.FieldPlayer.ObjectId)
@@ -127,7 +125,7 @@ public class InstrumentHandler : GamePacketHandler
 
         Item instrumentItem = session.Player.Inventory.Items[instrumentItemUid];
 
-        InsturmentInfoMetadata instrumentInfo = InstrumentInfoMetadataStorage.GetMetadata(instrumentItem.Function.Id);
+        InstrumentInfoMetadata instrumentInfo = InstrumentInfoMetadataStorage.GetMetadata(instrumentItem.Function.Id);
         InstrumentCategoryInfoMetadata instrumentCategory = InstrumentCategoryInfoMetadataStorage.GetMetadata(instrumentInfo.Category);
 
         Item score = session.Player.Inventory.Items[scoreItemUid];
@@ -156,7 +154,7 @@ public class InstrumentHandler : GamePacketHandler
     {
         int masteryExpGain = (session.ServerTick - session.Player.Instrument.Value.InstrumentTick) / 1000;
         // TODO: Find any exp cap
-        session.Player.Levels.GainMasteryExp(Enums.MasteryType.Performance, masteryExpGain);
+        session.Player.Levels.GainMasteryExp(MasteryType.Performance, masteryExpGain);
         session.FieldManager.BroadcastPacket(InstrumentPacket.StopScore(session.Player.Instrument));
         session.FieldManager.RemoveInstrument(session.Player.Instrument);
         session.Player.Instrument = null;
@@ -212,7 +210,7 @@ public class InstrumentHandler : GamePacketHandler
         }
 
         Item instrumentItem = session.Player.Inventory.Items[instrumentItemUid];
-        InsturmentInfoMetadata instrumentInfo = InstrumentInfoMetadataStorage.GetMetadata(instrumentItem.Function.Id);
+        InstrumentInfoMetadata instrumentInfo = InstrumentInfoMetadataStorage.GetMetadata(instrumentItem.Function.Id);
         InstrumentCategoryInfoMetadata instrumentCategory = InstrumentCategoryInfoMetadataStorage.GetMetadata(instrumentInfo.Category);
         Instrument instrument = new(instrumentCategory.GMId, instrumentCategory.PercussionId, score.IsCustomScore, session.Player.FieldPlayer.ObjectId)
         {

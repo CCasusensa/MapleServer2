@@ -120,6 +120,7 @@ public class ItemParser : Exporter<List<ItemMetadata>>
                 metadata.RepackageCount = byte.Parse(property.Attributes["rePackingLimitCount"].Value);
                 metadata.RepackageItemConsumeCount = byte.Parse(property.Attributes["rePackingItemConsumeCount"].Value);
                 metadata.BlackMarketCategory = property.Attributes["blackMarketCategory"].Value;
+                metadata.Category = property.Attributes["category"].Value;
 
                 // sales price
                 XmlNode sell = property.SelectSingleNode("sell");
@@ -317,6 +318,42 @@ public class ItemParser : Exporter<List<ItemMetadata>>
                         metadata.FunctionData.InstallBillboard = balloon;
                         break;
                     }
+                case "SurvivalSkin":
+                    {
+                        string rawParameter = function.Attributes["parameter"].Value;
+                        string decodedParameter = HttpUtility.HtmlDecode(rawParameter);
+
+                        XmlDocument xmlParameter = new();
+                        xmlParameter.LoadXml(decodedParameter);
+                        XmlNode functionParameters = xmlParameter.SelectSingleNode("v");
+                        MedalSlot medalSlot = functionParameters.Attributes["type"].Value switch
+                        {
+                            "effectTail" => MedalSlot.Tail,
+                            "riding" => MedalSlot.GroundMount,
+                            "gliding" => MedalSlot.Glider,
+                            _ => throw new ArgumentException($"Unknown slot for: {functionParameters.Attributes["type"].Value}")
+                        };
+                        metadata.FunctionData.SurvivalSkin = new()
+                        {
+                            Id = int.Parse(functionParameters.Attributes["id"].Value),
+                            Slot = medalSlot
+                        };
+                    }
+                    break;
+                case "SurvivalLevelExp":
+                    {
+                        string rawParameter = function.Attributes["parameter"].Value;
+                        string decodedParameter = HttpUtility.HtmlDecode(rawParameter);
+
+                        XmlDocument xmlParameter = new();
+                        xmlParameter.LoadXml(decodedParameter);
+                        XmlNode functionParameters = xmlParameter.SelectSingleNode("v");
+                        metadata.FunctionData.SurvivalLevelExp = new()
+                        {
+                            SurvivalExp = int.Parse(functionParameters.Attributes["SurvivalExp"].Value)
+                        };
+                    }
+                    break;
                 case "TitleScroll":
                 case "ItemExchangeScroll":
                 case "OpenInstrument":
@@ -401,7 +438,7 @@ public class ItemParser : Exporter<List<ItemMetadata>>
             }
 
             XmlDocument innerDocument = Resources.XmlReader.GetXmlDocument(entry);
-            XmlNodeList nodes = innerDocument.SelectNodes($"/ms2/key");
+            XmlNodeList nodes = innerDocument.SelectNodes("/ms2/key");
             foreach (XmlNode node in nodes)
             {
                 int itemId = int.Parse(node.Attributes["id"].Value);
@@ -424,7 +461,7 @@ public class ItemParser : Exporter<List<ItemMetadata>>
             }
 
             XmlDocument innerDocument = Resources.XmlReader.GetXmlDocument(entry);
-            XmlNodeList nodes = innerDocument.SelectNodes($"/ms2/key");
+            XmlNodeList nodes = innerDocument.SelectNodes("/ms2/key");
             foreach (XmlNode node in nodes)
             {
                 int itemId = int.Parse(node.Attributes["id"].Value);
@@ -452,7 +489,7 @@ public class ItemParser : Exporter<List<ItemMetadata>>
             }
 
             XmlDocument innerDocument = Resources.XmlReader.GetXmlDocument(entry);
-            XmlNodeList individualItems = innerDocument.SelectNodes($"/ms2/item");
+            XmlNodeList individualItems = innerDocument.SelectNodes("/ms2/item");
             foreach (XmlNode nodes in individualItems)
             {
                 string locale = nodes.Attributes["locale"]?.Value ?? "";
@@ -644,7 +681,7 @@ public class ItemParser : Exporter<List<ItemMetadata>>
                     case 0:
                     case 4:
                     case 5: // Ad Balloon
-                    case 11: // Tail Medal
+                    case 11: // Survival Medals
                     case 15: // Voucher
                     case 17: // Packages
                     case 18: // Packages

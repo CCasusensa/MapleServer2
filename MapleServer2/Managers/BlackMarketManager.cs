@@ -1,5 +1,6 @@
 ﻿using MapleServer2.Database;
 using MapleServer2.Enums;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Types;
 
 namespace MapleServer2.Managers;
@@ -46,7 +47,7 @@ public class BlackMarketManager
     public List<BlackMarketListing> GetSearchedListings(List<string> itemCategories, int minLevel, int maxLevel, int rarity, string name, JobFlag jobFlag,
         int minEnchantLevel, int maxEnchantLevel, byte minSockets, byte maxSockets, int startPage, long sort, bool searchStat, List<ItemStat> searchedStats)
     {
-        List<BlackMarketListing> allResults = new List<BlackMarketListing>();
+        List<BlackMarketListing> allResults = new();
         foreach (BlackMarketListing listing in Listings.Values)
         {
             Item item = listing.Item;
@@ -66,32 +67,9 @@ public class BlackMarketManager
             }
 
             // Check job
-            if (item.RecommendJobs != null)
+            if (!JobHelper.CheckJobFlagForJob(item.RecommendJobs, jobFlag))
             {
-                if (jobFlag != JobFlag.All)
-                {
-                    // Doing a switch on this because Black Market does not allow you select multiple jobs
-                    Job job = jobFlag switch
-                    {
-                        JobFlag.Beginner => Job.Beginner,
-                        JobFlag.Knight => Job.Knight,
-                        JobFlag.Berserker => Job.Berserker,
-                        JobFlag.Wizard => Job.Wizard,
-                        JobFlag.Priest => Job.Priest,
-                        JobFlag.Archer => Job.Archer,
-                        JobFlag.HeavyGunner => Job.HeavyGunner,
-                        JobFlag.Thief => Job.Thief,
-                        JobFlag.Assassin => Job.Assassin,
-                        JobFlag.Runeblade => Job.Runeblade,
-                        JobFlag.Striker => Job.Striker,
-                        JobFlag.SoulBinder => Job.SoulBinder,
-                        _ => Job.None
-                    };
-                    if (!item.RecommendJobs.Contains(job))
-                    {
-                        continue;
-                    }
-                }
+                continue;
             }
 
             if (!searchStat)
@@ -100,8 +78,8 @@ public class BlackMarketManager
                 continue;
             }
 
-            List<NormalStat> normalStats = new List<NormalStat>();
-            List<SpecialStat> specialStats = new List<SpecialStat>();
+            List<NormalStat> normalStats = new();
+            List<SpecialStat> specialStats = new();
             foreach (ItemStat stat in item.Stats.BasicStats)
             {
                 if (stat is NormalStat normalStat)
@@ -147,7 +125,6 @@ public class BlackMarketManager
             if (containsAll)
             {
                 allResults.Add(listing);
-                continue;
             }
         }
 

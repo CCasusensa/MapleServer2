@@ -54,7 +54,11 @@ public static class DatabaseManager
     public static DatabaseMail Mails { get; } = new();
     public static DatabaseBlackMarketListing BlackMarketListings { get; } = new();
     public static DatabaseMesoMarketListing MesoMarketListings { get; } = new();
+    public static DatabaseUGCMarketItem UGCMarketItems { get; } = new();
+    public static DatabaseUGCMarketSale UGCMarketSales { get; } = new();
     public static DatabaseServer ServerInfo { get; } = new();
+    public static DatabaseMushkingRoyaleStats MushkingRoyaleStats { get; } = new();
+    public static DatabaseMedal MushkingRoyaleMedals { get; } = new();
 
     static DatabaseManager()
     {
@@ -122,7 +126,7 @@ public static class DatabaseManager
 
     private static void Seed(string type)
     {
-        Logger.Info("Seeding " + type + "...");
+        Logger.Info($"Seeding {type}...");
         ExecuteSqlFile(File.ReadAllText(Paths.SOLUTION_DIR + "/MapleServer2/Database/Seeding/" + type + "Seeding.sql"));
     }
 

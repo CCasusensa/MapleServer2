@@ -10,9 +10,8 @@ public class DefaultItemsMetadata
     public int JobCode;
     [XmlElement(Order = 2)]
     public List<DefaultItem> DefaultItems = new();
-
-    public DefaultItemsMetadata() { }
 }
+
 [XmlType]
 public class DefaultItem
 {

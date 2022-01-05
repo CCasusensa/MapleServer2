@@ -8,24 +8,14 @@ public class UGCMapMetadata
     [XmlElement(Order = 1)]
     public int MapId;
     [XmlElement(Order = 2)]
-    public List<UGCMapGroup> Groups;
-
-    public UGCMapMetadata()
-    {
-        Groups = new();
-    }
-
-    public UGCMapMetadata(int id, List<UGCMapGroup> groups)
-    {
-        MapId = id;
-        Groups = groups;
-    }
+    public List<UGCMapGroup> Groups = new();
 
     public override string ToString()
     {
         return $"UGCMapMetadata(MapId:{MapId},Groups:{Groups})";
     }
 }
+
 [XmlType]
 public class UGCMapGroup
 {
@@ -58,12 +48,12 @@ public class UGCMapGroup
     [XmlElement(Order = 14)]
     public short HouseNumber;
 
-    public UGCMapGroup() { }
-
     public override string ToString()
     {
-        return $"UGCMapGroup(Id:{Id},Price:{Price},PriceItemCode:{PriceItemCode},ExtensionPrice:{ExtensionPrice},ExtensionPriceItemCode:{ExtensionPriceItemCode},ContractDate:{ContractDate}" +
-            $"ExtensionDate:{ExtensionDate},HeightLimit:{HeightLimit},BuildingCount:{BuildingCount},ReturnPlaceId:{ReturnPlaceId},Area:{Area},SellType:{SellType}," +
+        return
+            $"UGCMapGroup(Id:{Id},Price:{Price},PriceItemCode:{PriceItemCode},ExtensionPrice:{ExtensionPrice},ExtensionPriceItemCode:{ExtensionPriceItemCode}," +
+            $"ContractDate:{ContractDate}, ExtensionDate:{ExtensionDate},HeightLimit:{HeightLimit},BuildingCount:{BuildingCount}," +
+            $"ReturnPlaceId:{ReturnPlaceId},Area:{Area},SellType:{SellType}," +
             $"BlockCode:{BlockCode},HouseNumber:{HouseNumber})";
     }
 }

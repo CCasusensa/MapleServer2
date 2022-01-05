@@ -15,8 +15,6 @@ public class ResponseKeyHandler : CommonPacketHandler
 {
     public override RecvOp OpCode => RecvOp.RESPONSE_KEY;
 
-    public ResponseKeyHandler() : base() { }
-
     public override void Handle(GameSession session, PacketReader packet)
     {
         long accountId = packet.ReadLong();
@@ -71,7 +69,8 @@ public class ResponseKeyHandler : CommonPacketHandler
         player.IsMigrating = false;
 
         //session.Send(0x27, 0x01); // Meret market related...?
-        session.Send(MushkingRoyaleSystemPacket.LoadStats(accountId));
+        session.Send(MushkingRoyaleSystemPacket.LoadStats(session.Player.Account.MushkingRoyaleStats));
+        session.Send(MushkingRoyaleSystemPacket.LoadMedals(session.Player.Account));
 
         player.GetUnreadMailCount();
         session.Send(BuddyPacket.Initialize());
@@ -212,7 +211,7 @@ public class ResponseKeyHandler : CommonPacketHandler
         int tokenA = packet.ReadInt();
         int tokenB = packet.ReadInt();
 
-        Logger.Info("LOGIN USER: {accountId}", accountId);
+        Logger.Info($"LOGIN USER: {accountId}");
         AuthData authData = DatabaseManager.AuthData.GetByAccountId(accountId);
         if (authData == null)
         {

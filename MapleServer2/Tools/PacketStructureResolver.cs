@@ -27,7 +27,7 @@ public class PacketStructureResolver
     private readonly Dictionary<uint, SockHintInfo> Overrides;
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-    private static readonly Regex infoRegex = new(@"\[type=(\d+)\]\[offset=(\d+)\]\[hint=(\w+)\]");
+    private static readonly Regex InfoRegex = new(@"\[type=(\d+)\]\[offset=(\d+)\]\[hint=(\w+)\]");
 
     private PacketStructureResolver(ushort opCode)
     {
@@ -166,14 +166,14 @@ public class PacketStructureResolver
         new SockHintInfo(info.Hint, DefaultValue).Update(Packet);
         string hint = info.Hint switch
         {
-            SockHint.Decode1 => $"pWriter.WriteByte();\r\n",
-            SockHint.Decode2 => $"pWriter.WriteShort();\r\n",
-            SockHint.Decode4 => $"pWriter.WriteInt();\r\n",
-            SockHint.Decodef => $"pWriter.WriteFloat();\r\n",
-            SockHint.Decode8 => $"pWriter.WriteLong();\r\n",
-            SockHint.DecodeStr => $"pWriter.WriteUnicodeString();\r\n",
-            SockHint.DecodeStrA => $"pWriter.WriteString();\r\n",
-            _ => $"[]\r\n"
+            SockHint.Decode1 => "pWriter.WriteByte();\r\n",
+            SockHint.Decode2 => "pWriter.WriteShort();\r\n",
+            SockHint.Decode4 => "pWriter.WriteInt();\r\n",
+            SockHint.Decodef => "pWriter.WriteFloat();\r\n",
+            SockHint.Decode8 => "pWriter.WriteLong();\r\n",
+            SockHint.DecodeStr => "pWriter.WriteUnicodeString();\r\n",
+            SockHint.DecodeStrA => "pWriter.WriteString();\r\n",
+            _ => "[]\r\n"
         };
         DirectoryInfo dir = Directory.CreateDirectory($"{Paths.SOLUTION_DIR}/MapleServer2/PacketStructures");
         StreamWriter file = File.AppendText($"{dir.FullName}/{OpCode:X4} - {PacketName}.txt");
@@ -185,7 +185,7 @@ public class PacketStructureResolver
 
     private static SockExceptionInfo ParseError(string error)
     {
-        Match match = infoRegex.Match(error);
+        Match match = InfoRegex.Match(error);
         if (match.Groups.Count != 4)
         {
             throw new ArgumentException($"Failed to parse error: {error}");

@@ -12,8 +12,6 @@ public class LapenshardHandler : GamePacketHandler
 {
     public override RecvOp OpCode => RecvOp.ITEM_LAPENSHARD;
 
-    public LapenshardHandler() : base() { }
-
     private enum LapenshardMode : byte
     {
         Equip = 0x1,
@@ -77,7 +75,7 @@ public class LapenshardHandler : GamePacketHandler
             return;
         }
 
-        Item newLapenshard = new Item(item)
+        Item newLapenshard = new(item)
         {
             Amount = 1,
             IsEquipped = true,
@@ -229,7 +227,7 @@ public class LapenshardHandler : GamePacketHandler
         }
 
         session.Player.Inventory.ConsumeItem(session, itemUid, 1);
-        session.Player.Inventory.AddItem(session, new Item(itemId + 1) { Rarity = 3 }, true);
+        session.Player.Inventory.AddItem(session, new(itemId + 1) { Rarity = 3 }, true);
         session.Send(LapenshardPacket.Upgrade(itemId, true));
     }
 }

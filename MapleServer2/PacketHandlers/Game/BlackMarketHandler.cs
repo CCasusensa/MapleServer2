@@ -16,8 +16,6 @@ public class BlackMarketHandler : GamePacketHandler
 {
     public override RecvOp OpCode => RecvOp.BLACK_MARKET;
 
-    public BlackMarketHandler() : base() { }
-
     private enum BlackMarketMode : byte
     {
         Open = 0x1,
@@ -28,7 +26,7 @@ public class BlackMarketHandler : GamePacketHandler
         PrepareListing = 0x8
     }
 
-    private enum BlackMarketError : int
+    private enum BlackMarketError
     {
         FailedToListItem = 0x05,
         ItemNotInInventory = 0x0E,
@@ -182,7 +180,7 @@ public class BlackMarketHandler : GamePacketHandler
         packet.ReadShort();
         bool additionalOptionsEnabled = packet.ReadBool();
 
-        List<ItemStat> stats = new List<ItemStat>();
+        List<ItemStat> stats = new();
         if (additionalOptionsEnabled)
         {
             packet.ReadByte(); // always 1
@@ -255,7 +253,7 @@ public class BlackMarketHandler : GamePacketHandler
             {
                 Amount = amount
             };
-            DatabaseManager.Items.Insert(newItem);
+            newItem.Uid = DatabaseManager.Items.Insert(newItem);
             purchasedItem = newItem;
         }
 

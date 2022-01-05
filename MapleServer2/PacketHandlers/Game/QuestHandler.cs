@@ -4,6 +4,7 @@ using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
+using MapleServer2.Managers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
@@ -13,8 +14,6 @@ namespace MapleServer2.PacketHandlers.Game;
 public class QuestHandler : GamePacketHandler
 {
     public override RecvOp OpCode => RecvOp.QUEST;
-
-    public QuestHandler() : base() { }
 
     private enum QuestMode : byte
     {
@@ -66,6 +65,7 @@ public class QuestHandler : GamePacketHandler
         questStatus.StartTimestamp = TimeInfo.Now();
         DatabaseManager.Quests.Update(questStatus);
         session.Send(QuestPacket.AcceptQuest(questId));
+        TrophyManager.OnAcceptQuest(session.Player, questId);
     }
 
     private static void HandleCompleteQuest(GameSession session, PacketReader packet)

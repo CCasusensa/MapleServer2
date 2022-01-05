@@ -3,6 +3,9 @@ using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
+using MapleServer2.Enums;
+using MapleServer2.Managers;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
@@ -12,8 +15,6 @@ namespace MapleServer2.PacketHandlers.Game;
 public class GuildHandler : GamePacketHandler
 {
     public override RecvOp OpCode => RecvOp.GUILD;
-
-    public GuildHandler() : base() { }
 
     private enum GuildMode : byte
     {
@@ -30,6 +31,7 @@ public class GuildHandler : GamePacketHandler
         GuildNotice = 0x3E,
         UpdateRank = 0x41,
         ListGuild = 0x42,
+        GuildMail = 0x45,
         SubmitApplication = 0x50,
         WithdrawApplication = 0x51,
         ApplicationResponse = 0x52,
@@ -125,6 +127,9 @@ public class GuildHandler : GamePacketHandler
             case GuildMode.ListGuild:
                 HandleListGuild(session, packet);
                 break;
+            case GuildMode.GuildMail:
+                HandleGuildMail(session, packet);
+                break;
             case GuildMode.SubmitApplication:
                 HandleSubmitApplication(session, packet);
                 break;
@@ -211,6 +216,7 @@ public class GuildHandler : GamePacketHandler
             application.Remove(session.Player, guild);
         }
         DatabaseManager.Characters.Update(session.Player);
+        TrophyManager.OnGuildJoin(session.Player);
     }
 
     private static void HandleDisband(GameSession session)
@@ -316,6 +322,7 @@ public class GuildHandler : GamePacketHandler
         guild.BroadcastPacketGuild(GuildPacket.MemberBroadcastJoinNotice(member, inviterName, true));
         guild.BroadcastPacketGuild(GuildPacket.MemberJoin(session.Player), session);
         session.Send(GuildPacket.UpdateGuild(guild));
+        TrophyManager.OnGuildJoin(session.Player);
     }
 
     private static void HandleLeave(GameSession session)
@@ -541,6 +548,37 @@ public class GuildHandler : GamePacketHandler
         guild.Searchable = toggle;
         session.Send(GuildPacket.ListGuildConfirm(toggle));
         session.Send(GuildPacket.ListGuildUpdate(session.Player, toggle));
+    }
+
+    private static void HandleGuildMail(GameSession session, IPacketReader packet)
+    {
+        string title = packet.ReadUnicodeString();
+        string body = packet.ReadUnicodeString();
+
+        Player sender = session.Player;
+        Guild guild = sender.Guild;
+
+        if (guild == null)
+        {
+            return;
+        }
+
+        byte senderRank = sender.GuildMember.Rank;
+        GuildRank guildRank = guild.Ranks[senderRank];
+
+        if (!guildRank.HasRight(GuildRights.CanGuildMail))
+        {
+            session.Send(GuildPacket.ErrorNotice((byte) GuildErrorNotice.InsufficientPermissions));
+            return;
+        }
+
+        session.Send(GuildPacket.SendMail());
+
+        IEnumerable<long> recipientIds = guild.Members.Select(c => c.Player.CharacterId);
+        foreach (long recipientId in recipientIds)
+        {
+            MailHelper.SendMail(MailType.Player, recipientId, sender.CharacterId, sender.Name, title, body, "", "", new(), 0, 0, out Mail mail);
+        }
     }
 
     private static void HandleSubmitApplication(GameSession session, PacketReader packet)

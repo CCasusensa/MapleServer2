@@ -1,5 +1,6 @@
 ﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Managers;
 using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
@@ -8,13 +9,11 @@ public class StateHandler : GamePacketHandler
 {
     public override RecvOp OpCode => RecvOp.STATE;
 
-    public StateHandler() : base() { }
-
     private enum StateHandlerMode : byte
     {
         Jump = 0x0,
         Land = 0x1
-    };
+    }
 
     public override void Handle(GameSession session, PacketReader packet)
     {
@@ -32,6 +31,6 @@ public class StateHandler : GamePacketHandler
 
     private static void HandleJump(GameSession session)
     {
-        session.Player.TrophyUpdate("jump", addAmount: 1);
+        TrophyManager.OnJump(session.Player);
     }
 }

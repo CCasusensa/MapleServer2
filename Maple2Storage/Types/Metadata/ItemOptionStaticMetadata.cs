@@ -9,9 +9,8 @@ public class ItemOptionStaticMetadata
     public int Id;
     [XmlElement(Order = 2)]
     public List<ItemOptionsStatic> ItemOptions = new();
-
-    public ItemOptionStaticMetadata() { }
 }
+
 [XmlType]
 public class ItemOptionsStatic
 {
@@ -33,6 +32,4 @@ public class ItemOptionsStatic
     public List<ParserStat> Stats = new();
     [XmlElement(Order = 9)]
     public List<ParserSpecialStat> SpecialStats = new();
-
-    public ItemOptionsStatic() { }
 }

@@ -27,15 +27,13 @@ public class BeautyMetadata
     [XmlElement(Order = 10)]
     public List<BeautyItem> Items { get; set; }
 
-    // Required for deserialization
-    public BeautyMetadata() { }
-
     public override string ToString()
     {
         return $"BeautyMetadata(ShopId:{ShopId},UniqueId:{UniqueId},BeautyCategory:{BeautyCategory},BeautyType:{BeautyType},VoucherId:{VoucherId}," +
-            $"TokenType:{TokenType},RequiredItemId:{RequiredItemId},TokenCost:{TokenCost},SpecialCost:{SpecialCost},Items: {Items})";
+               $"TokenType:{TokenType},RequiredItemId:{RequiredItemId},TokenCost:{TokenCost},SpecialCost:{SpecialCost},Items: {Items})";
     }
 }
+
 [XmlType]
 public class BeautyItem
 {
@@ -58,11 +56,10 @@ public class BeautyItem
     [XmlElement(Order = 9)]
     public int TokenCost;
 
-    public BeautyItem() { }
-
     public override string ToString()
     {
-        return $"BeautyItem(ItemId:{ItemId},Gender:Flag:{Flag},Gender:{Gender},RequiredLevel:{RequiredLevel},RequiredAchievementId:{RequiredAchievementId},RequiredAchievementGrade:{RequiredAchievementGrade}," +
+        return
+            $"BeautyItem(ItemId:{ItemId},Gender:Flag:{Flag},Gender:{Gender},RequiredLevel:{RequiredLevel},RequiredAchievementId:{RequiredAchievementId},RequiredAchievementGrade:{RequiredAchievementGrade}," +
             $"TokenType:{TokenType},RequiredItemId:{RequiredItemId},TokenCost:{TokenCost})";
     }
 }

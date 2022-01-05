@@ -13,9 +13,8 @@ public class HomeTemplateMetadata
     public byte Height;
     [XmlElement(Order = 4)]
     public List<CubeTemplate> Cubes;
-
-    public HomeTemplateMetadata() { }
 }
+
 [XmlType]
 public class CubeTemplate
 {
