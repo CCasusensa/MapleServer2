@@ -1,5 +1,6 @@
-﻿using Maple2Storage.Tools;
+﻿using MapleServer2.Enums;
 using MapleServer2.Packets;
+using MapleServer2.Tools;
 using MapleServer2.Types;
 
 namespace MapleServer2.Triggers;
@@ -8,9 +9,15 @@ public partial class TriggerContext
 {
     public void SetActor(int actorId, bool isVisible, string stateName, bool arg4, bool arg5)
     {
-        Field.State.TriggerActors[actorId].IsVisible = isVisible;
-        Field.State.TriggerActors[actorId].StateName = stateName;
-        Field.BroadcastPacket(TriggerPacket.UpdateTrigger(Field.State.TriggerActors[actorId]));
+        if (!Field.State.TriggerActors.TryGetValue(actorId, out TriggerActor stateTriggerActor))
+        {
+            Logger.Warning("SetActor: Actor not found: {0}", actorId);
+            return;
+        }
+
+        stateTriggerActor.IsVisible = isVisible;
+        stateTriggerActor.StateName = stateName;
+        Field.BroadcastPacket(TriggerPacket.UpdateTrigger(stateTriggerActor));
     }
 
     public void SetAgent(int[] arg1, bool arg2)
@@ -48,17 +55,23 @@ public partial class TriggerContext
             {
                 continue;
             }
+
             interactObject.State = objectState;
-            Field.BroadcastPacket(InteractObjectPacket.SetInteractObject(interactObject));
+            Field.BroadcastPacket(InteractObjectPacket.Set(interactObject));
         }
     }
 
     public void SetLadder(int ladderId, bool isVisible, bool animationEffect, byte animationDelay)
     {
-        Field.State.TriggerLadders[ladderId].IsVisible = isVisible;
-        Field.State.TriggerLadders[ladderId].AnimationEffect = animationEffect;
-        Field.State.TriggerLadders[ladderId].AnimationDelay = animationDelay;
-        Field.BroadcastPacket(TriggerPacket.UpdateTrigger(Field.State.TriggerLadders[ladderId]));
+        if (!Field.State.TriggerLadders.TryGetValue(ladderId, out TriggerLadder ladder))
+        {
+            return;
+        }
+
+        ladder.IsVisible = isVisible;
+        ladder.AnimationEffect = animationEffect;
+        ladder.AnimationDelay = animationDelay;
+        Field.BroadcastPacket(TriggerPacket.UpdateTrigger(ladder));
     }
 
     public void SetMesh(int[] meshIds, bool isVisible, int arg3, int arg4, float arg5)
@@ -86,6 +99,7 @@ public partial class TriggerContext
             {
                 continue;
             }
+
             breakable.IsEnabled = isEnabled;
             Field.BroadcastPacket(BreakablePacket.Interact(breakable));
         }
@@ -103,13 +117,14 @@ public partial class TriggerContext
         {
             return;
         }
+
         portal.Value.Update(visible, enabled, minimapVisible);
         Field.BroadcastPacket(FieldPortalPacket.UpdatePortal(portal));
     }
 
     public void SetRandomMesh(int[] meshIds, bool isVisible, byte meshCount, int arg4, int delayTime)
     {
-        Random random = RandomProvider.Get();
+        Random random = Random.Shared;
         int[] pickedMeshIds = meshIds.OrderBy(x => random.Next()).Take(meshCount).ToArray();
         Task.Run(async () =>
         {
@@ -137,10 +152,14 @@ public partial class TriggerContext
             IFieldObject<TriggerSkill> triggerSkill = Field.State.GetTriggerSkill(triggerId);
             if (triggerSkill != null)
             {
-                //TODO: Do skillcast once skill manager can cast skills by id
-                //eventually we want to be able to do something like:
-                //SkillManager.SkillCast(id) and the skillcast function takes care 
-                //of sending the correct skill type / packet
+                // this is 100% not perfect.
+                SkillCast skillCast = new(triggerSkill.Value.SkillId, triggerSkill.Value.SkillLevel, GuidGenerator.Long(), Environment.TickCount)
+                {
+                    SkillObjectId = triggerSkill.ObjectId,
+                    CasterObjectId = triggerSkill.ObjectId,
+                    Position = triggerSkill.Coord
+                };
+                RegionSkillHandler.HandleEffect(Field, skillCast, 0);
             }
         }
     }

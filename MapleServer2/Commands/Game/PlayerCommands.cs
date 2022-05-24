@@ -1,8 +1,8 @@
-﻿using Maple2Storage.Types;
-using MapleServer2.Commands.Core;
+﻿using MapleServer2.Commands.Core;
 using MapleServer2.Data.Static;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
+using MapleServer2.Servers.Game;
 using MapleServer2.Tools;
 using MapleServer2.Types;
 
@@ -148,13 +148,22 @@ public class LevelCommand : InGameCommand
     {
         short level = trigger.Get<short>("level");
 
-        if (level > 0)
+        if (level <= 0)
         {
-            trigger.Session.Player.Levels.SetLevel(level);
+            trigger.Session.SendNotice("Level must be a number or more than 0.");
             return;
         }
 
-        trigger.Session.SendNotice("Level must be a number or more than 0.");
+        Player player = trigger.Session.Player;
+
+        // Reset stats to default
+        player.Stats = new(player.Job);
+        player.Stats.AddBaseStats(player, level - 1);
+
+        trigger.Session.Send(StatPacket.SetStats(player.FieldPlayer));
+        trigger.Session.FieldManager.BroadcastPacket(StatPacket.SetStats(player.FieldPlayer), trigger.Session);
+
+        player.Levels.SetLevel(level);
     }
 }
 
@@ -196,20 +205,26 @@ public class SkillCommand : InGameCommand
 
     public override void Execute(GameCommandTrigger trigger)
     {
+        GameSession gameSession = trigger.Session;
+        IFieldObject<Player> player = gameSession.Player.FieldPlayer;
+
         int id = trigger.Get<int>("id");
         short level = trigger.Get<short>("level") > 0 ? trigger.Get<short>("level") : (short) 1;
-        if (SkillMetadataStorage.GetSkill(id) == null)
+
+        if (SkillMetadataStorage.GetSkill(id) is null)
         {
-            trigger.Session.SendNotice($"Skill with id: {id} is not defined.");
+            gameSession.SendNotice($"Skill with id: {id} is not defined.");
             return;
         }
 
-        SkillCast skillCast = new(id, level, GuidGenerator.Long(), trigger.Session.ServerTick, trigger.Session.Player.FieldPlayer.ObjectId,
-            trigger.Session.ClientTick);
-        CoordF empty = CoordF.From(0, 0, 0);
-        IFieldObject<Player> player = trigger.Session.Player.FieldPlayer;
+        SkillCast skillCast = new(id, level, GuidGenerator.Long(), gameSession.ServerTick, player.ObjectId, gameSession.ClientTick)
+        {
+            Position = player.Coord,
+            Direction = default,
+            Rotation = default
+        };
 
-        trigger.Session.FieldManager.BroadcastPacket(SkillUsePacket.SkillUse(skillCast, player.Coord, empty, empty));
+        gameSession.FieldManager.BroadcastPacket(SkillUsePacket.SkillUse(skillCast));
     }
 }
 
@@ -248,7 +263,7 @@ public class BuffCommand : InGameCommand
 
         SkillCast skillCast = new(id, level);
         if (skillCast.IsBuffToOwner() || skillCast.IsBuffToEntity() || skillCast.IsBuffShield() || skillCast.IsGM() || skillCast.IsGlobal() ||
-            skillCast.IsHealFromBuff())
+            skillCast.IsRecoveryFromBuff())
         {
             Status status = new(skillCast, trigger.Session.Player.FieldPlayer.ObjectId, trigger.Session.Player.FieldPlayer.ObjectId, stacks);
             StatusHandler.Handle(trigger.Session, status);

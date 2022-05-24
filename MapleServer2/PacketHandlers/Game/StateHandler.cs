@@ -5,9 +5,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class StateHandler : GamePacketHandler
+public class StateHandler : GamePacketHandler<StateHandler>
 {
-    public override RecvOp OpCode => RecvOp.STATE;
+    public override RecvOp OpCode => RecvOp.State;
 
     private enum StateHandlerMode : byte
     {
@@ -25,6 +25,9 @@ public class StateHandler : GamePacketHandler
                 HandleJump(session);
                 break;
             case StateHandlerMode.Land:
+                break;
+            default:
+                LogUnknownMode(mode);
                 break;
         }
     }

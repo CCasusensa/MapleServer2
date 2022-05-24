@@ -6,9 +6,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class CharacterNameChangeHandler : GamePacketHandler
+public class CharacterNameChangeHandler : GamePacketHandler<CharacterNameChangeHandler>
 {
-    public override RecvOp OpCode => RecvOp.CHECK_CHAR_NAME;
+    public override RecvOp OpCode => RecvOp.CheckCharName;
 
     public override void Handle(GameSession session, PacketReader packet)
     {

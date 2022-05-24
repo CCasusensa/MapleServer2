@@ -6,9 +6,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class ChangeAttributesScrollHandler : GamePacketHandler
+public class ChangeAttributesScrollHandler : GamePacketHandler<ChangeAttributesScrollHandler>
 {
-    public override RecvOp OpCode => RecvOp.CHANGE_ATTRIBUTES_SCROLL;
+    public override RecvOp OpCode => RecvOp.ChangeAttributeScroll;
 
     private enum ChangeAttributeMode : byte
     {
@@ -28,7 +28,7 @@ public class ChangeAttributesScrollHandler : GamePacketHandler
                 HandleSelectNewAttributes(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -47,9 +47,9 @@ public class ChangeAttributesScrollHandler : GamePacketHandler
             lockStatId = packet.ReadShort();
         }
 
-        Inventory inventory = session.Player.Inventory;
-        Item scroll = inventory.Items.FirstOrDefault(x => x.Key == scrollUid).Value;
-        Item gear = inventory.Items.FirstOrDefault(x => x.Key == gearUid).Value;
+        IInventory inventory = session.Player.Inventory;
+        Item scroll = inventory.GetByUid(scrollUid);
+        Item gear = inventory.GetByUid(gearUid);
         Item scrollLock = null;
 
         // Check if gear and scroll exists in inventory
@@ -71,14 +71,16 @@ public class ChangeAttributesScrollHandler : GamePacketHandler
         {
             tag = "LockItemOptionWeapon";
         }
-        else if (Item.IsPet(gear.Id))
+        else if (gear.IsPet())
         {
             tag = "LockItemOptionPet";
         }
 
         if (useLock)
         {
-            scrollLock = inventory.Items.FirstOrDefault(x => x.Value.Tag == tag && x.Value.Rarity == gear.Rarity).Value;
+            scrollLock = inventory.GetAllByTag(tag)
+                .FirstOrDefault(x => x.Rarity == gear.Rarity);
+
             // Check if scroll lock exists in inventory
             if (scrollLock == null)
             {
@@ -89,7 +91,7 @@ public class ChangeAttributesScrollHandler : GamePacketHandler
         Item newItem = new(gear);
 
         // Set new values for attributes
-        newItem.Stats.BonusStats = ItemStats.RollNewBonusValues(newItem, lockStatId, isSpecialStat);
+        newItem.Stats.Randoms = RandomStats.RollNewBonusValues(newItem, lockStatId, isSpecialStat);
 
         inventory.TemporaryStorage[newItem.Uid] = newItem;
 
@@ -106,7 +108,7 @@ public class ChangeAttributesScrollHandler : GamePacketHandler
     {
         long gearUid = packet.ReadLong();
 
-        Inventory inventory = session.Player.Inventory;
+        IInventory inventory = session.Player.Inventory;
         Item gear = inventory.TemporaryStorage.FirstOrDefault(x => x.Key == gearUid).Value;
         if (gear == null)
         {

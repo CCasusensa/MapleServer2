@@ -2,13 +2,14 @@
 using GameDataParser.Files;
 using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Enums;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class UgcDesignParser : Exporter<List<UgcDesignMetadata>>
 {
-    public UgcDesignParser(MetadataResources resources) : base(resources, "ugc-design") { }
+    public UgcDesignParser(MetadataResources resources) : base(resources, MetadataName.UGCDesign) { }
 
     protected override List<UgcDesignMetadata> Parse()
     {
@@ -32,7 +33,7 @@ public class UgcDesignParser : Exporter<List<UgcDesignMetadata>>
             {
                 0 => CurrencyType.Meso,
                 1 => CurrencyType.Meret,
-                _ => throw new NotImplementedException(),
+                _ => throw new NotImplementedException()
             };
             long price = long.Parse(node.Attributes["price"].Value);
             long salePrice = long.Parse(node.Attributes["salePrice"].Value);

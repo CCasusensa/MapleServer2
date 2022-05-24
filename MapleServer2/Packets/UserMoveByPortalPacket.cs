@@ -7,13 +7,15 @@ namespace MapleServer2.Packets;
 
 public static class UserMoveByPortalPacket
 {
-    public static PacketWriter Move(IFieldObject<Player> fieldPlayer, CoordF coords, CoordF rotation)
+    public static PacketWriter Move(IFieldObject<Player> fieldPlayer, CoordF coords, CoordF rotation, bool isTrigger = false)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.USER_MOVE_BY_PORTAL);
+        coords.Z += 25; // make sure coord is above ground
+
+        PacketWriter pWriter = PacketWriter.Of(SendOp.UserMoveByPortal);
         pWriter.WriteInt(fieldPlayer.ObjectId);
         pWriter.Write(coords);
         pWriter.Write(rotation);
-        pWriter.WriteByte(); // Unknown
+        pWriter.WriteBool(isTrigger);
 
         return pWriter;
     }

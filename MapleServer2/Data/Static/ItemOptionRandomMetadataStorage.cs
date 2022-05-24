@@ -1,5 +1,6 @@
 ﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
+using MapleServer2.Tools;
 using ProtoBuf;
 
 namespace MapleServer2.Data.Static;
@@ -10,7 +11,7 @@ public static class ItemOptionRandomMetadataStorage
 
     public static void Init()
     {
-        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-item-option-random-metadata");
+        using FileStream stream = MetadataHelper.GetFileStream(MetadataName.ItemOptionRandom);
         List<ItemOptionRandomMetadata> items = Serializer.Deserialize<List<ItemOptionRandomMetadata>>(stream);
         foreach (ItemOptionRandomMetadata item in items)
         {
@@ -18,18 +19,9 @@ public static class ItemOptionRandomMetadataStorage
         }
     }
 
-    public static bool IsValid(int id)
-    {
-        return ItemOptionRandom.ContainsKey(id);
-    }
-
     public static ItemOptionRandom GetMetadata(int id, int rarity)
     {
         ItemOptionRandomMetadata metadata = ItemOptionRandom.Values.FirstOrDefault(x => x.Id == id);
-        if (metadata == null)
-        {
-            return null;
-        }
-        return metadata.ItemOptions.FirstOrDefault(x => x.Rarity == rarity);
+        return metadata?.ItemOptions.FirstOrDefault(x => x.Rarity == rarity);
     }
 }

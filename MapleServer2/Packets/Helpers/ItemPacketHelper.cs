@@ -27,15 +27,15 @@ public static class ItemPacketHelper
 
         // Write Stats 0x0582B10
         pWriter.WriteStats(item.Stats);
-        pWriter.WriteInt(item.Enchants);
+        pWriter.WriteInt(item.EnchantLevel);
         pWriter.WriteInt(item.EnchantExp);
         pWriter.WriteBool(true); // Enchant based peachy charges, otherwise always require 10 charges
         pWriter.WriteLong();
         pWriter.WriteInt();
         pWriter.WriteInt();
-        pWriter.WriteByte((byte) item.RepackageCount);
+        pWriter.WriteBool(item.TransferFlag.HasFlag(ItemTransferFlag.Tradeable) || item.RemainingTrades > 0 || item.RemainingRepackageCount > 0);
         pWriter.WriteInt(item.Charges);
-        pWriter.WriteStatDiff( /*item.Stats, item.Stats*/);
+        pWriter.WriteEnchantStats(item);
 
         if (item.IsCustomScore)
         {
@@ -44,7 +44,7 @@ public static class ItemPacketHelper
 
         if (item.IsTemplate)
         {
-            pWriter.WriteTemplate(item.UGC);
+            pWriter.WriteTemplate(item.Ugc);
         }
 
         if (item.InventoryTab == InventoryTab.Pets)
@@ -70,10 +70,10 @@ public static class ItemPacketHelper
         }
 
         // Item Transfer Data 0x058AD00
-        pWriter.WriteInt(6); // Transfer Flag. Temporarily changing it to 6 to make items tradeable
+        pWriter.WriteInt((int) item.TransferFlag);
         pWriter.WriteByte();
         pWriter.WriteInt(item.RemainingTrades);
-        pWriter.WriteInt();
+        pWriter.WriteInt(1 - item.RemainingRepackageCount);
         pWriter.WriteByte();
         pWriter.WriteByte(); // 2nd flag, use to skip charbound
 
@@ -131,110 +131,123 @@ public static class ItemPacketHelper
     private static PacketWriter WriteStats(this PacketWriter pWriter, ItemStats stats)
     {
         pWriter.WriteByte(); // Not part of appearance sub!
-        List<NormalStat> basicNormalStats = stats.BasicStats.OfType<NormalStat>().ToList();
-        pWriter.WriteShort((short) basicNormalStats.Count);
-        foreach (NormalStat stat in basicNormalStats)
+        List<BasicStat> basicConstantNormalStats = stats.Constants.Values.OfType<BasicStat>().ToList();
+        pWriter.WriteShort((short) basicConstantNormalStats.Count);
+        foreach (BasicStat stat in basicConstantNormalStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
-            pWriter.WriteInt(stat.Flat);
-            pWriter.WriteFloat(stat.Percent);
+            WriteBasicStat(pWriter, stat);
         }
 
-        List<SpecialStat> basicSpecialStats = stats.BasicStats.OfType<SpecialStat>().ToList();
-        pWriter.WriteShort((short) basicSpecialStats.Count);
-        foreach (SpecialStat stat in basicSpecialStats)
+        List<SpecialStat> basicConstantSpecialStats = stats.Constants.Values.OfType<SpecialStat>().ToList();
+        pWriter.WriteShort((short) basicConstantSpecialStats.Count);
+        foreach (SpecialStat stat in basicConstantSpecialStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
-            pWriter.WriteFloat(stat.Percent);
-            pWriter.WriteFloat(stat.Flat);
+            WriteSpecialStat(pWriter, stat);
         }
         pWriter.WriteInt();
 
-        // Another basic stats block
-        pWriter.WriteShort();
-        pWriter.WriteShort();
+        List<BasicStat> staticNormalStats = stats.Statics.Values.OfType<BasicStat>().ToList();
+        pWriter.WriteShort((short) staticNormalStats.Count);
+        foreach (BasicStat stat in staticNormalStats)
+        {
+            WriteBasicStat(pWriter, stat);
+        }
+
+        List<SpecialStat> staticSpecialStats = stats.Statics.Values.OfType<SpecialStat>().ToList();
+        pWriter.WriteShort((short) staticSpecialStats.Count);
+        foreach (SpecialStat stat in staticSpecialStats)
+        {
+            WriteSpecialStat(pWriter, stat);
+        }
+
         pWriter.WriteInt();
 
-        List<NormalStat> bonusNormalStats = stats.BonusStats.OfType<NormalStat>().ToList();
+        List<BasicStat> bonusNormalStats = stats.Randoms.Values.OfType<BasicStat>().ToList();
         pWriter.WriteShort((short) bonusNormalStats.Count);
-        foreach (NormalStat stat in bonusNormalStats)
+        foreach (BasicStat stat in bonusNormalStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
-            pWriter.WriteInt(stat.Flat);
-            pWriter.WriteFloat(stat.Percent);
+            WriteBasicStat(pWriter, stat);
         }
-        List<SpecialStat> bonusSpecialStats = stats.BonusStats.OfType<SpecialStat>().ToList();
+
+        List<SpecialStat> bonusSpecialStats = stats.Randoms.Values.OfType<SpecialStat>().ToList();
         pWriter.WriteShort((short) bonusSpecialStats.Count);
         foreach (SpecialStat stat in bonusSpecialStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
-            pWriter.WriteFloat(stat.Percent);
-            pWriter.WriteFloat(stat.Flat);
+            WriteSpecialStat(pWriter, stat);
         }
         pWriter.WriteInt();
 
-        // Ignore other stats
-        pWriter.WriteShort();
-        pWriter.WriteShort();
-        pWriter.WriteInt();
-        pWriter.WriteShort();
+        pWriter.WriteShort(); // Title Attributes
         pWriter.WriteShort();
         pWriter.WriteInt();
-        pWriter.WriteShort();
-        pWriter.WriteShort();
-        pWriter.WriteInt();
-        pWriter.WriteShort();
+        pWriter.WriteShort(); // Empowerment Attributes
         pWriter.WriteShort();
         pWriter.WriteInt();
-        pWriter.WriteShort();
+        pWriter.WriteShort(); // Empowerment Attributes
         pWriter.WriteShort();
         pWriter.WriteInt();
+        pWriter.WriteShort(); // Empowerment Attributes
         pWriter.WriteShort();
+        pWriter.WriteInt();
+        pWriter.WriteShort(); // Empowerment Attributes
+        pWriter.WriteShort();
+        pWriter.WriteInt();
+        pWriter.WriteShort(); // Empowerment Attributes
         pWriter.WriteShort();
         pWriter.WriteInt();
 
         return pWriter;
     }
 
-    private static PacketWriter WriteStatDiff(this PacketWriter pWriter /*, ItemStats old, ItemStats new*/)
+    private static void WriteBasicStat(PacketWriter pWriter, BasicStat stat)
     {
-        // TODO: Find stat diffs (low priority)
-        List<NormalStat> generalStatDiff = new();
-        pWriter.WriteByte((byte) generalStatDiff.Count);
-        foreach (NormalStat stat in generalStatDiff)
+        pWriter.WriteShort(stat.WriteAttribute());
+        pWriter.WriteInt(stat.Flat);
+        pWriter.WriteFloat(stat.Rate);
+    }
+
+    private static void WriteSpecialStat(PacketWriter pWriter, SpecialStat stat)
+    {
+        pWriter.WriteShort(stat.WriteAttribute());
+        pWriter.WriteFloat(stat.Rate);
+        pWriter.WriteFloat(stat.Flat);
+    }
+
+    private static PacketWriter WriteEnchantStats(this PacketWriter pWriter, Item item)
+    {
+        ItemStats stats = item.Stats;
+        List<BasicStat> enchantStats = stats.Enchants.Values.OfType<BasicStat>().ToList();
+        pWriter.WriteByte((byte) enchantStats.Count);
+        foreach (BasicStat stat in enchantStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
+            pWriter.WriteInt((int) stat.ItemAttribute);
             pWriter.WriteInt(stat.Flat);
-            pWriter.WriteFloat(stat.Percent);
+            pWriter.WriteFloat(stat.Rate);
         }
 
-        pWriter.WriteInt(); // ???
+        pWriter.WriteInt(item.LimitBreakLevel);
 
-        List<NormalStat> statDiff = new();
-        pWriter.WriteInt(statDiff.Count);
-        foreach (NormalStat stat in statDiff)
+        List<BasicStat> basicLimitBreakStats = stats.LimitBreakEnchants.Values.OfType<BasicStat>().ToList();
+        pWriter.WriteInt(basicLimitBreakStats.Count);
+        foreach (BasicStat stat in basicLimitBreakStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
-            pWriter.WriteInt(stat.Flat);
-            pWriter.WriteFloat(stat.Percent);
+            WriteBasicStat(pWriter, stat);
         }
 
-        List<SpecialStat> bonusStatDiff = new();
-        pWriter.WriteInt(bonusStatDiff.Count);
-        foreach (SpecialStat stat in bonusStatDiff)
+        List<SpecialStat> specialLimitBreakStats = stats.LimitBreakEnchants.Values.OfType<SpecialStat>().ToList();
+        pWriter.WriteInt(specialLimitBreakStats.Count);
+        foreach (SpecialStat stat in specialLimitBreakStats)
         {
-            pWriter.WriteShort((short) stat.ItemAttribute);
-            pWriter.WriteFloat(stat.Percent);
-            pWriter.WriteFloat(stat.Flat);
+            WriteSpecialStat(pWriter, stat);
         }
 
         return pWriter;
     }
 
     // Writes UGC template data
-    private static PacketWriter WriteTemplate(this PacketWriter pWriter, UGC ugc)
+    private static void WriteTemplate(this PacketWriter pWriter, UGC ugc)
     {
-        pWriter.WriteUgcTemplate(ugc);
+        pWriter.WriteUGCTemplate(ugc);
         pWriter.WriteLong();
         pWriter.WriteInt();
         pWriter.WriteInt();
@@ -244,8 +257,6 @@ public static class ItemPacketHelper
         pWriter.WriteLong();
         pWriter.WriteLong();
         pWriter.WriteUnicodeString();
-
-        return pWriter;
     }
 
     private static PacketWriter WritePet(this PacketWriter pWriter)

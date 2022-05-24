@@ -7,9 +7,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class PartyHandler : GamePacketHandler
+public class PartyHandler : GamePacketHandler<PartyHandler>
 {
-    public override RecvOp OpCode => RecvOp.PARTY;
+    public override RecvOp OpCode => RecvOp.Party;
 
     private enum PartyMode : byte
     {
@@ -67,7 +67,7 @@ public class PartyHandler : GamePacketHandler
                 HandleReadyCheckUpdate(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }

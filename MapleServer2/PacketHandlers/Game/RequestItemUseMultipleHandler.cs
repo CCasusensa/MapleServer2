@@ -9,14 +9,14 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestItemUseMultipleHandler : GamePacketHandler
+public class RequestItemUseMultipleHandler : GamePacketHandler<RequestItemUseMultipleHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_ITEM_USE_MULTIPLE;
+    public override RecvOp OpCode => RecvOp.RequestItemUseMultiple;
 
     private enum BoxType : byte
     {
-        OPEN = 0x00,
-        SELECT = 0x01
+        Open = 0x00,
+        Select = 0x01
     }
 
     public override void Handle(GameSession session, PacketReader packet)
@@ -32,14 +32,14 @@ public class RequestItemUseMultipleHandler : GamePacketHandler
             return;
         }
 
-        Dictionary<long, Item> items = new(session.Player.Inventory.Items.Where(x => x.Value.Id == itemId)); // Make copy of items in-case new item is added
+        IReadOnlyCollection<Item> items = session.Player.Inventory.GetAllById(itemId); // Make copy of items in-case new item is added
         if (items.Count == 0)
         {
             return;
         }
 
         int index = 0;
-        if (boxType == BoxType.SELECT)
+        if (boxType == BoxType.Select)
         {
             index = packet.ReadShort() - 0x30; // Starts at 0x30 for some reason
             if (index < 0)
@@ -55,14 +55,12 @@ public class RequestItemUseMultipleHandler : GamePacketHandler
         HandleOpenBox(session, items, /*openBox,*/ amount);
     }
 
-    private static void HandleSelectBox(GameSession session, Dictionary<long, Item> items, SelectItemBox box, int index, int amount)
+    private static void HandleSelectBox(GameSession session, IReadOnlyCollection<Item> items, SelectItemBox box, int index, int amount)
     {
         ItemDropMetadata metadata = ItemDropMetadataStorage.GetItemDropMetadata(box.BoxId);
         int opened = 0;
-        foreach (KeyValuePair<long, Item> kvp in items)
+        foreach (Item item in items)
         {
-            Item item = kvp.Value;
-
             for (int i = opened; i < amount; i++)
             {
                 if (item.Amount <= 0)
@@ -75,16 +73,14 @@ public class RequestItemUseMultipleHandler : GamePacketHandler
             }
         }
 
-        session.Send(ItemUsePacket.Use(items.FirstOrDefault().Value.Id, amount));
+        session.Send(ItemUsePacket.Use(items.FirstOrDefault().Id, amount));
     }
 
-    private static void HandleOpenBox(GameSession session, Dictionary<long, Item> items, /*OpenItemBox box,*/ int amount)
+    private static void HandleOpenBox(GameSession session, IReadOnlyCollection<Item> items, /*OpenItemBox box,*/ int amount)
     {
         int opened = 0;
-        foreach (KeyValuePair<long, Item> kvp in items)
+        foreach (Item item in items)
         {
-            Item item = kvp.Value;
-
             for (int i = opened; i < amount; i++)
             {
                 if (item.Amount <= 0)
@@ -97,6 +93,6 @@ public class RequestItemUseMultipleHandler : GamePacketHandler
             }
         }
 
-        session.Send(ItemUsePacket.Use(items.FirstOrDefault().Value.Id, amount));
+        session.Send(ItemUsePacket.Use(items.FirstOrDefault().Id, amount));
     }
 }

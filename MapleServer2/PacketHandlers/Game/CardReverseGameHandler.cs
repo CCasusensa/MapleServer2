@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Tools;
-using MaplePacketLib2.Tools;
+﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Database;
 using MapleServer2.Database.Types;
@@ -9,9 +8,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class CardReverseGameHandler : GamePacketHandler
+public class CardReverseGameHandler : GamePacketHandler<CardReverseGameHandler>
 {
-    public override RecvOp OpCode => RecvOp.CARD_REVERSE_GAME;
+    public override RecvOp OpCode => RecvOp.CardReverseGame;
 
     private enum CardReverseGameMode : byte
     {
@@ -36,7 +35,7 @@ public class CardReverseGameHandler : GamePacketHandler
                 HandleSelect(session);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -49,7 +48,7 @@ public class CardReverseGameHandler : GamePacketHandler
 
     private static void HandleMix(GameSession session)
     {
-        Item token = session.Player.Inventory.Items.FirstOrDefault(x => x.Value.Id == CardReverseGame.TOKEN_ITEM_ID).Value;
+        Item token = session.Player.Inventory.GetById(CardReverseGame.TOKEN_ITEM_ID);
         if (token == null || token.Amount < CardReverseGame.TOKEN_COST)
         {
             session.Send(CardReverseGamePacket.Notice());
@@ -67,7 +66,7 @@ public class CardReverseGameHandler : GamePacketHandler
 
         List<CardReverseGame> cards = DatabaseManager.CardReverseGame.FindAll();
 
-        int index = RandomProvider.Get().Next(cards.Count);
+        int index = Random.Shared.Next(cards.Count);
 
         CardReverseGame card = cards[index];
         Item item = new(card.ItemId)

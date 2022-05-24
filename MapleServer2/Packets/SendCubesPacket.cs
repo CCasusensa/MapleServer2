@@ -16,7 +16,7 @@ public static class SendCubesPacket
 
     public static PacketWriter LoadCubes(List<Cube> cubes)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CUBES);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Cubes);
         pWriter.Write(SendCubesMode.LoadCubes);
         pWriter.WriteByte();
         pWriter.WriteInt(cubes.Count);
@@ -28,7 +28,11 @@ public static class SendCubesPacket
             pWriter.WriteInt(cube.Item.Id);
             pWriter.WriteLong(cube.Uid);
             pWriter.WriteLong();
-            pWriter.WriteByte(); // UGC bool ?
+            pWriter.WriteBool(cube.Item.Ugc is not null);
+            if (cube.Item.Ugc is not null)
+            {
+                pWriter.WriteUGCTemplate(cube.Item.Ugc);
+            }
             pWriter.WriteInt(cube.PlotNumber);
             pWriter.WriteInt();
             pWriter.WriteByte();
@@ -41,7 +45,7 @@ public static class SendCubesPacket
 
     public static PacketWriter LoadAvailablePlots(List<Home> homes, List<byte> plotNumbers)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CUBES);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Cubes);
         pWriter.Write(SendCubesMode.AvailablePlots);
         pWriter.WriteInt(plotNumbers.Count);
         foreach (int plotId in plotNumbers)
@@ -55,7 +59,7 @@ public static class SendCubesPacket
 
     public static PacketWriter LoadPlots(List<Home> homes, int mapId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CUBES);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Cubes);
         pWriter.Write(SendCubesMode.LoadPlots);
         pWriter.WriteInt(homes.Count);
         foreach (Home home in homes)
@@ -71,7 +75,7 @@ public static class SendCubesPacket
 
     public static PacketWriter Expiration(List<Home> homes)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CUBES);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Cubes);
         pWriter.Write(SendCubesMode.Expiration);
         pWriter.WriteInt(homes.Count);
         foreach (Home home in homes)

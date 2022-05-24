@@ -1,6 +1,5 @@
 ﻿using Maple2.Trigger.Enum;
 using Maple2Storage.Enums;
-using Maple2Storage.Tools;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Enums;
@@ -76,7 +75,7 @@ public partial class TriggerContext
         // TODO: Needs a better check for multiple mob spawns
         foreach (int spawnPointId in spawnPointIds)
         {
-            MapEventNpcSpawnPoint spawnPoint = MapEntityStorage.GetMapEventNpcSpawnPoint(Field.MapId, spawnPointId);
+            MapEventNpcSpawnPoint spawnPoint = MapEntityMetadataStorage.GetMapEventNpcSpawnPoint(Field.MapId, spawnPointId);
             if (spawnPoint == null)
             {
                 continue;
@@ -84,12 +83,14 @@ public partial class TriggerContext
 
             foreach (string npcId in spawnPoint.NpcIds)
             {
-                if (int.TryParse(npcId, out int id))
+                if (!int.TryParse(npcId, out int id))
                 {
-                    if (Field.State.Mobs.Values.Where(x => x.Value.Id == id).Any())
-                    {
-                        return false;
-                    }
+                    continue;
+                }
+
+                if (Field.State.Mobs.Values.Any(x => x.Value.Id == id && !x.IsDead))
+                {
+                    return false;
                 }
             }
         }
@@ -139,10 +140,10 @@ public partial class TriggerContext
 
     public bool QuestUserDetected(int[] boxes, int[] questIds, byte[] modes, byte arg4)
     {
-        QuestState mode = (QuestState) modes[0];
+        byte mode = modes[0];
         foreach (int boxId in boxes)
         {
-            MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, boxId);
+            MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
             List<IFieldActor<Player>> players = Field.State.Players.Values.ToList();
 
             foreach (IFieldObject<Player> player in players)
@@ -161,12 +162,12 @@ public partial class TriggerContext
 
                     switch (mode)
                     {
-                        case QuestState.Started:
+                        case 1: // started
                             return quest.State is QuestState.Started;
-                        case QuestState.ConditionCompleted:
-                            return quest.Condition.All(condition => condition.Completed);
-                        case QuestState.Finished:
-                            return quest.State is QuestState.Finished;
+                        case 2: // conditions completed
+                            return quest.State is not QuestState.None && quest.Condition.All(condition => condition.Completed);
+                        case 3: // completed
+                            return quest.State is QuestState.Completed;
                     }
                 }
             }
@@ -175,7 +176,7 @@ public partial class TriggerContext
         return false;
     }
 
-    public bool RandomCondition(float proc, string desc) => RandomProvider.Get().Next(100) <= proc;
+    public bool RandomCondition(float proc, string desc) => Random.Shared.Next(100) <= proc;
 
     public bool TimeExpired(string id)
     {
@@ -194,7 +195,7 @@ public partial class TriggerContext
 
         foreach (int boxId in boxIds)
         {
-            MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, boxId);
+            MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
             if (box == null)
             {
                 return false;

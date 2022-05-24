@@ -6,12 +6,13 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class KeyTableHandler : GamePacketHandler
+public class KeyTableHandler : GamePacketHandler<KeyTableHandler>
 {
-    public override RecvOp OpCode => RecvOp.KEY_TABLE;
+    public override RecvOp OpCode => RecvOp.KeyTable;
 
     private enum KeyTableEnum : byte
     {
+        SetMacroKeybind = 0x01,
         SetKeyBind = 0x02,
         MoveQuickSlot = 0x03,
         AddToFirstSlot = 0x04,
@@ -25,6 +26,7 @@ public class KeyTableHandler : GamePacketHandler
 
         switch (requestType)
         {
+            case KeyTableEnum.SetMacroKeybind:
             case KeyTableEnum.SetKeyBind:
                 SetKeyBinds(session, packet);
                 break;
@@ -41,7 +43,7 @@ public class KeyTableHandler : GamePacketHandler
                 SetActiveHotbar(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(requestType);
+                LogUnknownMode(requestType);
                 break;
         }
     }
@@ -51,7 +53,7 @@ public class KeyTableHandler : GamePacketHandler
         short hotbarId = packet.ReadShort();
         if (!session.Player.GameOptions.TryGetHotbar(hotbarId, out Hotbar targetHotbar))
         {
-            Logger.Warn($"Invalid hotbar id {hotbarId}");
+            Logger.Warning("Invalid hotbar id {hotbarId}", hotbarId);
             return;
         }
 
@@ -79,7 +81,7 @@ public class KeyTableHandler : GamePacketHandler
         short hotbarId = packet.ReadShort();
         if (!session.Player.GameOptions.TryGetHotbar(hotbarId, out Hotbar targetHotbar))
         {
-            Logger.Warn($"Invalid hotbar id {hotbarId}");
+            Logger.Warning("Invalid hotbar id {hotbarId}", hotbarId);
             return;
         }
 
@@ -96,7 +98,7 @@ public class KeyTableHandler : GamePacketHandler
         short hotbarId = packet.ReadShort();
         if (!session.Player.GameOptions.TryGetHotbar(hotbarId, out Hotbar targetHotbar))
         {
-            Logger.Warn($"Invalid hotbar id {hotbarId}");
+            Logger.Warning("Invalid hotbar id {hotbarId}", hotbarId);
             return;
         }
 

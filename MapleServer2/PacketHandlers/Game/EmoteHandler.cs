@@ -6,9 +6,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class EmoteHandler : GamePacketHandler
+public class EmoteHandler : GamePacketHandler<EmoteHandler>
 {
-    public override RecvOp OpCode => RecvOp.EMOTION;
+    public override RecvOp OpCode => RecvOp.Emotion;
 
     private enum EmoteMode : byte
     {
@@ -29,7 +29,7 @@ public class EmoteHandler : GamePacketHandler
                 HandleUseEmote(packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -38,12 +38,12 @@ public class EmoteHandler : GamePacketHandler
     {
         long itemUid = packet.ReadLong();
 
-        if (!session.Player.Inventory.Items.ContainsKey(itemUid))
+        if (!session.Player.Inventory.HasItem(itemUid))
         {
             return;
         }
 
-        Item item = session.Player.Inventory.Items[itemUid];
+        Item item = session.Player.Inventory.GetByUid(itemUid);
 
         if (session.Player.Emotes.Contains(item.SkillId))
         {

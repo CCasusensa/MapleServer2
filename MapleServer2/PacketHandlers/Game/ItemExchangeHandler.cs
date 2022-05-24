@@ -8,9 +8,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class ItemExchangeHandler : GamePacketHandler
+public class ItemExchangeHandler : GamePacketHandler<ItemExchangeHandler>
 {
-    public override RecvOp OpCode => RecvOp.ITEM_EXCHANGE;
+    public override RecvOp OpCode => RecvOp.ItemExchange;
 
     private enum ItemExchangeMode : byte
     {
@@ -27,14 +27,14 @@ public class ItemExchangeHandler : GamePacketHandler
                 HandleUse(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
 
-    public enum ExchangeNotice : short
+    private enum ExchangeNotice : short
     {
-        Sucess = 0x0,
+        Success = 0x0,
         Invalid = 0x1,
         CannotFuse = 0x2,
         InsufficientMeso = 0x3,
@@ -50,12 +50,12 @@ public class ItemExchangeHandler : GamePacketHandler
         long unk = packet.ReadLong();
         int quantity = packet.ReadInt();
 
-        if (!session.Player.Inventory.Items.ContainsKey(itemUid))
+        if (!session.Player.Inventory.HasItem(itemUid))
         {
             return;
         }
 
-        Item item = session.Player.Inventory.Items[itemUid];
+        Item item = session.Player.Inventory.GetByUid(itemUid);
 
         ItemExchangeScrollMetadata exchange = ItemExchangeScrollMetadataStorage.GetMetadata(item.Function.Id);
 
@@ -83,20 +83,17 @@ public class ItemExchangeHandler : GamePacketHandler
         };
 
         session.Player.Inventory.AddItem(session, exchangeRewardItem, true);
-        session.Send(ItemExchangePacket.Notice((short) ExchangeNotice.Sucess));
-
+        session.Send(ItemExchangePacket.Notice((short) ExchangeNotice.Success));
     }
 
     private static bool PlayerHasAllIngredients(GameSession session, ItemExchangeScrollMetadata exchange, int quantity)
     {
         // TODO: Check if rarity matches
 
-        List<Item> playerInventoryItems = new(session.Player.Inventory.Items.Values);
-
         for (int i = 0; i < exchange.ItemCost.Count; i++)
         {
             ItemRequirementMetadata exchangeItem = exchange.ItemCost.ElementAt(i);
-            Item item = playerInventoryItems.FirstOrDefault(x => x.Id == exchangeItem.Id);
+            Item item = session.Player.Inventory.GetById(exchangeItem.Id);
 
             if (item == null)
             {
@@ -105,29 +102,28 @@ public class ItemExchangeHandler : GamePacketHandler
 
             return item.Amount >= exchangeItem.Amount * quantity;
         }
+
         return false;
     }
 
     private static bool RemoveRequiredItemsFromInventory(GameSession session, ItemExchangeScrollMetadata exchange, Item originItem, int quantity)
     {
-        List<Item> playerInventoryItems = new(session.Player.Inventory.Items.Values);
-
         if (exchange.ItemCost.Count != 0)
         {
             for (int i = 0; i < exchange.ItemCost.Count; i++)
             {
                 ItemRequirementMetadata exchangeItem = exchange.ItemCost.ElementAt(i);
-                Item item = playerInventoryItems.FirstOrDefault(x => x.Id == exchangeItem.Id);
+                Item item = session.Player.Inventory.GetById(exchangeItem.Id);
                 if (item == null)
                 {
                     continue;
                 }
+
                 session.Player.Inventory.ConsumeItem(session, item.Uid, exchangeItem.Amount * quantity);
             }
         }
 
         session.Player.Inventory.ConsumeItem(session, originItem.Uid, exchange.RecipeAmount * quantity);
-
         return true;
     }
 }

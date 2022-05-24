@@ -1,13 +1,14 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
 using Maple2.File.IO.Crypto.Common;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class GuildBuffParser : Exporter<List<GuildBuffMetadata>>
 {
-    public GuildBuffParser(MetadataResources resources) : base(resources, "guild-buff") { }
+    public GuildBuffParser(MetadataResources resources) : base(resources, MetadataName.GuildBuff) { }
 
     protected override List<GuildBuffMetadata> Parse()
     {
@@ -60,12 +61,12 @@ public class GuildBuffParser : Exporter<List<GuildBuffMetadata>>
                 }
             }
 
-            foreach (KeyValuePair<int, List<GuildBuffLevel>> buffData in buffLevels)
+            foreach ((int id, List<GuildBuffLevel> guildBuffLevels) in buffLevels)
             {
                 GuildBuffMetadata metadata = new()
                 {
-                    BuffId = buffData.Key,
-                    Levels = buffData.Value
+                    BuffId = id,
+                    Levels = guildBuffLevels
                 };
                 buffs.Add(metadata);
             }

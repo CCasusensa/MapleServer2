@@ -1,5 +1,4 @@
 ﻿using Maple2Storage.Enums;
-using Maple2Storage.Tools;
 using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
@@ -12,23 +11,28 @@ using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Tools;
 using MapleServer2.Types;
+using MoonSharp.Interpreter;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestItemUseHandler : GamePacketHandler
+public class RequestItemUseHandler : GamePacketHandler<RequestItemUseHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_ITEM_USE;
+    public override RecvOp OpCode => RecvOp.RequestItemUse;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
         long itemUid = packet.ReadLong();
 
-        if (!session.Player.Inventory.Items.ContainsKey(itemUid))
+        if (!session.Player.Inventory.HasItem(itemUid))
         {
             return;
         }
 
-        Item item = session.Player.Inventory.Items[itemUid];
+        Item item = session.Player.Inventory.GetByUid(itemUid);
+        if (item.IsExpired())
+        {
+            return;
+        }
 
         switch (item.Function.Name)
         {
@@ -92,12 +96,26 @@ public class RequestItemUseHandler : GamePacketHandler
             case "ChangeCharName":
                 HandleNameVoucher(session, packet, item);
                 break;
+            case "ChangeGender":
+                HandleGenderVoucher(session, item);
+                break;
             case "SurvivalLevelExp":
                 HandleSurvivalLevelExp(session, item);
                 break;
-            default:
-                Logger.Warn($"Unhandled item function: {item.Function.Name}");
+            case "ItemSocketScroll":
+                HandleItemSocketScroll(session, item);
                 break;
+            case "EnchantScroll":
+                HandleEnchantScroll(session, item);
+                break;
+            default:
+                Logger.Warning("Unhandled item function: {functionName}", item.Function.Name);
+                break;
+        }
+
+        if (item.TransferType == TransferType.BindOnUse & !item.IsBound())
+        {
+            item.BindItem(session.Player);
         }
     }
 
@@ -108,17 +126,24 @@ public class RequestItemUseHandler : GamePacketHandler
 
     private static void HandleChatEmoticonAdd(GameSession session, Item item)
     {
-        long expiration = TimeInfo.Now() + item.Function.ChatEmoticonAdd.Duration + Environment.TickCount;
+        long expiration = long.MaxValue;
 
-        if (item.Function.ChatEmoticonAdd.Duration == 0) // if no duration was set, set it to not expire
+        if (item.Function.ChatEmoticonAdd.Duration > 0)
         {
-            expiration = long.MaxValue;
+            expiration = item.Function.ChatEmoticonAdd.Duration + TimeInfo.Now();
         }
 
-        if (session.Player.ChatSticker.Any(p => p.GroupId == item.Function.ChatEmoticonAdd.Id))
+        // sticker exists and no expiration
+        if (session.Player.ChatSticker.Any(p => p.GroupId == item.Function.ChatEmoticonAdd.Id && p.Expiration == long.MaxValue))
         {
-            // TODO: Find reject packet
             return;
+        }
+
+        // Add time if the sticker is already in the list
+        ChatSticker sticker = session.Player.ChatSticker.FirstOrDefault(p => p.GroupId == item.Function.ChatEmoticonAdd.Id);
+        if (sticker is not null && sticker.Expiration != long.MaxValue)
+        {
+            expiration += sticker.Expiration - TimeInfo.Now();
         }
 
         session.Send(ChatStickerPacket.AddSticker(item.Id, item.Function.ChatEmoticonAdd.Id, expiration));
@@ -185,6 +210,7 @@ public class RequestItemUseHandler : GamePacketHandler
     {
         if (!InstrumentCategoryInfoMetadataStorage.IsValid(item.Function.Id))
         {
+            return;
         }
     }
 
@@ -203,7 +229,8 @@ public class RequestItemUseHandler : GamePacketHandler
 
     private static void HandleHongBao(GameSession session, Item item)
     {
-        HongBao newHongBao = new(session.Player, item.Function.HongBao.TotalUsers, item.Id, item.Function.HongBao.Id, item.Function.HongBao.Count, item.Function.HongBao.Duration);
+        HongBao newHongBao = new(session.Player, item.Function.HongBao.TotalUsers, item.Id, item.Function.HongBao.Id, item.Function.HongBao.Count,
+            item.Function.HongBao.Duration);
         GameServer.HongBaoManager.AddHongBao(newHongBao);
 
         session.FieldManager.BroadcastPacket(PlayerHostPacket.OpenHongbao(session.Player, newHongBao));
@@ -232,7 +259,7 @@ public class RequestItemUseHandler : GamePacketHandler
         {
             GachaContent contents = HandleSmartGender(gacha, session.Player.Gender);
 
-            int itemAmount = RandomProvider.Get().Next(contents.MinAmount, contents.MaxAmount);
+            int itemAmount = Random.Shared.Next(contents.MinAmount, contents.MaxAmount);
 
             Item gachaItem = new(contents.ItemId)
             {
@@ -254,7 +281,7 @@ public class RequestItemUseHandler : GamePacketHandler
 
     private static GachaContent HandleSmartGender(GachaMetadata gacha, Gender playerGender)
     {
-        Random random = RandomProvider.Get();
+        Random random = Random.Shared;
         int index = random.Next(gacha.Contents.Count);
 
         GachaContent contents = gacha.Contents[index];
@@ -280,22 +307,23 @@ public class RequestItemUseHandler : GamePacketHandler
                 }
             } while (!sameGender);
         }
+
         return contents;
     }
 
-    public static void HandleOpenCoupleEffectBox(GameSession session, PacketReader packet, Item item)
+    private static void HandleOpenCoupleEffectBox(GameSession session, PacketReader packet, Item item)
     {
         string targetUser = packet.ReadUnicodeString();
 
         if (targetUser == session.Player.Name)
         {
-            //TODO: Find the error packet
+            session.Send(NoticePacket.Notice(SystemNotice.CoupleEffectErrorOpenboxMyselfChar, NoticeType.Popup));
             return;
         }
 
         if (!DatabaseManager.Characters.NameExists(targetUser))
         {
-            session.Send(NoticePacket.Notice(SystemNotice.CharacterNotFound, NoticeType.Popup));
+            session.Send(NoticePacket.Notice(SystemNotice.SpecifiedCharacterCouldNotBeFound, NoticeType.Popup));
             return;
         }
 
@@ -305,22 +333,24 @@ public class RequestItemUseHandler : GamePacketHandler
             otherPlayer = DatabaseManager.Characters.FindPartialPlayerByName(targetUser);
         }
 
+        if (otherPlayer.AccountId == session.Player.AccountId)
+        {
+            session.Send(NoticePacket.Notice(SystemNotice.CoupleEffectErrorOpenboxMyselfAccount, NoticeType.Popup));
+            return;
+        }
+
         Item badge = new(item.Function.OpenCoupleEffectBox.Id)
         {
             Rarity = item.Function.OpenCoupleEffectBox.Rarity,
             PairedCharacterId = otherPlayer.CharacterId,
-            PairedCharacterName = otherPlayer.Name,
-            OwnerCharacterId = session.Player.CharacterId,
-            OwnerCharacterName = session.Player.Name
+            PairedCharacterName = otherPlayer.Name
         };
 
         Item otherUserBadge = new(item.Function.OpenCoupleEffectBox.Id)
         {
             Rarity = item.Function.OpenCoupleEffectBox.Rarity,
             PairedCharacterId = session.Player.CharacterId,
-            PairedCharacterName = session.Player.Name,
-            OwnerCharacterId = otherPlayer.CharacterId,
-            OwnerCharacterName = otherPlayer.Name
+            PairedCharacterName = session.Player.Name
         };
 
         List<Item> items = new()
@@ -329,13 +359,13 @@ public class RequestItemUseHandler : GamePacketHandler
         };
 
         MailHelper.SendMail(MailType.System, otherPlayer.CharacterId, session.Player.CharacterId,
-                            "<ms2><v key=\"s_couple_effect_mail_sender\" /></ms2>",
-                            "<ms2><v key=\"s_couple_effect_mail_title_receiver\" /></ms2>",
-                            "<ms2><v key=\"s_couple_effect_mail_content_receiver\" /></ms2>",
-                            "",
-                            $"<ms2><v str=\"{session.Player.Name}\" ></v></ms2>",
-                            items,
-                            0, 0, out Mail mail);
+            "<ms2><v key=\"s_couple_effect_mail_sender\" /></ms2>",
+            "<ms2><v key=\"s_couple_effect_mail_title_receiver\" /></ms2>",
+            "<ms2><v key=\"s_couple_effect_mail_content_receiver\" /></ms2>",
+            "",
+            $"<ms2><v str=\"{session.Player.Name}\" ></v></ms2>",
+            items,
+            0, 0, out Mail mail);
 
         session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
         session.Player.Inventory.AddItem(session, badge, true);
@@ -344,18 +374,18 @@ public class RequestItemUseHandler : GamePacketHandler
             otherPlayer.Name
         };
 
-        session.Send(NoticePacket.Notice(SystemNotice.BuddyBadgeMailedToUser, NoticeType.ChatAndFastText, noticeParameters));
+        session.Send(NoticePacket.Notice(SystemNotice.YouMailedBuddyBadgeToOtherPlayer, NoticeType.Chat | NoticeType.FastText, noticeParameters));
     }
 
-    public static void HandlePetExtraction(GameSession session, PacketReader packet, Item item)
+    private static void HandlePetExtraction(GameSession session, PacketReader packet, Item item)
     {
         long petUid = long.Parse(packet.ReadUnicodeString());
-        if (!session.Player.Inventory.Items.ContainsKey(petUid))
+        if (!session.Player.Inventory.HasItem(petUid))
         {
             return;
         }
 
-        Item pet = session.Player.Inventory.Items[petUid];
+        Item pet = session.Player.Inventory.GetByUid(petUid);
 
         Item badge = new(70100000)
         {
@@ -368,14 +398,14 @@ public class RequestItemUseHandler : GamePacketHandler
         session.Send(PetSkinPacket.Extract(petUid, badge));
     }
 
-    public static void HandleCallAirTaxi(GameSession session, PacketReader packet, Item item)
+    private static void HandleCallAirTaxi(GameSession session, PacketReader packet, Item item)
     {
         int fieldID = int.Parse(packet.ReadUnicodeString());
         session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
         session.Player.Warp(fieldID);
     }
 
-    public static void HandleInstallBillBoard(GameSession session, PacketReader packet, Item item)
+    private static void HandleInstallBillBoard(GameSession session, PacketReader packet, Item item)
     {
         string[] parameters = packet.ReadUnicodeString().Split("'");
         string title = parameters[0];
@@ -384,13 +414,14 @@ public class RequestItemUseHandler : GamePacketHandler
 
         int balloonUid = GuidGenerator.Int();
         string id = "AdBalloon_" + balloonUid;
-        AdBalloon balloon = new(id, item.Function.InstallBillboard.InteractId, InteractObjectState.Default, InteractObjectType.AdBalloon, session.Player.FieldPlayer, item.Function.InstallBillboard, title, description, publicHouse);
+        AdBalloon balloon = new(id, item.Function.InstallBillboard.InteractId, InteractObjectState.Default, InteractObjectType.AdBalloon,
+            session.Player.FieldPlayer, item.Function.InstallBillboard, title, description, publicHouse);
         session.FieldManager.State.AddInteractObject(balloon);
-        session.FieldManager.BroadcastPacket(InteractObjectPacket.LoadAdBallon(balloon));
+        session.FieldManager.BroadcastPacket(InteractObjectPacket.Add(balloon));
         session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
     }
 
-    public static void HandleExpandCharacterSlot(GameSession session, Item item)
+    private static void HandleExpandCharacterSlot(GameSession session, Item item)
     {
         Account account = DatabaseManager.Accounts.FindById(session.Player.AccountId);
         int maxSlots = int.Parse(ConstantsMetadataStorage.GetConstant("MaxCharacterSlots"));
@@ -406,7 +437,7 @@ public class RequestItemUseHandler : GamePacketHandler
         session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
     }
 
-    public static void HandleBeautyVoucher(GameSession session, Item item)
+    private static void HandleBeautyVoucher(GameSession session, Item item)
     {
         if (item.Gender != session.Player.Gender)
         {
@@ -416,24 +447,120 @@ public class RequestItemUseHandler : GamePacketHandler
         session.Send(CouponUsePacket.BeautyCoupon(session.Player.FieldPlayer, item.Uid));
     }
 
-    public static void HandleRepackingScroll(GameSession session, Item item)
+    private static void HandleRepackingScroll(GameSession session, Item item)
     {
         session.Send(ItemRepackagePacket.Open(item.Uid));
     }
 
-    public static void HandleNameVoucher(GameSession session, PacketReader packet, Item item)
+    private static void HandleNameVoucher(GameSession session, PacketReader packet, Item item)
     {
-        string characterName = packet.ReadUnicodeString();
-        session.Player.Name = characterName;
+        string newName = packet.ReadUnicodeString();
+        string oldName = session.Player.Name;
+        session.Player.Name = newName;
 
         session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
 
-        session.Send(CharacterListPacket.NameChanged(session.Player.CharacterId, characterName));
+        session.Send(CharacterListPacket.NameChanged(session.Player.CharacterId, newName));
+
+        // Update name on socials
+        foreach (Club club in session.Player.Clubs)
+        {
+            club.BroadcastPacketClub(ClubPacket.UpdateMemberName(oldName, newName, session.Player.CharacterId));
+            if (club.LeaderCharacterId == session.Player.CharacterId)
+            {
+                club.LeaderName = newName;
+            }
+        }
+
+        if (session.Player.Guild is not null)
+        {
+            session.Player.Guild?.BroadcastPacketGuild(GuildPacket.UpdateMemberName(oldName, newName));
+            if (session.Player.Guild.LeaderCharacterId == session.Player.CharacterId)
+            {
+                session.Player.Guild.LeaderName = newName;
+            }
+        }
+
+        session.Player.Party?.BroadcastPacketParty(PartyPacket.UpdatePlayer(session.Player));
+
         // TODO: Needs to redirect player to character selection screen after pop-up
     }
 
-    public static void HandleSurvivalLevelExp(GameSession session, Item item)
+    private static void HandleGenderVoucher(GameSession session, Item item)
+    {
+        if (session.Player.Gender == Gender.Male)
+        {
+            session.Player.Gender = Gender.Female;
+        }
+        else
+        {
+            session.Player.Gender = Gender.Male;
+        }
+
+        session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
+        ChangeToDefaultHair(session);
+        ChangeToDefaultFace(session);
+        session.Send(NoticePacket.QuitNotice(SystemNotice.ChangeGenderResultSuccess, NoticeType.Popup));
+    }
+
+    private static void ChangeToDefaultHair(GameSession session)
+    {
+        int hairId;
+        if (session.Player.Gender == Gender.Male)
+        {
+            hairId = 10200003; // Mega Mop-Top
+        }
+        else
+        {
+            hairId = 10200012; // Cutesy Twin Tails
+        }
+
+        BeautyHelper.ChangeHair(session, hairId, out _, out _);
+    }
+
+    private static void ChangeToDefaultFace(GameSession session)
+    {
+        int faceId;
+        if (session.Player.Gender == Gender.Male)
+        {
+            faceId = 10300002; // Mega Mop-Top
+        }
+        else
+        {
+            faceId = 10300004; // Bookworm
+        }
+
+        BeautyHelper.ChangeFace(session, faceId, out _, out _);
+    }
+
+    private static void HandleSurvivalLevelExp(GameSession session, Item item)
     {
         session.Player.Account.MushkingRoyaleStats.AddExp(session, item.Function.SurvivalLevelExp.SurvivalExp);
+    }
+
+    private static void HandleItemSocketScroll(GameSession session, Item item)
+    {
+        ItemSocketScrollMetadata metadata = ItemSocketScrollMetadataStorage.GetMetadata(item.Function.Id);
+        if (metadata is null)
+        {
+            return;
+        }
+
+        byte socketCount = ItemSocketScrollHelper.GetSocketCount(metadata.Id);
+        int successRate = (int) ItemSocketScrollHelper.GetSuccessRate(metadata.Id) * 10000;
+        session.Send(ItemSocketScrollPacket.OpenWindow(item.Uid, successRate, socketCount));
+    }
+
+    private static void HandleEnchantScroll(GameSession session, Item item)
+    {
+        EnchantScrollMetadata metadata = EnchantScrollMetadataStorage.GetMetadata(item.Function.Id);
+        if (metadata is null)
+        {
+            return;
+        }
+
+        Script script = ScriptLoader.GetScript("Functions/ItemEnchantScroll/getSuccessRate");
+        float successRate = (float) script.RunFunction("getSuccessRate", metadata.Id).Number;
+        session.Send(EnchantScrollPacket.OpenWindow(item.Uid, metadata, successRate));
     }
 }

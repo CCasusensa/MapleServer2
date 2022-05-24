@@ -6,9 +6,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestItemStorage : GamePacketHandler
+public class RequestItemStorage : GamePacketHandler<RequestItemStorage>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_ITEM_STORAGE;
+    public override RecvOp OpCode => RecvOp.RequestItemStorage;
 
     private enum ItemStorageMode : byte
     {
@@ -53,7 +53,7 @@ public class RequestItemStorage : GamePacketHandler
                 HandleClose(session.Player.Account.BankInventory);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -65,7 +65,7 @@ public class RequestItemStorage : GamePacketHandler
         short slot = packet.ReadShort();
         int amount = packet.ReadInt();
 
-        if (!session.Player.Inventory.Items.ContainsKey(uid))
+        if (!session.Player.Inventory.HasItem(uid))
         {
             return;
         }

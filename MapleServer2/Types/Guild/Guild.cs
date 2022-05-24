@@ -27,6 +27,7 @@ public class Guild
     public bool Searchable { get; set; }
     public string Notice;
     public string Emblem;
+    public List<UGC> Banners;
     public int FocusAttributes;
     public int HouseRank;
     public int HouseTheme;
@@ -46,6 +47,7 @@ public class Guild
         Funds = 0;
         Emblem = "";
         Notice = "";
+        Banners = new();
         Searchable = true;
         HouseRank = 1;
         HouseTheme = 1;
@@ -165,7 +167,7 @@ public class Guild
         }
     }
 
-    private List<GameSession> GetSessions()
+    private IEnumerable<GameSession> GetSessions()
     {
         List<GameSession> sessions = new();
         foreach (GuildMember guildMember in Members)

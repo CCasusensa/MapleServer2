@@ -1,7 +1,9 @@
 ﻿using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
+using MapleServer2.Enums;
 using MapleServer2.Packets;
+using MapleServer2.Tools;
 using MapleServer2.Types;
 
 namespace MapleServer2.Managers;
@@ -10,20 +12,18 @@ internal static class TrophyManager
 {
     public static void OnAcceptQuest(Player player, int questId)
     {
-        IEnumerable<TrophyMetadata> questAcceptTrophies = GetRelevantTrophies(TrophyTypes.QuestAccept);
-        IEnumerable<TrophyMetadata> matchingTrophies = questAcceptTrophies
-            .Where(t => t.Grades.Any(g => IsMatchingCondition(g.ConditionCodes, questId)));
+        IEnumerable<TrophyMetadata> questAcceptTrophies = GetRelevantTrophies(TrophyTypes.QuestAccept)
+            .Where(t => ConditionHelper.IsMatching(t.ConditionCodes, questId));
 
-        UpdateMatchingTrophies(player, matchingTrophies, 1);
+        UpdateMatchingTrophies(player, questAcceptTrophies, 1);
     }
 
     public static void OnMapEntered(Player player, long mapId)
     {
-        IEnumerable<TrophyMetadata> mapTrophies = GetRelevantTrophies(TrophyTypes.Map);
-        IEnumerable<TrophyMetadata> matchingTrophies = mapTrophies
-            .Where(t => IsMatchingCondition(t.Grades.First().ConditionCodes, mapId));
+        IEnumerable<TrophyMetadata> mapTrophies = GetRelevantTrophies(TrophyTypes.Map)
+            .Where(t => ConditionHelper.IsMatching(t.ConditionCodes, mapId));
 
-        UpdateMatchingTrophies(player, matchingTrophies, 1);
+        UpdateMatchingTrophies(player, mapTrophies, 1);
     }
 
     public static void OnJump(Player player)
@@ -42,33 +42,32 @@ internal static class TrophyManager
 
     public static void OnLevelUp(Player player)
     {
-        int jobId = (int) player.JobCode;
-        IEnumerable<TrophyMetadata> levelUpTrophies = GetRelevantTrophies(TrophyTypes.LevelUp);
+        int jobId = (int) player.Job;
+        int level = player.Levels.Level;
+        IEnumerable<TrophyMetadata> jobSpecificLevelTrophies = GetRelevantTrophies(TrophyTypes.LevelUp)
+            .Where(t => ConditionHelper.IsMatching(t.ConditionCodes, jobId) &&
+                        ConditionHelper.IsMatching(t.Grades.First().ConditionTargets, level));
+
         IEnumerable<TrophyMetadata> levelTrophies = GetRelevantTrophies(TrophyTypes.Level);
 
-        // TODO: This might not be right :D
-        IEnumerable<TrophyMetadata> matchingTrophies = levelUpTrophies
-            .Where(t => IsMatchingCondition(t.Grades.First().ConditionCodes, jobId));
-
-        UpdateMatchingTrophies(player, matchingTrophies, 1);
+        UpdateMatchingTrophies(player, jobSpecificLevelTrophies, 1);
         UpdateMatchingTrophies(player, levelTrophies, 1);
     }
 
     public static void OnObjectInteract(Player player, long objectId)
     {
         IEnumerable<TrophyMetadata> interactTrophies = GetRelevantTrophies(TrophyTypes.InteractObject)
-            .Concat(GetRelevantTrophies(TrophyTypes.Controller));
+            .Concat(GetRelevantTrophies(TrophyTypes.Controller))
+            .Where(t => ConditionHelper.IsMatching(t.ConditionCodes, objectId));
 
-        IEnumerable<TrophyMetadata> matchingTrophies = interactTrophies
-            .Where(t => IsMatchingCondition(t.Grades.First().ConditionCodes, objectId));
-
-        UpdateMatchingTrophies(player, matchingTrophies, 1);
+        UpdateMatchingTrophies(player, interactTrophies, 1);
     }
 
-    public static void OnGainMasteryLevel(Player player)
+    public static void OnGainMasteryLevel(Player player, MasteryType masteryExpType)
     {
         IEnumerable<TrophyMetadata> masteryTrophies = GetRelevantTrophies(TrophyTypes.MasteryGrade)
-            .Concat(GetRelevantTrophies(TrophyTypes.SetMasteryGrade));
+            .Concat(GetRelevantTrophies(TrophyTypes.SetMasteryGrade))
+            .Where(t => ConditionHelper.IsMatching(t.ConditionCodes, (byte) masteryExpType));
 
         UpdateMatchingTrophies(player, masteryTrophies, 1);
     }
@@ -82,92 +81,31 @@ internal static class TrophyManager
 
     public static void OnTrigger(Player player, string trigger)
     {
-        IEnumerable<TrophyMetadata> triggerTrophies = GetRelevantTrophies(TrophyTypes.Trigger);
+        IEnumerable<TrophyMetadata> triggerTrophies = GetRelevantTrophies(TrophyTypes.Trigger)
+            .Where(t => ConditionHelper.IsMatching(t.ConditionCodes, trigger));
 
-        IEnumerable<TrophyMetadata> matchingTrophies = triggerTrophies
-            .Where(t => IsMatchingCondition(t.Grades.First().ConditionCodes, trigger));
-
-        UpdateMatchingTrophies(player, matchingTrophies, 1);
+        UpdateMatchingTrophies(player, triggerTrophies, 1);
     }
 
-    private static IEnumerable<TrophyMetadata> GetRelevantTrophies(string category) =>
-        TrophyMetadataStorage.GetTrophiesByType(category);
-
-    private static bool IsMatchingCondition(IEnumerable<string> trophyConditions, string condition)
+    public static void OnFall(Player player, float fallDistance)
     {
-        return trophyConditions.Any(m => m.Equals(condition, StringComparison.OrdinalIgnoreCase));
+        IEnumerable<TrophyMetadata> fallTrophies = GetRelevantTrophies(TrophyTypes.Fall);
+
+        int meters = (int) Math.Floor(fallDistance / 100f);
+
+        UpdateMatchingTrophies(player, fallTrophies, meters);
     }
 
-    private static bool IsMatchingCondition(IEnumerable<string> trophyConditions, long condition)
+    public static void OnFallDamage(Player player)
     {
-        foreach (string trophyCondition in trophyConditions)
-        {
-            if (trophyCondition.Contains('-'))
-            {
-                bool isinRange = IsInConditionRange(trophyCondition, condition);
-                if (isinRange)
-                {
-                    return true;
-                }
-            }
+        IEnumerable<TrophyMetadata> fallSurviveTrophies = GetRelevantTrophies(TrophyTypes.FallSurvive);
 
-            if (trophyCondition.Contains(','))
-            {
-                bool isInList = IsInConditionList(trophyCondition, condition);
-                if (isInList)
-                {
-                    return true;
-                }
-            }
-
-            if (!long.TryParse(trophyCondition, out long parsedCondition))
-            {
-                continue;
-            }
-
-            if (parsedCondition == condition)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        UpdateMatchingTrophies(player, fallSurviveTrophies, 1);
     }
 
-    private static bool IsInConditionList(string trophyCondition, long condition)
-    {
-        string[] conditions = trophyCondition.Split(',');
-        foreach (string c in conditions)
-        {
-            if (!long.TryParse(c, out long listItem))
-            {
-                continue;
-            }
+    #region Helper Methods
 
-            if (condition == listItem)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool IsInConditionRange(string trophyCondition, long condition)
-    {
-        string[] parts = trophyCondition.Split('-');
-        if (!long.TryParse(parts[0], out long lowerBound))
-        {
-            return false;
-        }
-
-        if (!long.TryParse(parts[1], out long upperBound))
-        {
-            return false;
-        }
-
-        return condition >= lowerBound && condition <= upperBound;
-    }
+    private static IEnumerable<TrophyMetadata> GetRelevantTrophies(string category) => TrophyMetadataStorage.GetTrophiesByType(category);
 
     private static void UpdateMatchingTrophies(Player player, IEnumerable<TrophyMetadata> trophies, int progress)
     {
@@ -179,7 +117,7 @@ internal static class TrophyManager
                 player.TrophyData[trophyId] = new(player.CharacterId, player.AccountId, trophyId);
             }
 
-            player.TrophyData[trophyId].AddCounter(player.Session, progress);
+            player.TrophyData[trophyId].AddCounter(player, progress);
 
             player.TrophyData.TryGetValue(trophyId, out Trophy trophy);
 
@@ -187,6 +125,8 @@ internal static class TrophyManager
             DatabaseManager.Trophies.Update(trophy);
         }
     }
+
+    #endregion
 
     private static class TrophyTypes
     {

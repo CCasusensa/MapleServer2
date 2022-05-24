@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Types;
-using MaplePacketLib2.Tools;
+﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Types;
 
@@ -12,12 +11,12 @@ public static class LiftablePacket
         LoadLiftables = 0x00,
         UpdateEntity = 0x02,
         Drop = 0x03,
-        RemoveCube = 0x04,
+        RemoveCube = 0x04
     }
 
     public static PacketWriter LoadLiftables(List<LiftableObject> liftableObjects)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.LIFTABLE);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Liftable);
         pWriter.Write(LiftableMode.LoadLiftables);
         pWriter.Write(liftableObjects.Count);
         foreach (LiftableObject liftableObject in liftableObjects)
@@ -28,8 +27,8 @@ public static class LiftablePacket
             pWriter.Write(liftableObject.State);
             pWriter.WriteUnicodeString("0"); // unknown
             pWriter.WriteUnicodeString(); // ""
-            pWriter.WriteUnicodeString(liftableObject.EffectQuestId);
-            pWriter.WriteUnicodeString(liftableObject.EffectQuestState);
+            pWriter.WriteUnicodeString(liftableObject.Metadata.EffectQuestID);
+            pWriter.WriteUnicodeString(liftableObject.Metadata.EffectQuestState);
             pWriter.WriteByte(1);
         }
 
@@ -38,7 +37,7 @@ public static class LiftablePacket
 
     public static PacketWriter UpdateEntityById(LiftableObject liftableObject)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.LIFTABLE);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Liftable);
         pWriter.Write(LiftableMode.UpdateEntity);
         pWriter.WriteString(liftableObject.EntityId);
         pWriter.WriteByte();
@@ -50,9 +49,9 @@ public static class LiftablePacket
 
     public static PacketWriter UpdateEntityByCoord(LiftableObject liftableObject)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.LIFTABLE);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Liftable);
         pWriter.Write(LiftableMode.UpdateEntity);
-        pWriter.WriteString($"4_{CoordB.AsHexadecimal(liftableObject.Position.ToByte())}");
+        pWriter.WriteString($"4_{liftableObject.Position.ToByte().AsHexadecimal()}");
         pWriter.WriteByte();
         pWriter.WriteInt(liftableObject.Enabled ? 1 : 0); // 1 = enable, 0 = disable
         pWriter.Write(liftableObject.State);
@@ -62,12 +61,12 @@ public static class LiftablePacket
 
     public static PacketWriter Drop(LiftableObject liftableObject)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.LIFTABLE);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Liftable);
         pWriter.Write(LiftableMode.Drop);
-        pWriter.WriteString($"4_{CoordB.AsHexadecimal(liftableObject.Position.ToByte())}");
+        pWriter.WriteString($"4_{liftableObject.Position.ToByte().AsHexadecimal()}");
         pWriter.WriteInt(1);
-        pWriter.WriteUnicodeString(liftableObject.EffectQuestId);
-        pWriter.WriteUnicodeString(liftableObject.EffectQuestState);
+        pWriter.WriteUnicodeString(liftableObject.Metadata.EffectQuestID);
+        pWriter.WriteUnicodeString(liftableObject.Metadata.EffectQuestState);
         pWriter.WriteUnicodeString("0");
         pWriter.WriteUnicodeString("0");
         pWriter.WriteByte(1);
@@ -77,9 +76,9 @@ public static class LiftablePacket
 
     public static PacketWriter RemoveCube(LiftableObject liftableObject)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.LIFTABLE);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Liftable);
         pWriter.Write(LiftableMode.RemoveCube);
-        pWriter.WriteString($"4_{CoordB.AsHexadecimal(liftableObject.Position.ToByte())}");
+        pWriter.WriteString($"4_{liftableObject.Position.ToByte().AsHexadecimal()}");
 
         return pWriter;
     }

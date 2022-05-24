@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Tools;
-using Maple2Storage.Types;
+﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
@@ -10,14 +9,14 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class LoadUgcMapHandler : GamePacketHandler
+public class LoadUgcMapHandler : GamePacketHandler<LoadUgcMapHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_LOAD_UGC_MAP;
+    public override RecvOp OpCode => RecvOp.RequestLoadUGCMap;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
         bool mapIsHome = session.Player.MapId == (int) Map.PrivateResidence;
-        UGCMapMetadata ugcMapMetadata = UGCMapMetadataStorage.GetMetadata(session.Player.MapId);
+        UgcMapMetadata ugcMapMetadata = UgcMapMetadataStorage.GetMetadata(session.Player.MapId);
         List<byte> plots = new();
         if (ugcMapMetadata != null)
         {
@@ -30,7 +29,7 @@ public class LoadUgcMapHandler : GamePacketHandler
             Home home = GameServer.HomeManager.GetHomeById(session.Player.VisitingHomeId);
             if (home == null)
             {
-                session.Send(ResponseLoadUGCMapPacket.LoadUGCMap(false));
+                session.Send(ResponseLoadUgcMapPacket.LoadUgcMap());
                 return;
             }
 
@@ -39,7 +38,7 @@ public class LoadUgcMapHandler : GamePacketHandler
                 home
             };
 
-            session.Send(ResponseLoadUGCMapPacket.LoadUGCMap(mapIsHome, home, session.Player.IsInDecorPlanner));
+            session.Send(ResponseLoadUgcMapPacket.LoadUgcMap(home, session.Player.IsInDecorPlanner));
 
             // Find spawning coords for home
             int cubePortalId = 50400190;
@@ -48,7 +47,7 @@ public class LoadUgcMapHandler : GamePacketHandler
             CoordF rotation;
             if (portals.Count > 0)
             {
-                Cube portal = portals.OrderBy(x => RandomProvider.Get().Next()).Take(1).First();
+                Cube portal = portals.OrderBy(_ => Random.Shared.Next()).First();
                 coord = portal.CoordF;
                 coord.Z += 1;
                 rotation = portal.Rotation;
@@ -69,7 +68,7 @@ public class LoadUgcMapHandler : GamePacketHandler
         else
         {
             homes = GameServer.HomeManager.GetPlots(session.Player.MapId);
-            session.Send(ResponseLoadUGCMapPacket.LoadUGCMap(mapIsHome));
+            session.Send(ResponseLoadUgcMapPacket.LoadUgcMap());
         }
 
         List<Cube> cubes = new();
@@ -86,7 +85,5 @@ public class LoadUgcMapHandler : GamePacketHandler
         session.Send(SendCubesPacket.LoadCubes(cubes));
         session.Send(SendCubesPacket.LoadAvailablePlots(homes, plots));
         session.Send(SendCubesPacket.Expiration(homes.Where(x => x.PlotNumber != 0).ToList()));
-
-        session.Send("6D 00 12 00 00 00 00 00 00 00 00 00 00 00 00".ToByteArray()); // send ugc
     }
 }

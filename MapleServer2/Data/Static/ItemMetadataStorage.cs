@@ -1,8 +1,9 @@
 ﻿using Maple2Storage.Enums;
-using Maple2Storage.Tools;
 using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Enums;
+using MapleServer2.Tools;
+using MapleServer2.Types;
 using ProtoBuf;
 
 namespace MapleServer2.Data.Static;
@@ -14,7 +15,7 @@ public static class ItemMetadataStorage
 
     public static void Init()
     {
-        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-item-metadata");
+        using FileStream stream = MetadataHelper.GetFileStream(MetadataName.Item);
         List<ItemMetadata> items = Serializer.Deserialize<List<ItemMetadata>>(stream);
         foreach (ItemMetadata item in items)
         {
@@ -62,7 +63,69 @@ public static class ItemMetadataStorage
 
     public static bool IsSellablle(int itemId) => GetMetadata(itemId).Sellable;
 
+    public static bool IsTradeDisabledWithinAccount(int itemId) => GetMetadata(itemId).DisableTradeWithinAccount;
+
     public static TransferType GetTransferType(int itemId) => GetMetadata(itemId).TransferType;
+
+    public static ItemTransferFlag GetTransferFlag(int itemId, int rarity)
+    {
+        TransferType transferType = GetTransferType(itemId);
+        ItemTransferFlag transferFlag = ItemTransferFlag.Untradeable;
+        int tradeLimitByRarity = GetMetadata(itemId).TradeLimitByRarity;
+        int tradeCount = GetTradeableCount(itemId);
+        bool tradeable = tradeCount > 0 || transferType == TransferType.Tradeable;
+
+        switch (transferType)
+        {
+            case TransferType.Tradeable:
+                if (rarity >= tradeLimitByRarity)
+                {
+                    transferFlag = tradeable ? ItemTransferFlag.Untradeable : ItemTransferFlag.LimitedTradeCount;
+                    break;
+                }
+
+                transferFlag = ItemTransferFlag.Tradeable;
+                break;
+            case TransferType.Untradeable:
+                transferFlag = tradeable ? ItemTransferFlag.Untradeable : ItemTransferFlag.LimitedTradeCount;
+                break;
+            case TransferType.BindOnLoot:
+            case TransferType.BindOnEquip:
+            case TransferType.BindOnUse:
+            case TransferType.BindOnTrade:
+            case TransferType.BindOnSummonEnchantOrReroll:
+                transferFlag = ItemTransferFlag.Binds;
+                if (tradeCount <= 0)
+                {
+                    if (rarity >= tradeLimitByRarity)
+                    {
+                        break;
+                    }
+
+                    transferFlag = ItemTransferFlag.Binds | ItemTransferFlag.Tradeable;
+                    break;
+                }
+
+                transferFlag = ItemTransferFlag.Binds | ItemTransferFlag.LimitedTradeCount;
+                break;
+            case TransferType.TradeableOnBlackMarket:
+                if (tradeCount > 0 && rarity >= tradeLimitByRarity)
+                {
+                    transferFlag = tradeable ? ItemTransferFlag.Untradeable : ItemTransferFlag.LimitedTradeCount;
+                    break;
+                }
+
+                transferFlag = ItemTransferFlag.Tradeable;
+                break;
+        }
+
+        if (rarity < tradeLimitByRarity && (transferFlag & ItemTransferFlag.Tradeable) != 0)
+        {
+            transferFlag |= ItemTransferFlag.Splitable;
+        }
+
+        return transferFlag;
+    }
 
     public static int GetTradeableCount(int itemId) => GetMetadata(itemId).TradeableCount;
 
@@ -74,35 +137,35 @@ public static class ItemMetadataStorage
 
     public static List<Job> GetRecommendJobs(int itemId)
     {
-        Converter<int, Job> converter = integer => (Job) integer;
+        static Job Converter(int integer) => (Job) integer;
 
-        return GetMetadata(itemId).RecommendJobs.ConvertAll(converter);
+        return GetMetadata(itemId).RecommendJobs.ConvertAll(Converter);
     }
 
-    public static int GetSellPrice(int itemId)
+    public static long GetSellPrice(int itemId)
     {
         // get random selling price from price points
-        List<int> pricePoints = GetMetadata(itemId)?.SellPrice;
+        List<long> pricePoints = GetMetadata(itemId)?.SellPrice;
         if (pricePoints == null || !pricePoints.Any())
         {
             return 0;
         }
 
-        int rand = RandomProvider.Get().Next(0, pricePoints.Count);
+        int rand = Random.Shared.Next(0, pricePoints.Count);
 
         return pricePoints.ElementAt(rand);
     }
 
-    public static int GetCustomSellPrice(int itemId)
+    public static long GetCustomSellPrice(int itemId)
     {
         // get random selling price from price points
-        List<int> pricePoints = GetMetadata(itemId)?.SellPriceCustom;
+        List<long> pricePoints = GetMetadata(itemId)?.SellPriceCustom;
         if (pricePoints == null || !pricePoints.Any())
         {
             return 0;
         }
 
-        int rand = RandomProvider.Get().Next(0, pricePoints.Count);
+        int rand = Random.Shared.Next(0, pricePoints.Count);
 
         return pricePoints.ElementAt(rand);
     }
@@ -117,7 +180,15 @@ public static class ItemMetadataStorage
 
     public static int GetOptionConstant(int itemId) => GetMetadata(itemId).OptionConstant;
 
-    public static int GetOptionLevelFactor(int itemId) => GetMetadata(itemId)?.OptionLevelFactor ?? 0;
+    public static float GetOptionLevelFactor(int itemId) => GetMetadata(itemId)?.OptionLevelFactor ?? 0;
+
+    public static int GetOptionId(int itemId) => GetMetadata(itemId).OptionId;
+
+    public static int GetPetId(int itemId) => GetMetadata(itemId).PetId;
+
+    public static bool IsEnchantDisabled(int itemId) => GetMetadata(itemId).DisableEnchant;
+
+    public static int GetSocketDataId(int itemId) => GetMetadata(itemId).SocketDataId;
 
     public static EquipColor GetEquipColor(int itemId)
     {
@@ -134,7 +205,7 @@ public static class ItemMetadataStorage
 
         if (colorPalette > 0 && colorIndex == -1) // random color from color palette
         {
-            Random random = RandomProvider.Get();
+            Random random = Random.Shared;
 
             int index = random.Next(palette.DefaultColors.Count);
 
@@ -155,6 +226,35 @@ public static class ItemMetadataStorage
     public static int GetObjectId(int itemId) => GetMetadata(itemId).ObjectId;
 
     public static string GetBlackMarketCategory(int itemId) => GetMetadata(itemId).BlackMarketCategory;
+
+    public static int GetGearScoreFactor(int itemId) => GetMetadata(itemId).GearScoreFactor;
+
+    public static long GetExpiration(int itemId)
+    {
+        ItemMetadata metadata = GetMetadata(itemId);
+
+        long expirationTimestamp = 0;
+
+        if (metadata.ExpirationTime != new DateTime(1, 1, 1, 0, 0, 0))
+        {
+            expirationTimestamp = ((DateTimeOffset) metadata.ExpirationTime.ToUniversalTime().Date).ToUnixTimeSeconds();
+        }
+        else if (metadata.DurationPeriod > 0)
+        {
+            expirationTimestamp = TimeInfo.Now() + metadata.DurationPeriod;
+        }
+        else if (metadata.ExpirationType != ItemExpirationType.None)
+        {
+            expirationTimestamp = metadata.ExpirationType switch
+            {
+                ItemExpirationType.Months => metadata.ExpirationTypeDuration * TimeInfo.SecondsInMonth + TimeInfo.Now(),
+                ItemExpirationType.Weeks => metadata.ExpirationTypeDuration * TimeInfo.SecondsInWeek + TimeInfo.Now(),
+                _ => expirationTimestamp
+            };
+        }
+
+        return expirationTimestamp;
+    }
 
     public static IEnumerable<ItemMetadata> GetAll() => ItemMetadatas.Values;
 }

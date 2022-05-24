@@ -1,5 +1,4 @@
 ﻿using Maple2Storage.Types;
-using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Types;
@@ -14,41 +13,36 @@ public static class RegionSkillPacket
         Remove = 0x1
     }
 
-    public static PacketWriter Send(int sourceObjectId, CoordS effectCoord, SkillCast skill)
+    public static PacketWriter Send(SkillCast skill)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.REGION_SKILL);
-        SkillCast parentSkill = skill.ParentSkill;
-        List<MagicPathMove> skillMoves = parentSkill?.GetMagicPaths().MagicPathMoves ?? null;
-        byte tileCount = (byte) (skillMoves != null ? skillMoves.Count : 1);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.RegionSkill);
 
         pWriter.Write(RegionSkillMode.Add);
-        pWriter.WriteInt(sourceObjectId);
-        pWriter.WriteInt(sourceObjectId);
-        pWriter.WriteInt();
-        pWriter.WriteByte(tileCount);
-        if (tileCount == 0)
+        pWriter.WriteInt(skill.SkillObjectId);
+        pWriter.WriteInt(skill.CasterObjectId);
+        pWriter.WriteInt(skill.ServerTick);
+        pWriter.WriteByte((byte) skill.EffectCoords.Count);
+        if (skill.EffectCoords.Count == 0)
         {
             return pWriter;
         }
 
-        for (int i = 0; i < tileCount; i++)
+        foreach (CoordF effectCoord in skill.EffectCoords)
         {
-            CoordF currentSkillCoord = skillMoves != null ? skillMoves[i].FireOffsetPosition : CoordF.From(0, 0, 0);
-            CoordF castPosition = Block.ClosestBlock(currentSkillCoord + effectCoord.ToFloat());
-
-            pWriter.Write(castPosition);
+            pWriter.Write(effectCoord);
         }
+
         pWriter.WriteInt(skill.SkillId);
         pWriter.WriteShort(skill.SkillLevel);
-        pWriter.WriteLong();
-
+        pWriter.WriteFloat();
+        pWriter.WriteFloat();
 
         return pWriter;
     }
 
     public static PacketWriter Remove(int sourceObjectId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.REGION_SKILL);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.RegionSkill);
         pWriter.Write(RegionSkillMode.Remove);
         pWriter.WriteInt(sourceObjectId); // Uid regionEffect
         return pWriter;

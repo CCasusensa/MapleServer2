@@ -1,4 +1,5 @@
-﻿using MapleServer2.Database;
+﻿using Maple2Storage.Enums;
+using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Types;
@@ -15,6 +16,7 @@ public class BlackMarketManager
         List<BlackMarketListing> list = DatabaseManager.BlackMarketListings.FindAll();
         foreach (BlackMarketListing listing in list)
         {
+            listing.Item.SetMetadataValues();
             AddListing(listing);
         }
     }
@@ -57,8 +59,8 @@ public class BlackMarketManager
                 item.Level < minLevel ||
                 item.Level > maxLevel ||
                 item.Rarity < rarity ||
-                item.Enchants < minEnchantLevel ||
-                item.Enchants > maxEnchantLevel ||
+                item.EnchantLevel < minEnchantLevel ||
+                item.EnchantLevel > maxEnchantLevel ||
                 item.Stats.GemSockets.Count < minSockets ||
                 item.Stats.GemSockets.Count > maxSockets ||
                 !item.Name.ToLower().Contains(name.ToLower()))
@@ -78,43 +80,23 @@ public class BlackMarketManager
                 continue;
             }
 
-            List<NormalStat> normalStats = new();
-            List<SpecialStat> specialStats = new();
-            foreach (ItemStat stat in item.Stats.BasicStats)
-            {
-                if (stat is NormalStat normalStat)
-                {
-                    normalStats.Add(normalStat);
-                    continue;
-                }
-                specialStats.Add((SpecialStat) stat);
-            }
-
-            foreach (ItemStat stat in item.Stats.BonusStats)
-            {
-                if (stat is NormalStat normalStat)
-                {
-                    normalStats.Add(normalStat);
-                    continue;
-                }
-                specialStats.Add((SpecialStat) stat);
-            }
-
             // find if stats contains all values inside searchedStats
             bool containsAll = true;
             foreach (ItemStat searchedStat in searchedStats)
             {
-                if (searchedStat is NormalStat normalStat)
+                ICollection<Dictionary<StatAttribute, ItemStat>> stats = new List<Dictionary<StatAttribute, ItemStat>>();
+                stats.Add(item.Stats.Constants);
+                stats.Add(item.Stats.Statics);
+                stats.Add(item.Stats.Randoms);
+                foreach (Dictionary<StatAttribute, ItemStat> statCollection in stats)
                 {
-                    if (!normalStats.Any(x => x.ItemAttribute == normalStat.ItemAttribute && x.Flat >= normalStat.Flat && x.Percent >= normalStat.Percent))
+                    if (!statCollection.ContainsKey(searchedStat.ItemAttribute))
                     {
                         containsAll = false;
                         break;
                     }
-                }
-                else if (searchedStat is SpecialStat specialStat)
-                {
-                    if (!specialStats.Any(x => x.ItemAttribute == specialStat.ItemAttribute && x.Flat >= specialStat.Flat && x.Percent >= specialStat.Percent))
+                    if (statCollection[searchedStat.ItemAttribute].Flat < searchedStat.Flat &&
+                        statCollection[searchedStat.ItemAttribute].Rate < searchedStat.Rate)
                     {
                         containsAll = false;
                         break;

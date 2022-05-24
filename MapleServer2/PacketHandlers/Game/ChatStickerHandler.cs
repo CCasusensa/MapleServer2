@@ -6,9 +6,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class ChatStickerHandler : GamePacketHandler
+public class ChatStickerHandler : GamePacketHandler<ChatStickerHandler>
 {
-    public override RecvOp OpCode => RecvOp.CHAT_STICKER;
+    public override RecvOp OpCode => RecvOp.ChatSticker;
 
     private enum ChatStickerMode : byte
     {
@@ -26,7 +26,7 @@ public class ChatStickerHandler : GamePacketHandler
         switch (mode)
         {
             case ChatStickerMode.OpenWindow:
-                HandleOpenWindow( /*session, packet*/);
+                HandleOpenWindow();
                 break;
             case ChatStickerMode.UseSticker:
                 HandleUseSticker(session, packet);
@@ -41,12 +41,12 @@ public class ChatStickerHandler : GamePacketHandler
                 HandleUnfavorite(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
 
-    private static void HandleOpenWindow( /*GameSession session, ByteReader packet*/)
+    private static void HandleOpenWindow()
     {
         // TODO: if user has any expired stickers, use the packet below
         //session.Send(ChatStickerPacket.ExpiredStickerNotification());

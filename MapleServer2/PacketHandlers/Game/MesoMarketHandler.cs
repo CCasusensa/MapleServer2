@@ -9,9 +9,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class MesoMarketHandler : GamePacketHandler
+public class MesoMarketHandler : GamePacketHandler<MesoMarketHandler>
 {
-    public override RecvOp OpCode => RecvOp.MESO_MARKET;
+    public override RecvOp OpCode => RecvOp.MesoMarket;
 
     private enum MesoMarketMode : byte
     {
@@ -19,7 +19,7 @@ public class MesoMarketHandler : GamePacketHandler
         CreateListing = 0x5,
         CancelListing = 0x6,
         RefreshListings = 0x7,
-        Purchase = 0x8,
+        Purchase = 0x8
     }
 
     private enum MesoMarketError
@@ -36,7 +36,7 @@ public class MesoMarketHandler : GamePacketHandler
         CantPurchaseOwnMeso = 0xB,
         InvalidMesoQuantity = 0xF,
         PriceMustBeWithinRange = 0x10,
-        ItemSoldOut = 0x11,
+        ItemSoldOut = 0x11
     }
 
     public override void Handle(GameSession session, PacketReader packet)
@@ -61,7 +61,7 @@ public class MesoMarketHandler : GamePacketHandler
                 HandlePurchase(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }

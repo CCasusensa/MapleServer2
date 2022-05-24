@@ -1,13 +1,14 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
 using Maple2.File.IO.Crypto.Common;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class BlackMarketTableParser : Exporter<List<BlackMarketTableMetadata>>
 {
-    public BlackMarketTableParser(MetadataResources resources) : base(resources, "black-market-table") { }
+    public BlackMarketTableParser(MetadataResources resources) : base(resources, MetadataName.BlackMarketTable) { }
 
     protected override List<BlackMarketTableMetadata> Parse()
     {
@@ -42,7 +43,6 @@ public class BlackMarketTableParser : Exporter<List<BlackMarketTableMetadata>>
 
                     foreach (XmlNode subtabNode in tabNode.ChildNodes)
                     {
-                        Console.WriteLine(subtabNode.Attributes["name"].Value);
                         if (subtabNode.Attributes["category"] != null)
                         {
                             BlackMarketTableMetadata metadata = new()
@@ -58,7 +58,6 @@ public class BlackMarketTableParser : Exporter<List<BlackMarketTableMetadata>>
                         {
                             foreach (XmlNode subsubNode in subtabNode.ChildNodes)
                             {
-                                Console.WriteLine(subsubNode.Attributes["name"].Value);
                                 if (subsubNode.Attributes["category"] != null)
                                 {
                                     BlackMarketTableMetadata metadata = new()

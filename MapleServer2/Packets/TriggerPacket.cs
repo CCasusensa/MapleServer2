@@ -24,12 +24,13 @@ public static class TriggerPacket
         StartCutscene = 0x4,
         StopCutscene = 0x5,
         SetAnimationSequence = 0x7,
-        SetAnimationLoop = 0x8
+        SetAnimationLoop = 0x8,
+        FaceEmotion = 0x9
     }
 
     public static PacketWriter LoadTriggers(List<TriggerObject> triggerObjects)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.LoadTriggers);
         pWriter.WriteInt(triggerObjects.Count);
 
@@ -42,7 +43,7 @@ public static class TriggerPacket
 
     public static PacketWriter UpdateTrigger(TriggerObject trigger)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UpdateTrigger);
         WriteTrigger(pWriter, trigger);
         return pWriter;
@@ -98,7 +99,7 @@ public static class TriggerPacket
 
     public static PacketWriter Guide(int eventId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UI);
         pWriter.Write(TriggerUIMode.Guide);
         pWriter.WriteInt(eventId);
@@ -107,7 +108,7 @@ public static class TriggerPacket
 
     public static PacketWriter Banner(byte state, int entityId, int stringGuideId = 0, int time = 0)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UI);
         pWriter.WriteByte(state); // 02 = on, 03 = off
         pWriter.WriteInt(entityId);
@@ -118,7 +119,7 @@ public static class TriggerPacket
 
     public static PacketWriter StartCutscene(string fileName, int movieId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UI);
         pWriter.Write(TriggerUIMode.StartCutscene);
         pWriter.WriteString(fileName);
@@ -128,7 +129,7 @@ public static class TriggerPacket
 
     public static PacketWriter StopCutscene(int movieId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UI);
         pWriter.Write(TriggerUIMode.StopCutscene);
         pWriter.WriteInt(movieId);
@@ -137,7 +138,7 @@ public static class TriggerPacket
 
     public static PacketWriter SetAnimationSequence(string animationState)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UI);
         pWriter.Write(TriggerUIMode.SetAnimationSequence);
         pWriter.WriteInt(1);
@@ -147,7 +148,7 @@ public static class TriggerPacket
 
     public static PacketWriter SetAnimationLoop(string animationState, int duration, bool loop)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.UI);
         pWriter.Write(TriggerUIMode.SetAnimationLoop);
         pWriter.WriteBool(loop);
@@ -156,9 +157,19 @@ public static class TriggerPacket
         return pWriter;
     }
 
+    public static PacketWriter SetFaceEmotion(int objectId, string animationString)
+    {
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
+        pWriter.Write(TriggerPacketMode.UI);
+        pWriter.Write(TriggerUIMode.FaceEmotion);
+        pWriter.WriteInt(objectId);
+        pWriter.WriteString(animationString);
+        return pWriter;
+    }
+
     public static PacketWriter Camera(int[] pathIds, bool returnView)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.Camera);
         pWriter.WriteByte((byte) pathIds.Length);
         foreach (int pathId in pathIds)
@@ -171,7 +182,7 @@ public static class TriggerPacket
 
     public static PacketWriter Timer(int msTime, bool clearAtZero = false, bool display = false)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.TRIGGER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.Trigger);
         pWriter.Write(TriggerPacketMode.Timer);
         pWriter.WriteBool(display);
         pWriter.WriteInt(Environment.TickCount);

@@ -1,4 +1,6 @@
-﻿using MapleServer2.Database.Types;
+﻿using Maple2Storage.Enums;
+using MapleServer2.Database.Types;
+using Newtonsoft.Json;
 using SqlKata.Execution;
 
 namespace MapleServer2.Database.Classes;
@@ -12,144 +14,170 @@ public class DatabaseEvent : DatabaseTable
         return QueryFactory.Query(TableName).InsertGetId<long>(new
         {
             gameEvent.Id,
-            gameEvent.Active,
-            gameEvent.Type
+            begin_timestamp = gameEvent.BeginTimestamp,
+            end_timestamp = gameEvent.EndTimestamp,
         });
     }
 
-    public FieldPopupEvent FindFieldPopupEvent()
+    public EventFieldPopup FindFieldPopupEvent()
     {
-        GameEvent gameEvent = QueryFactory.Query(TableName).Where(new
-        {
-            type = GameEventType.EventFieldPopup,
-            active = true
-        }).Get<GameEvent>().FirstOrDefault();
-        if (gameEvent == null)
-        {
-            return null;
-        }
-        return ReadFieldPopupEvent(QueryFactory.Query("event_field_popup").Where("game_event_id", gameEvent.Id).Get().FirstOrDefault());
+        dynamic result = QueryFactory.Query("event_field_popup").FirstOrDefault();
+        return ReadFieldPopupEvent(result);
     }
 
-    public List<MapleopolyEvent> FindAllMapleopolyEvents()
+    public BlueMarble FindMapleopolyEvent()
     {
-        List<MapleopolyEvent> mapleopolyEvents = new();
-        GameEvent gameEvent = QueryFactory.Query(TableName).Where(new
-        {
-            type = GameEventType.BlueMarble,
-            active = true
-        }).Get<GameEvent>().FirstOrDefault();
-        if (gameEvent == null)
-        {
-            return null;
-        }
-        IEnumerable<dynamic> results = QueryFactory.Query("event_mapleopoly").Where("game_event_id", gameEvent.Id).Get();
-        foreach (dynamic result in results)
-        {
-            mapleopolyEvents.Add(ReadMapleopolyEvent(result));
-        }
-        return mapleopolyEvents;
+        BlueMarble mapleopolyRewards = new();
+        IEnumerable<dynamic> results = QueryFactory.Query("event_mapleopoly").Get();
+        return ReadMapleopolyEvent(results);
     }
 
-    public UGCMapContractSaleEvent FindUGCMapContractSaleEvent()
+    public UgcMapContractSale FindUgcMapContractSaleEvent()
     {
-        GameEvent gameEvent = QueryFactory.Query(TableName).Where(new
-        {
-            type = GameEventType.UGCMapContractSale,
-            active = true
-        }).Get<GameEvent>().FirstOrDefault();
-        if (gameEvent == null)
-        {
-            return null;
-        }
-        return ReadUGCMapContractSaleEvent(QueryFactory.Query("event_ugc_map_contract_sale").Where("game_event_id", gameEvent.Id).Get().FirstOrDefault());
+        dynamic result = QueryFactory.Query("event_ugc_map_contract_sale").FirstOrDefault();
+        return ReadUgcMapContractSaleEvent(result);
     }
 
-    public UGCMapExtensionSaleEvent FindUGCMapExtensionSaleEvent()
+    public UgcMapExtensionSale FindUgcMapExtensionSaleEvent()
     {
-        GameEvent gameEvent = QueryFactory.Query(TableName).Where(new
-        {
-            type = GameEventType.UGCMapExtensionSale,
-            active = true
-        }).Get<GameEvent>().FirstOrDefault();
-        if (gameEvent == null)
-        {
-            return null;
-        }
-        return ReadUGCMapExtensionSaleEvent(QueryFactory.Query("event_ugc_map_extension_sale").Where("game_event_id", gameEvent.Id).Get().FirstOrDefault());
+        dynamic result = QueryFactory.Query("event_ugc_map_extension_sale").FirstOrDefault();
+        return ReadUgcMapExtensionSaleEvent(result);
     }
 
-    public List<StringBoardEvent> FindAllStringBoardEvent()
+    public IEnumerable<StringBoard> FindAllStringBoardEvent()
     {
-        List<StringBoardEvent> stringBoardEvents = new();
-        GameEvent gameEvent = QueryFactory.Query(TableName).Where(new
-        {
-            type = GameEventType.StringBoard,
-            active = true
-        }).Get<GameEvent>().FirstOrDefault();
-        if (gameEvent == null)
-        {
-            return null;
-        }
-        IEnumerable<dynamic> results = QueryFactory.Query("event_string_boards").Where("game_event_id", gameEvent.Id).Get();
+        List<StringBoard> stringBoardEvents = new();
+        IEnumerable<dynamic> results = QueryFactory.Query("event_string_boards").Get();
         foreach (dynamic data in results)
         {
             stringBoardEvents.Add(ReadStringBoardEvent(data));
         }
+
         return stringBoardEvents;
+    }
+
+    public StringBoardLink FindStringBoardLinkEvent()
+    {
+        dynamic result = QueryFactory.Query("event_string_board_links").FirstOrDefault();
+        return ReadStringBoardLinkEvent(result);
+    }
+
+    public MeratMarketNotice FindMeratMarketNotice()
+    {
+        dynamic result = QueryFactory.Query("event_meret_market_notices").FirstOrDefault();
+        return ReadMeratMarketNoticeEvent(result);
+    }
+
+    public AttendGift FindAttendGiftEvent()
+    {
+        dynamic result = QueryFactory.Query("event_attend_gift").FirstOrDefault();
+        return ReadAttendGiftEvent(result);
+    }
+
+    public RPS FindRockPaperScissorsEvent()
+    {
+        dynamic result = QueryFactory.Query("event_rockpaperscissors").FirstOrDefault();
+        return ReadRockPaperScissorsEvent(result);
+    }
+
+    public SaleChat FindSaleChatEvent()
+    {
+        dynamic result = QueryFactory.Query("event_sale_chat").FirstOrDefault();
+        return ReadSaleChatEvent(result);
     }
 
     public List<GameEvent> FindAll()
     {
-        List<GameEvent> gameEvents = QueryFactory.Query(TableName).Where("active", true).Get<GameEvent>().ToList();
-        foreach (GameEvent gameEvent in gameEvents)
-        {
-            switch (gameEvent.Type)
-            {
-                case GameEventType.StringBoard:
-                    gameEvent.StringBoard = FindAllStringBoardEvent();
-                    break;
-                case GameEventType.BlueMarble:
-                    gameEvent.Mapleopoly = FindAllMapleopolyEvents();
-                    break;
-                case GameEventType.UGCMapContractSale:
-                    gameEvent.UGCMapContractSale = FindUGCMapContractSaleEvent();
-                    break;
-                case GameEventType.UGCMapExtensionSale:
-                    gameEvent.UGCMapExtensionSale = FindUGCMapExtensionSaleEvent();
-                    break;
-                case GameEventType.EventFieldPopup:
-                    gameEvent.FieldPopupEvent = FindFieldPopupEvent();
-                    break;
-            }
-        }
+        List<GameEvent> gameEvents = new();
+
+        gameEvents.AddRange(FindAllStringBoardEvent());
+        gameEvents.Add(FindStringBoardLinkEvent());
+        gameEvents.Add(FindFieldPopupEvent());
+        gameEvents.Add(FindMapleopolyEvent());
+        gameEvents.Add(FindUgcMapExtensionSaleEvent());
+        gameEvents.Add(FindUgcMapContractSaleEvent());
+        gameEvents.Add(FindAttendGiftEvent());
+        gameEvents.Add(FindRockPaperScissorsEvent());
+        gameEvents.Add(FindMeratMarketNotice());
+        gameEvents.Add(FindSaleChatEvent());
+
         return gameEvents;
     }
 
-    private static StringBoardEvent ReadStringBoardEvent(dynamic data)
+    private static dynamic ReadBaseGameEvent(int eventId)
     {
-        return new StringBoardEvent(data.id, data.message_id, data.message);
+        return QueryFactory.Query("events").Where("id", eventId).FirstOrDefault();
     }
 
-    private static FieldPopupEvent ReadFieldPopupEvent(dynamic data)
+    private static StringBoard ReadStringBoardEvent(dynamic data)
     {
-        return new FieldPopupEvent(data.id, data.map_id);
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new StringBoard(data.game_event_id, data.message_id, data.message, baseEvent.begin_timestamp, baseEvent.end_timestamp);
     }
 
-    private static MapleopolyEvent ReadMapleopolyEvent(dynamic data)
+    private static StringBoardLink ReadStringBoardLinkEvent(dynamic data)
     {
-        return new MapleopolyEvent(data.id, data.trip_amount, data.item_id, data.item_rarity, data.item_amount);
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new StringBoardLink(data.game_event_id, data.link, baseEvent.begin_timestamp, baseEvent.end_timestamp);
     }
 
-    private static UGCMapContractSaleEvent ReadUGCMapContractSaleEvent(dynamic data)
+    private static MeratMarketNotice ReadMeratMarketNoticeEvent(dynamic data)
     {
-        return new UGCMapContractSaleEvent(data.id, data.discount_amount);
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new MeratMarketNotice(data.game_event_id, data.message, baseEvent.begin_timestamp, baseEvent.end_timestamp);
     }
 
-    private static UGCMapExtensionSaleEvent ReadUGCMapExtensionSaleEvent(dynamic data)
+    private static EventFieldPopup ReadFieldPopupEvent(dynamic data)
     {
-        return new UGCMapExtensionSaleEvent(data.id, data.discount_amount);
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new EventFieldPopup(data.game_event_id, data.map_id, baseEvent.begin_timestamp, baseEvent.end_timestamp);
     }
 
+    private static BlueMarble ReadMapleopolyEvent(IEnumerable<dynamic> data)
+    {
+        List<BlueMarbleReward> rewards = new();
+        dynamic baseEvent = ReadBaseGameEvent((int) data.First().game_event_id);
+        foreach (dynamic item in data)
+        {
+            BlueMarbleReward reward = new(item.trip_amount, item.item_id, item.item_rarity, item.item_amount);
+            rewards.Add(reward);
+        }
 
+        return new BlueMarble(baseEvent.id, rewards, baseEvent.begin_timestamp, baseEvent.end_timestamp);
+    }
+
+    private static UgcMapContractSale ReadUgcMapContractSaleEvent(dynamic data)
+    {
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new UgcMapContractSale(data.game_event_id, data.discount_amount, baseEvent.begin_timestamp, baseEvent.end_timestamp);
+    }
+
+    private static UgcMapExtensionSale ReadUgcMapExtensionSaleEvent(dynamic data)
+    {
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new UgcMapExtensionSale(data.game_event_id, data.discount_amount, baseEvent.begin_timestamp, baseEvent.end_timestamp);
+    }
+
+    private static AttendGift ReadAttendGiftEvent(dynamic data)
+    {
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new AttendGift(data.game_event_id, baseEvent.begin_timestamp, baseEvent.end_timestamp, data.name, data.url, data.disable_claim_button,
+            data.time_required,
+            (GameEventCurrencyType) data.skip_day_currency_type, data.skip_days_allowed, data.skip_day_cost,
+            JsonConvert.DeserializeObject<List<AttendGiftDay>>(data.days));
+    }
+
+    private static RPS ReadRockPaperScissorsEvent(dynamic data)
+    {
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new RPS(data.game_event_id, data.voucher_id, baseEvent.begin_timestamp, baseEvent.end_timestamp,
+            JsonConvert.DeserializeObject<List<RPSTier>>(data.rewards));
+    }
+
+    private static SaleChat ReadSaleChatEvent(dynamic data)
+    {
+        dynamic baseEvent = ReadBaseGameEvent((int) data.game_event_id);
+        return new SaleChat(data.game_event_id, baseEvent.begin_timestamp, baseEvent.end_timestamp, data.world_chat_discount_amount,
+            data.channel_chat_discount_amount);
+    }
 }

@@ -4,9 +4,9 @@ using MapleServer2.Network;
 
 namespace MapleServer2.PacketHandlers.Common;
 
-public class SystemInfoHandler : CommonPacketHandler
+public class SystemInfoHandler : CommonPacketHandler<SystemInfoHandler>
 {
-    public override RecvOp OpCode => RecvOp.SYSTEM_INFO;
+    public override RecvOp OpCode => RecvOp.SystemInfo;
 
     protected override void HandleCommon(Session session, PacketReader packet)
     {

@@ -7,9 +7,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class BuddyEmoteHandler : GamePacketHandler
+public class BuddyEmoteHandler : GamePacketHandler<BuddyEmoteHandler>
 {
-    public override RecvOp OpCode => RecvOp.BUDDY_EMOTE;
+    public override RecvOp OpCode => RecvOp.BuddyEmote;
 
     private enum BuddyEmoteMode : byte
     {
@@ -46,7 +46,7 @@ public class BuddyEmoteHandler : GamePacketHandler
                 HandleStopEmote(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }

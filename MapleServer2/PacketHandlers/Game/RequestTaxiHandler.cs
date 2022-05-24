@@ -9,9 +9,9 @@ using MoonSharp.Interpreter;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-internal class RequestTaxiHandler : GamePacketHandler
+internal class RequestTaxiHandler : GamePacketHandler<RequestTaxiHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_TAXI;
+    public override RecvOp OpCode => RecvOp.RequestTaxi;
 
     private enum RequestTaxiMode : byte
     {
@@ -48,7 +48,7 @@ internal class RequestTaxiHandler : GamePacketHandler
                 HandleDiscoverTaxi(session);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -57,13 +57,13 @@ internal class RequestTaxiHandler : GamePacketHandler
     {
         if (!WorldMapGraphStorage.CanPathFind(session.Player.MapId.ToString(), mapId.ToString(), out int mapCount))
         {
-            Logger.Warn("Path not found.");
+            Logger.Warning("Path not found.");
             return;
         }
 
-        ScriptLoader scriptLoader = new("Functions/calcTaxiCost");
+        Script script = ScriptLoader.GetScript("Functions/calcTaxiCost");
 
-        DynValue result = scriptLoader.Call("calcTaxiCost", mapCount, session.Player.Levels.Level);
+        DynValue result = script.RunFunction("calcTaxiCost", mapCount, session.Player.Levels.Level);
         if (result == null)
         {
             return;
@@ -86,9 +86,9 @@ internal class RequestTaxiHandler : GamePacketHandler
             return;
         }
 
-        ScriptLoader scriptLoader = new("Functions/calcAirTaxiCost");
+        Script script = ScriptLoader.GetScript("Functions/calcAirTaxiCost");
 
-        DynValue result = scriptLoader.Call("calcAirTaxiCost", session.Player.Levels.Level);
+        DynValue result = script.RunFunction("calcAirTaxiCost", session.Player.Levels.Level);
         if (result == null)
         {
             return;

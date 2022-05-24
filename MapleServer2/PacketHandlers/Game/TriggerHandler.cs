@@ -1,15 +1,16 @@
 ﻿using Maple2.Trigger.Enum;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
 using static MapleServer2.Packets.TriggerPacket;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class TriggerHandler : GamePacketHandler
+public class TriggerHandler : GamePacketHandler<TriggerHandler>
 {
-    public override RecvOp OpCode => RecvOp.TRIGGER;
+    public override RecvOp OpCode => RecvOp.Trigger;
 
     private enum TriggerMode : byte
     {
@@ -30,7 +31,7 @@ public class TriggerHandler : GamePacketHandler
                 HandleUpdateWidget(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -38,6 +39,7 @@ public class TriggerHandler : GamePacketHandler
     private static void HandleSkipCutscene(GameSession session)
     {
         session.FieldManager.Triggers.FirstOrDefault(x => x.HasSkipScene())?.SkipScene();
+        session.Send(CinematicPacket.StartSceneSkip());
     }
 
     private static void HandleUpdateWidget(GameSession session, PacketReader packet)

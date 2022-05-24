@@ -1,7 +1,8 @@
-﻿using Maple2Storage.Types;
+﻿using Maple2Storage.Enums;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
-using MapleServer2.Constants.Skills;
 using MapleServer2.Enums;
+using MapleServer2.Tools;
 using ProtoBuf;
 
 namespace MapleServer2.Data.Static;
@@ -12,7 +13,7 @@ public static class SkillMetadataStorage
 
     public static void Init()
     {
-        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-skill-metadata");
+        using FileStream stream = MetadataHelper.GetFileStream(MetadataName.Skill);
         List<SkillMetadata> skillList = Serializer.Deserialize<List<SkillMetadata>>(stream);
         foreach (SkillMetadata skills in skillList)
         {
@@ -25,38 +26,48 @@ public static class SkillMetadataStorage
     public static List<int> GetEmotes() => Skills.Values.Where(x => x.SkillId / 100000 == 902).Select(x => x.SkillId).ToList();
 
     // Get a List of Skills corresponding to the Job
-    public static List<SkillMetadata> GetJobSkills(Job job = Job.None)
+    public static IEnumerable<SkillMetadata> GetJobSkills(Job job)
     {
-        List<SkillMetadata> jobSkill = new();
-        List<int> gmSkills = SkillTreeOrdered.GetListOrdered(Job.GameMaster);
+        List<SkillMetadata> skillMetadatas = new();
 
         if (Job.GameMaster == job)
         {
-            foreach (int skillId in gmSkills)
-            {
-                jobSkill.Add(Skills[skillId]);
-                jobSkill.First(skill => skill.SkillId == skillId).CurrentLevel = 1;
-            }
-            return jobSkill;
+            return GameMasterSkills.Select(skillId => Skills[skillId]);
         }
 
-        foreach (KeyValuePair<int, SkillMetadata> skills in Skills)
+        List<JobSkillMetadata> jobSkills = JobMetadataStorage.GetJobSkills(job);
+        if (jobSkills is null)
         {
-            if (skills.Value.Job == (int) job)
-            {
-                jobSkill.Add(skills.Value);
-            }
-            else if (skills.Value.SkillId == 20000001) // Swiming
-            {
-                jobSkill.Add(skills.Value);
-                skills.Value.CurrentLevel = 1;
-            }
-            else if (skills.Value.SkillId == 20000011) // Climbing walls
-            {
-                jobSkill.Add(skills.Value);
-                skills.Value.CurrentLevel = 1;
-            }
+            return skillMetadatas;
         }
-        return jobSkill;
+
+        foreach (JobSkillMetadata jobSkill in jobSkills)
+        {
+            SkillMetadata skillMetadata = GetSkill(jobSkill.SkillId);
+            if (skillMetadata is null)
+            {
+                continue;
+            }
+
+            skillMetadatas.Add(skillMetadata);
+        }
+
+        return skillMetadatas;
     }
+
+    public static bool IsPassive(int skillId) => GetSkill(skillId)?.Type == SkillType.Passive;
+
+    private static readonly List<int> GameMasterSkills = new()
+    {
+        20000001,
+        20000011,
+        19900001,
+        19900011,
+        19900021,
+        19900032,
+        19900042,
+        19900052,
+        19900061,
+        19999991
+    };
 }

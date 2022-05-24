@@ -5,9 +5,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestTimeSyncHandler : GamePacketHandler
+public class RequestTimeSyncHandler : GamePacketHandler<RequestTimeSyncHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_TIME_SYNC;
+    public override RecvOp OpCode => RecvOp.RequestTimeSync;
 
     public override void Handle(GameSession session, PacketReader packet)
     {

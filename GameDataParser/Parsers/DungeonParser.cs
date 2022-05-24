@@ -1,13 +1,15 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
+using GameDataParser.Tools;
 using Maple2.File.IO.Crypto.Common;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class DungeonParser : Exporter<List<DungeonMetadata>>
 {
-    public DungeonParser(MetadataResources resources) : base(resources, "dungeon") { }
+    public DungeonParser(MetadataResources resources) : base(resources, MetadataName.Dungeon) { }
 
     protected override List<DungeonMetadata> Parse()
     {
@@ -35,7 +37,7 @@ public class DungeonParser : Exporter<List<DungeonMetadata>>
                     RewardExp = int.Parse(dungeonNode.Attributes["rewardExp"]?.Value ?? "0"),
                     RewardMeso = int.Parse(dungeonNode.Attributes["rewardMeso"]?.Value ?? "0"),
                     LobbyFieldId = int.Parse(dungeonNode.Attributes["lobbyFieldID"]?.Value ?? "0"),
-                    FieldIds = dungeonNode.Attributes["fieldIDs"]?.Value.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(int.Parse).ToList(),
+                    FieldIds = dungeonNode.Attributes["fieldIDs"]?.Value.SplitAndParseToInt(',').ToList(),
                     MaxUserCount = byte.Parse(dungeonNode.Attributes["maxUserCount"]?.Value ?? "0"),
                     LimitPlayerLevel = byte.Parse(dungeonNode.Attributes["limitPlayerLevel"]?.Value ?? "0")
                 };

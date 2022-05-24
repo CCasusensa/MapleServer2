@@ -9,11 +9,17 @@ public class TrophyMetadata
     [XmlElement(Order = 1)]
     public int Id;
     [XmlElement(Order = 2)]
-    public string[] Categories;
+    public string Name = "";
     [XmlElement(Order = 3)]
-    public bool AccountWide;
+    public string[] Categories;
     [XmlElement(Order = 4)]
+    public bool AccountWide;
+    [XmlElement(Order = 5)]
     public List<TrophyGradeMetadata> Grades = new();
+    [XmlElement(Order = 6)]
+    public string ConditionType = "";
+    [XmlElement(Order = 7)]
+    public string ConditionCodes = "";
 
     public override string ToString()
     {
@@ -29,17 +35,15 @@ public class TrophyGradeMetadata
     [XmlElement(Order = 2)]
     public long Condition;
     [XmlElement(Order = 3)]
-    public string ConditionType;
+    public string ConditionTargets;
     [XmlElement(Order = 4)]
-    public string[] ConditionCodes;
-    [XmlElement(Order = 5)]
-    public string[] ConditionTargets;
-    [XmlElement(Order = 6)]
     public RewardType RewardType;
-    [XmlElement(Order = 7)]
+    [XmlElement(Order = 5)]
     public int RewardCode;
-    [XmlElement(Order = 8)]
+    [XmlElement(Order = 6)]
     public int RewardValue;
+    [XmlElement(Order = 7)]
+    public int RewardRank;
 
     public override string ToString()
     {

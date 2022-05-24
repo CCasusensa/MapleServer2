@@ -12,9 +12,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class BlackMarketHandler : GamePacketHandler
+public class BlackMarketHandler : GamePacketHandler<BlackMarketHandler>
 {
-    public override RecvOp OpCode => RecvOp.BLACK_MARKET;
+    public override RecvOp OpCode => RecvOp.BlackMarket;
 
     private enum BlackMarketMode : byte
     {
@@ -65,7 +65,7 @@ public class BlackMarketHandler : GamePacketHandler
                 HandlePrepareListing(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -81,7 +81,8 @@ public class BlackMarketHandler : GamePacketHandler
         int itemId = packet.ReadInt();
         int rarity = packet.ReadInt();
 
-        if (!session.Player.Inventory.Items.Any(x => x.Value.Id == itemId && x.Value.Rarity == rarity))
+        IReadOnlyCollection<Item> items = session.Player.Inventory.GetAllById(itemId);
+        if (items.All(x => x.Rarity != rarity))
         {
             return;
         }
@@ -103,9 +104,15 @@ public class BlackMarketHandler : GamePacketHandler
         long price = packet.ReadLong();
         int quantity = packet.ReadInt();
 
-        if (!session.Player.Inventory.Items.ContainsKey(itemUid))
+        if (!session.Player.Inventory.HasItem(itemUid))
         {
             session.Send(BlackMarketPacket.Error((int) BlackMarketError.ItemNotInInventory));
+            return;
+        }
+
+        Item item = session.Player.Inventory.GetByUid(itemUid);
+        if (item.Amount < quantity || item.IsBound())
+        {
             return;
         }
 
@@ -120,16 +127,10 @@ public class BlackMarketHandler : GamePacketHandler
             return;
         }
 
-        Item item = session.Player.Inventory.Items[itemUid];
-        if (item.Amount < quantity)
-        {
-            return;
-        }
-
         if (item.Amount > quantity)
         {
             item.TrySplit(quantity, out Item newStack);
-            session.Send(ItemInventoryPacket.Update(item.Uid, item.Amount));
+            session.Send(ItemInventoryPacket.UpdateAmount(item.Uid, item.Amount));
             item = newStack;
         }
         else
@@ -198,6 +199,7 @@ public class BlackMarketHandler : GamePacketHandler
                 {
                     continue;
                 }
+
                 stats.Add(stat);
             }
         }
@@ -257,29 +259,34 @@ public class BlackMarketHandler : GamePacketHandler
             purchasedItem = newItem;
         }
 
+        purchasedItem.DecreaseTradeCount();
+
         MailHelper.BlackMarketTransaction(purchasedItem, listing, session.Player.CharacterId, listing.Price, removeListing);
         session.Send(BlackMarketPacket.Purchase(listingId, amount));
     }
 
     private static ItemStat ReadStat(int statId, int value)
     {
-        // Normal Stat with percent value
-        if (statId >= 1000 && statId < 11000)
+        switch (statId)
         {
-            float percent = (float) (value + 5) / 10000;
-            StatId attribute = (StatId) (statId - 1000);
-            return new NormalStat(attribute, 0, percent);
+            // Basic Stat with percent value
+            case >= 1000 and < 11000:
+                {
+                    float percent = (float) (value + 5) / 10000;
+                    StatAttribute attribute = (StatAttribute) (statId - 1000);
+                    return new BasicStat(attribute, percent, StatAttributeType.Rate);
+                }
+            // Special Stat with percent value
+            case >= 11000:
+                {
+                    float percent = (float) (value + 5) / 10000;
+                    StatAttribute attribute = (StatAttribute) (statId);
+                    return new SpecialStat(attribute, percent, StatAttributeType.Rate);
+                }
+            default:
+                // Basic Stat with flat value
+                return new BasicStat((StatAttribute) statId, value, StatAttributeType.Flat);
         }
 
-        // Special Stat with percent value
-        if (statId >= 11000)
-        {
-            float percent = (float) (value + 5) / 10000;
-            SpecialStatId attribute = (SpecialStatId) (statId - 11000);
-            return new SpecialStat(attribute, 0, percent);
-        }
-
-        // Normal Stat with flat value
-        return new NormalStat((StatId) statId, value, 0);
     }
 }

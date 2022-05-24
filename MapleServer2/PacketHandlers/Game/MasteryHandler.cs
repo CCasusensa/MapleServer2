@@ -10,9 +10,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class MasteryHandler : GamePacketHandler
+public class MasteryHandler : GamePacketHandler<MasteryHandler>
 {
-    public override RecvOp OpCode => RecvOp.CONSTRUCT_RECIPE;
+    public override RecvOp OpCode => RecvOp.ConstructRecipe;
 
     private enum MasteryMode : byte
     {
@@ -41,7 +41,7 @@ public class MasteryHandler : GamePacketHandler
                 HandleCraftItem(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -56,7 +56,7 @@ public class MasteryHandler : GamePacketHandler
         MasteryMetadata mastery = MasteryMetadataStorage.GetMastery(type);
         if (mastery == null)
         {
-            Logger.Error($"Unknown mastery type {type} from user: {session.Player.Name}");
+            Logger.Error("Unknown mastery type {type} from user: {name}", type, session.Player.Name);
             return;
         }
 
@@ -81,7 +81,7 @@ public class MasteryHandler : GamePacketHandler
         RecipeMetadata recipe = RecipeMetadataStorage.GetRecipe(recipeId);
         if (recipe == null)
         {
-            Logger.Error($"Unknown recipe ID {recipeId} from user: {session.Player.Name}");
+            Logger.Error("Unknown recipe ID {recipeId} from user: {name}", recipeId, session.Player.Name);
             return;
         }
 
@@ -98,7 +98,7 @@ public class MasteryHandler : GamePacketHandler
         {
             foreach (int questId in recipe.RequireQuest)
             {
-                if (session.Player.QuestData.TryGetValue(questId, out QuestStatus quest) && quest.State is not QuestState.Finished)
+                if (session.Player.QuestData.TryGetValue(questId, out QuestStatus quest) && quest.State is not QuestState.Completed)
                 {
                     session.Send(MasteryPacket.MasteryNotice((short) MasteryNotice.RequiredQuestIsNotCompleted));
                     return;
@@ -133,7 +133,9 @@ public class MasteryHandler : GamePacketHandler
 
         foreach (RecipeItem ingredient in ingredients)
         {
-            Item item = session.Player.Inventory.Items.Values.FirstOrDefault(x => x.Id == ingredient.ItemId && x.Rarity == ingredient.Rarity);
+            Item item = session.Player.Inventory.GetAllById(ingredient.ItemId)
+                .FirstOrDefault(x => x.Rarity == ingredient.Rarity);
+
             if (item == null || item.Amount < ingredient.Amount)
             {
                 return false;
@@ -187,7 +189,9 @@ public class MasteryHandler : GamePacketHandler
 
         foreach (RecipeItem ingredient in ingredients)
         {
-            Item item = session.Player.Inventory.Items.Values.FirstOrDefault(x => x.Id == ingredient.ItemId && x.Rarity == ingredient.Rarity);
+            Item item = session.Player.Inventory.GetAllById(ingredient.ItemId)
+                .FirstOrDefault(x => x.Rarity == ingredient.Rarity);
+
             if (item == null || item.Amount < ingredient.Amount)
             {
                 return false;

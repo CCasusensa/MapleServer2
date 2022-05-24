@@ -7,9 +7,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class SkillBookTreeHandler : GamePacketHandler
+public class SkillBookTreeHandler : GamePacketHandler<SkillBookTreeHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_SKILL_BOOK_TREE;
+    public override RecvOp OpCode => RecvOp.RequestSkillBookTree;
 
     private enum SkillBookMode : byte
     {
@@ -37,7 +37,7 @@ public class SkillBookTreeHandler : GamePacketHandler
                 HandleAddTab(session);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -49,6 +49,8 @@ public class SkillBookTreeHandler : GamePacketHandler
 
     private static void HandleSave(GameSession session, PacketReader packet)
     {
+        Player player = session.Player;
+
         long activeTabId = packet.ReadLong();
         long selectedTab = packet.ReadLong(); // if 0 player used activate tab
         int unknown = packet.ReadInt();
@@ -58,26 +60,27 @@ public class SkillBookTreeHandler : GamePacketHandler
             long tabId = packet.ReadLong();
             string tabName = packet.ReadUnicodeString();
 
-            SkillTab skillTab = session.Player.SkillTabs.FirstOrDefault(x => x.TabId == tabId);
-            if (skillTab == default)
+            SkillTab skillTab = player.SkillTabs.FirstOrDefault(x => x.TabId == tabId);
+            if (skillTab is null)
             {
-                skillTab = new(session.Player.CharacterId, session.Player.Job, tabId, tabName);
-                session.Player.SkillTabs.Add(skillTab);
+                skillTab = new(player.CharacterId, player.Job, player.JobCode, tabId, tabName);
+                player.SkillTabs.Add(skillTab);
             }
             else
             {
-                skillTab = session.Player.SkillTabs[i];
+                skillTab = player.SkillTabs[i];
                 skillTab.TabId = tabId;
                 skillTab.Name = tabName;
             }
 
-            skillTab.ResetSkillTree(session.Player.Job);
+            // Count of skills that were added to the tab, doesn't show skills that were removed
             int skillCount = packet.ReadInt();
             for (int j = 0; j < skillCount; j++)
             {
                 int skillId = packet.ReadInt();
                 int skillLevel = packet.ReadInt();
-                skillTab.AddOrUpdate(skillId, (short) skillLevel, skillLevel > 0);
+
+                // not sure what to do with this
             }
         }
 
@@ -95,6 +98,11 @@ public class SkillBookTreeHandler : GamePacketHandler
         string newName = packet.ReadUnicodeString();
 
         SkillTab skillTab = session.Player.SkillTabs.FirstOrDefault(x => x.TabId == id);
+        if (skillTab is null)
+        {
+            return;
+        }
+
         skillTab.Name = newName;
         session.Send(SkillBookTreePacket.Rename(id, newName));
     }
@@ -106,6 +114,7 @@ public class SkillBookTreeHandler : GamePacketHandler
             return;
         }
 
+        // check tab max count
         session.Send(SkillBookTreePacket.AddTab(session.Player));
     }
 }

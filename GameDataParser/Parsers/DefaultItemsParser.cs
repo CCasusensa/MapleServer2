@@ -2,13 +2,14 @@
 using GameDataParser.Files;
 using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Enums;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class DefaultItemsParser : Exporter<List<DefaultItemsMetadata>>
 {
-    public DefaultItemsParser(MetadataResources resources) : base(resources, "default-items") { }
+    public DefaultItemsParser(MetadataResources resources) : base(resources, MetadataName.DefaultItems) { }
 
     protected override List<DefaultItemsMetadata> Parse()
     {
@@ -58,13 +59,13 @@ public class DefaultItemsParser : Exporter<List<DefaultItemsMetadata>>
                 }
             }
 
-            foreach (KeyValuePair<int, List<DefaultItem>> job in jobDictionary)
+            foreach ((int id, List<DefaultItem> defaultItems) in jobDictionary)
             {
                 DefaultItemsMetadata jobMetadata = new()
                 {
-                    JobCode = job.Key
+                    JobCode = id,
+                    DefaultItems = defaultItems
                 };
-                jobMetadata.DefaultItems.AddRange(job.Value);
                 items.Add(jobMetadata);
             }
         }

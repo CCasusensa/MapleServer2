@@ -11,9 +11,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class ShopHandler : GamePacketHandler
+public class ShopHandler : GamePacketHandler<ShopHandler>
 {
-    public override RecvOp OpCode => RecvOp.SHOP;
+    public override RecvOp OpCode => RecvOp.Shop;
 
     private enum ShopMode : byte
     {
@@ -42,7 +42,7 @@ public class ShopHandler : GamePacketHandler
                 HandleOpenViaItem(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -54,7 +54,7 @@ public class ShopHandler : GamePacketHandler
         Shop shop = DatabaseManager.Shops.FindById(metadata.ShopId);
         if (shop == null)
         {
-            Logger.Warn($"Unknown shop ID: {metadata.ShopId}");
+            Logger.Warning("Unknown shop ID: {shopId}", metadata.ShopId);
             return;
         }
 
@@ -80,12 +80,13 @@ public class ShopHandler : GamePacketHandler
         long itemUid = packet.ReadLong();
         int quantity = packet.ReadInt();
 
-        if (!session.Player.Inventory.Items.TryGetValue(itemUid, out Item item))
+        Item item = session.Player.Inventory.GetByUid(itemUid);
+        if (item == null)
         {
             return;
         }
 
-        int price = ItemMetadataStorage.GetCustomSellPrice(item.Id);
+        long price = ItemMetadataStorage.GetCustomSellPrice(item.Id);
         session.Player.Wallet.Meso.Modify(price * quantity);
 
         session.Player.Inventory.ConsumeItem(session, item.Uid, quantity);
@@ -123,7 +124,7 @@ public class ShopHandler : GamePacketHandler
                 session.Player.Account.RemoveMerets(shopItem.Price * quantity);
                 break;
             case ShopCurrencyType.Item:
-                Item itemCost = session.Player.Inventory.Items.FirstOrDefault(x => x.Value.Id == shopItem.RequiredItemId).Value;
+                Item itemCost = session.Player.Inventory.GetById(shopItem.RequiredItemId);
                 if (itemCost.Amount < shopItem.Price)
                 {
                     return;
@@ -152,9 +153,8 @@ public class ShopHandler : GamePacketHandler
         byte unk = packet.ReadByte();
         int itemId = packet.ReadInt();
 
-        List<Item> playerInventory = new(session.Player.Inventory.Items.Values);
-
-        Item item = playerInventory.FirstOrDefault(x => x.Id == itemId);
+        IInventory inventory = session.Player.Inventory;
+        Item item = inventory.GetById(itemId);
         if (item == null)
         {
             return;
@@ -163,7 +163,7 @@ public class ShopHandler : GamePacketHandler
         Shop shop = DatabaseManager.Shops.FindById(item.ShopID);
         if (shop == null)
         {
-            Logger.Warn($"Unknown shop ID: {item.ShopID}");
+            Logger.Warning("Unknown shop ID: {shopID}", item.ShopID);
             return;
         }
 

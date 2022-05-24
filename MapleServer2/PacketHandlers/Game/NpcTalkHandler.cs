@@ -3,7 +3,8 @@ using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
-using MapleServer2.PacketHandlers.Game.Helpers;
+using MapleServer2.Managers;
+using MapleServer2.Managers.Actors;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Tools;
@@ -12,9 +13,9 @@ using MoonSharp.Interpreter;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class NpcTalkHandler : GamePacketHandler
+public class NpcTalkHandler : GamePacketHandler<NpcTalkHandler>
 {
-    public override RecvOp OpCode => RecvOp.NPC_TALK;
+    public override RecvOp OpCode => RecvOp.NpcTalk;
 
     private enum NpcTalkMode : byte
     {
@@ -48,7 +49,7 @@ public class NpcTalkHandler : GamePacketHandler
                 HandleNextQuest(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(function);
+                LogUnknownMode(function);
                 break;
         }
     }
@@ -59,13 +60,13 @@ public class NpcTalkHandler : GamePacketHandler
         int objectId = packet.ReadInt();
 
         // Find if npc object id exists in field manager
-        if (!session.FieldManager.State.Npcs.TryGetValue(objectId, out IFieldActor<NpcMetadata> npc))
+        if (!session.FieldManager.State.Npcs.TryGetValue(objectId, out Npc npc))
         {
             return;
         }
 
         // Get all quests for this npc
-        foreach (QuestStatus item in session.Player.QuestData.Values.Where(x => x.State is not QuestState.Finished))
+        foreach (QuestStatus item in session.Player.QuestData.Values.Where(x => x.State is not QuestState.Completed))
         {
             if (npc.Value.Id == item.StartNpcId)
             {
@@ -81,7 +82,7 @@ public class NpcTalkHandler : GamePacketHandler
         session.Player.NpcTalk = new(npc.Value, npcQuests);
         NpcTalk npcTalk = session.Player.NpcTalk;
 
-        ScriptLoader scriptLoader = new($"Npcs/{npc.Value.Id}", session);
+        Script script = ScriptLoader.GetScript($"Npcs/{npc.Value.Id}", session);
 
         // If NPC is a shop, load and open the shop
         if (npc.Value.IsShop())
@@ -111,7 +112,7 @@ public class NpcTalkHandler : GamePacketHandler
         }
 
         // Check if npc has an exploration quest
-        QuestHelper.UpdateExplorationQuest(session, npc.Value.Id.ToString(), "talk_in");
+        QuestManager.OnTalkNpc(session.Player, npc.Value.Id, 0);
 
         // If npc has quests, send quests and talk option
         if (npcQuests.Count != 0)
@@ -130,7 +131,7 @@ public class NpcTalkHandler : GamePacketHandler
             npcTalk.QuestId = npcQuests.First().Id;
 
             ScriptMetadata questScript = ScriptMetadataStorage.GetQuestScriptMetadata(npcTalk.QuestId);
-            npcTalk.ScriptId = GetNextScript(questScript, npcTalk, 0, scriptLoader, session.Player);
+            npcTalk.ScriptId = GetNextScript(questScript, npcTalk, 0, script, session.Player);
 
             session.Send(QuestPacket.SendDialogQuest(objectId, npcQuests));
             session.Send(NpcTalkPacket.Respond(npc, NpcType.Quest, DialogType.CloseNext, npcTalk.ScriptId));
@@ -143,7 +144,7 @@ public class NpcTalkHandler : GamePacketHandler
             return;
         }
 
-        int firstScriptId = GetFirstScriptId(scriptLoader, scriptMetadata);
+        int firstScriptId = GetFirstScriptId(script, scriptMetadata);
         npcTalk.ScriptId = firstScriptId;
 
         Option option = scriptMetadata.Options.First(x => x.Id == firstScriptId);
@@ -169,7 +170,7 @@ public class NpcTalkHandler : GamePacketHandler
             return;
         }
 
-        ScriptLoader scriptLoader = new($"Npcs/{npcTalk.Npc.Id}", session);
+        Script script = ScriptLoader.GetScript($"Npcs/{npcTalk.Npc.Id}", session);
 
         // index is quest
         if (index <= npcTalk.Quests.Count - 1 && npcTalk.ScriptId == 0)
@@ -185,8 +186,7 @@ public class NpcTalkHandler : GamePacketHandler
         {
             Option option = scriptMetadata.Options.First(x => x.Id == npcTalk.ScriptId);
 
-            // Find if player has quest condition for type "talk_in" and option id
-            QuestHelper.UpdateQuest(session, npcTalk.Npc.Id.ToString(), "talk_in", option.Id.ToString());
+            QuestManager.OnTalkNpc(session.Player, npcTalk.Npc.Id, npcTalk.ScriptId);
 
             // If npc has no more options, close dialog
             if (option.Contents.Count <= npcTalk.ContentIndex + 1 && option.Contents[npcTalk.ContentIndex].Distractor is null)
@@ -196,7 +196,7 @@ public class NpcTalkHandler : GamePacketHandler
             }
         }
 
-        int nextScriptId = GetNextScript(scriptMetadata, npcTalk, index, scriptLoader, session.Player);
+        int nextScriptId = GetNextScript(scriptMetadata, npcTalk, index, script, session.Player);
 
         // If last script is different from next, reset content index, else increment content index
         if (npcTalk.ScriptId != nextScriptId)
@@ -245,7 +245,7 @@ public class NpcTalkHandler : GamePacketHandler
             session.Player.QuestData.TryGetValue(questId, out QuestStatus quest);
             session.Player.NpcTalk.Quests = quest is not null
                 ? new() { quest }
-                : new() { new(session.Player, QuestMetadataStorage.GetMetadata(questId)) };
+                : new() { new(session.Player.CharacterId, questId) };
         }
 
         session.Player.NpcTalk.ScriptId = 0;
@@ -254,7 +254,7 @@ public class NpcTalkHandler : GamePacketHandler
 
     private static void HandleBeauty(GameSession session)
     {
-        MapPortal portal = MapEntityStorage.GetPortals(session.Player.MapId).FirstOrDefault(portal => portal.Id == 99); // unsure how the portalId is determined
+        MapPortal portal = MapEntityMetadataStorage.GetPortals(session.Player.MapId).FirstOrDefault(portal => portal.Id == 99); // unsure how the portalId is determined
         if (portal is null)
         {
             return;
@@ -327,7 +327,7 @@ public class NpcTalkHandler : GamePacketHandler
         return content.Distractor is null ? DialogType.CloseNext : DialogType.CloseNextWithDistractor;
     }
 
-    private static int GetNextScript(ScriptMetadata scriptMetadata, NpcTalk npcTalk, int index, ScriptLoader scriptLoader, Player player)
+    private static int GetNextScript(ScriptMetadata scriptMetadata, NpcTalk npcTalk, int index, Script script, Player player)
     {
         if (npcTalk.IsQuest && npcTalk.ScriptId == 0)
         {
@@ -350,7 +350,7 @@ public class NpcTalkHandler : GamePacketHandler
 
         if (npcTalk.ScriptId == 0)
         {
-            return GetFirstScriptId(scriptLoader, scriptMetadata);
+            return GetFirstScriptId(script, scriptMetadata);
         }
 
         Option currentOption = scriptMetadata.Options.First(x => x.Id == npcTalk.ScriptId);
@@ -361,9 +361,9 @@ public class NpcTalkHandler : GamePacketHandler
         }
 
         // If content has any goto, use the lua scripts to check the requirements
-        if (content.Distractor[index].Goto.Count > 0 && scriptLoader.Script is not null)
+        if (content.Distractor[index].Goto.Count > 0 && script is not null)
         {
-            DynValue result = scriptLoader.Call("handleGoto", content.Distractor[index].Goto[0]);
+            DynValue result = script.RunFunction("handleGoto", content.Distractor[index].Goto[0]);
             if (result is not null && (int) result.Number != -1)
             {
                 return (int) result.Number;
@@ -374,16 +374,16 @@ public class NpcTalkHandler : GamePacketHandler
         return content.Distractor[index].Goto[0];
     }
 
-    private static int GetFirstScriptId(ScriptLoader scriptLoader, ScriptMetadata scriptMetadata)
+    private static int GetFirstScriptId(Script script, ScriptMetadata scriptMetadata)
     {
-        if (scriptLoader.Script is null)
+        if (script is null)
         {
             return scriptMetadata.Options.First(x => x.Type == ScriptType.Script).Id;
         }
 
         // Usually hardcoded functions to get the first script id which
         // otherwise wouldn't be possible only with the xml data
-        DynValue firstScriptResult = scriptLoader.Call("getFirstScriptId");
+        DynValue firstScriptResult = script.RunFunction("getFirstScriptId");
         if (firstScriptResult is not null && (int) firstScriptResult.Number != -1)
         {
             return (int) firstScriptResult.Number;

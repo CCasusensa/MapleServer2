@@ -1,5 +1,6 @@
 ﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
+using MapleServer2.Tools;
 using ProtoBuf;
 
 namespace MapleServer2.Data.Static;
@@ -10,7 +11,7 @@ public static class AnimationStorage
 
     public static void Init()
     {
-        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-animation-metadata");
+        using FileStream stream = MetadataHelper.GetFileStream(MetadataName.Animation);
         List<AnimationMetadata> animations = Serializer.Deserialize<List<AnimationMetadata>>(stream);
         foreach (AnimationMetadata animation in animations)
         {
@@ -18,14 +19,14 @@ public static class AnimationStorage
         }
     }
 
-    public static List<SequenceMetadata> GetSequencesByActorId(string actorId)
+    public static IEnumerable<SequenceMetadata> GetSequencesByActorId(string actorId)
     {
         return Animations.GetValueOrDefault(actorId.ToLower()).Sequence;
     }
 
     public static short GetSequenceIdBySequenceName(string actorId, string sequenceName)
     {
-        List<SequenceMetadata> sequences = GetSequencesByActorId(actorId);
+        IEnumerable<SequenceMetadata> sequences = GetSequencesByActorId(actorId);
         SequenceMetadata metadata = sequences.FirstOrDefault(s => s.SequenceName == sequenceName);
 
         if (metadata != default)

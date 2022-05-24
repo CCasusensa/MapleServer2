@@ -7,9 +7,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class ItemRepackageHandler : GamePacketHandler
+public class ItemRepackageHandler : GamePacketHandler<ItemRepackageHandler>
 {
-    public override RecvOp OpCode => RecvOp.ITEM_REPACKAGE;
+    public override RecvOp OpCode => RecvOp.ItemRepackage;
 
     private enum ItemRepackageMode : byte
     {
@@ -35,7 +35,7 @@ public class ItemRepackageHandler : GamePacketHandler
                 HandleRepackage(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -45,15 +45,15 @@ public class ItemRepackageHandler : GamePacketHandler
         long ribbonUid = packet.ReadLong();
         long repackingItemUid = packet.ReadLong();
 
-        Item ribbon = session.Player.Inventory.Items.Values.FirstOrDefault(x => x.Uid == ribbonUid);
-        Item repackingItem = session.Player.Inventory.Items.Values.FirstOrDefault(x => x.Uid == repackingItemUid);
+        Item ribbon = session.Player.Inventory.GetByUid(ribbonUid);
+        Item repackingItem = session.Player.Inventory.GetByUid(repackingItemUid);
         if (repackingItem == null || ribbon == null)
         {
             session.Send(ItemRepackagePacket.Notice((int) ItemRepackageNotice.ItemInvalid));
             return;
         }
 
-        if (repackingItem.RemainingTrades != 0)
+        if (repackingItem.RemainingTrades != 0 || repackingItem.IsBound())
         {
             session.Send(ItemRepackagePacket.Notice((int) ItemRepackageNotice.CannotBePackaged));
         }
@@ -71,7 +71,7 @@ public class ItemRepackageHandler : GamePacketHandler
             return;
         }
 
-        repackingItem.RepackageCount -= 1;
+        repackingItem.RemainingRepackageCount -= 1;
         repackingItem.RemainingTrades++;
 
         session.Player.Inventory.ConsumeItem(session, ribbon.Uid, ribbonRequirementAmount);

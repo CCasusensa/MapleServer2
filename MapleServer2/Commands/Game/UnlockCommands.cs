@@ -3,6 +3,7 @@ using MapleServer2.Commands.Core;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
 using MapleServer2.Enums;
+using MapleServer2.PacketHandlers.Game;
 using MapleServer2.Packets;
 using MapleServer2.Types;
 
@@ -24,10 +25,19 @@ public class UnlockAll : InGameCommand
     {
         Player player = trigger.Session.Player;
 
+        // Reset stats to default
+        player.Stats = new(player.Job);
+        player.Stats.AddBaseStats(player, 89);
+
+        trigger.Session.Send(StatPacket.SetStats(player.FieldPlayer));
+        trigger.Session.FieldManager.BroadcastPacket(StatPacket.SetStats(player.FieldPlayer), trigger.Session);
+
         player.Levels.SetLevel(90);
         player.Levels.SetPrestigeLevel(100);
-        player.Wallet.Meso.SetAmount(10000000000); // 10B
-        player.Account.Meret.SetAmount(10000000000); // 10B
+        player.Wallet.Meso.SetAmount(10_000_000_000); // 10B
+        player.Account.Meret.SetAmount(10_000_000_000); // 10B
+
+        PremiumClubHandler.ActivatePremium(trigger.Session, 2592000); // 30 days in seconds
 
         // Stickers
         for (int i = 1; i < 7; i++)
@@ -37,8 +47,8 @@ public class UnlockAll : InGameCommand
                 continue;
             }
 
-            trigger.Session.Send(ChatStickerPacket.AddSticker(21100000 + i, i));
-            player.ChatSticker.Add(new((byte) i, 9223372036854775807));
+            trigger.Session.Send(ChatStickerPacket.AddSticker(21100000 + i, i, long.MaxValue));
+            player.ChatSticker.Add(new((byte) i, long.MaxValue));
         }
 
         List<int> emotes = SkillMetadataStorage.GetEmotes();
@@ -113,7 +123,7 @@ public class UnlockTrophyCommand : InGameCommand
             player.TrophyData[trophyId] = new(player.CharacterId, player.AccountId, trophyId);
         }
 
-        player.TrophyData[trophyId].AddCounter(trigger.Session, amount);
+        player.TrophyData[trophyId].AddCounter(trigger.Session.Player, amount);
 
         player.TrophyData.TryGetValue(trophyId, out Trophy trophy);
 

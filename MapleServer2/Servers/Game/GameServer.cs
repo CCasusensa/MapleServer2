@@ -1,11 +1,11 @@
 ﻿using System.Reflection;
 using Autofac;
-using Maple2Storage.Extensions;
 using MapleServer2.Commands.Core;
 using MapleServer2.Database;
 using MapleServer2.Managers;
 using MapleServer2.Network;
 using MapleServer2.Types;
+using Serilog;
 
 namespace MapleServer2.Servers.Game;
 
@@ -25,9 +25,13 @@ public class GameServer : Server<GameSession>
     public static readonly MailManager MailManager = new();
     public static readonly BlackMarketManager BlackMarketManager = new();
     public static readonly MesoMarketManager MesoMarketManager = new();
-    public static readonly UGCMarketManager UGCMarketManager = new();
+    public static readonly UgcMarketManager UgcMarketManager = new();
+    public static readonly FieldWarManager FieldWarManager = new();
+    public static readonly UGCBannerManager UGCBannerManager = new();
 
     private List<GameSession> Sessions;
+
+    private readonly ILogger Logger = Log.Logger.ForContext<GameServer>();
 
     public GameServer(PacketRouter<GameSession> router, IComponentContext context) : base(router, context) { }
 
@@ -43,24 +47,25 @@ public class GameServer : Server<GameSession>
         Start(port);
         CommandManager.RegisterAll(Assembly.GetAssembly(typeof(CommandBase)));
         Sessions = new();
-        Logger.Info("Game Server Started.".ColorGreen());
+        Logger.Information("Game Server Started.");
     }
 
     public override void AddSession(GameSession session)
     {
         Sessions.Add(session);
-        Logger.Info($"Game client connected: {session}");
+        Logger.Information("Game client connected: {session}", session);
         session.Start();
     }
 
     public override void RemoveSession(GameSession session)
     {
         Sessions.Remove(session);
-        Logger.Info($"Game client disconnected: {session}");
+        Logger.Information("Game client disconnected: {session}", session);
     }
 
-    public List<GameSession> GetSessions()
+    public IEnumerable<GameSession> GetSessions()
     {
+        Sessions.RemoveAll(x => !x.Connected());
         return Sessions;
     }
 }

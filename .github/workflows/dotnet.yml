@@ -11,14 +11,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Check out code
+        uses: actions/checkout@v2
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: "6.0.x"
+          dotnet-version: "6.0.100"
           include-prerelease: true
+
       - name: Build
         run: dotnet build
+
       - name: Test
         run: dotnet test --no-build --verbosity normal
 
@@ -29,14 +33,14 @@ jobs:
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: "6.0.x"
+          dotnet-version: "6.0.100"
           include-prerelease: true
-
-      - name: Install dotnet-format tool
-        run: dotnet tool install -g dotnet-format
 
       - name: Check out code
         uses: actions/checkout@v2
 
-      - name: Run dotnet format
-        run: dotnet format --verify-no-changes
+      - name: Install dotnet-format tool
+        run: dotnet tool install -g dotnet-format
+
+      - name: Run dotnet-format
+        run: dotnet-format --check --no-restore

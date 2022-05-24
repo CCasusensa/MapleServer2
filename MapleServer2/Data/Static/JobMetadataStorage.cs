@@ -1,5 +1,7 @@
 ﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
+using MapleServer2.Enums;
+using MapleServer2.Tools;
 using ProtoBuf;
 
 namespace MapleServer2.Data.Static;
@@ -10,7 +12,7 @@ public static class JobMetadataStorage
 
     public static void Init()
     {
-        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-job-metadata");
+        using FileStream stream = MetadataHelper.GetFileStream(MetadataName.Job);
         List<JobMetadata> jobList = Serializer.Deserialize<List<JobMetadata>>(stream);
         foreach (JobMetadata job in jobList)
         {
@@ -18,28 +20,16 @@ public static class JobMetadataStorage
         }
     }
 
-    public static JobMetadata GetJobMetadata(int jobId)
+    public static JobMetadata GetJobMetadata(Job job)
     {
-        return Jobs.GetValueOrDefault(jobId);
+        return Jobs.GetValueOrDefault((int) job);
     }
 
-    public static List<TutorialItemMetadata> GetTutorialItems(int jobId)
-    {
-        return Jobs.GetValueOrDefault(jobId).TutorialItems;
-    }
+    public static List<TutorialItemMetadata> GetTutorialItems(Job job) => GetJobMetadata(job).TutorialItems;
 
-    public static List<JobLearnedSkillsMetadata> GetLearnedSkills(int jobId)
-    {
-        return Jobs.GetValueOrDefault(jobId).LearnedSkills;
-    }
+    public static List<JobLearnedSkillsMetadata> GetLearnedSkills(Job job) => GetJobMetadata(job).LearnedSkills;
 
-    public static List<JobSkillMetadata> GetJobskills(int jobId)
-    {
-        return Jobs.GetValueOrDefault(jobId).Skills;
-    }
+    public static List<JobSkillMetadata> GetJobSkills(Job job) => GetJobMetadata(job).Skills;
 
-    public static int GetStartMapId(int jobId)
-    {
-        return Jobs.GetValueOrDefault(jobId).StartMapId;
-    }
+    public static int GetStartMapId(Job job) => GetJobMetadata(job).StartMapId;
 }

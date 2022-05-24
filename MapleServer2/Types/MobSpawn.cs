@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Tools;
-using Maple2Storage.Types;
+﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 
@@ -31,26 +30,7 @@ public class MobSpawn
 
     }
 
-    public static List<CoordF> SelectPoints(int spawnRadius = Block.BLOCK_SIZE)
-    {
-        List<CoordF> spawnOffsets = new();
-        int spawnSize = 2 * (spawnRadius / Block.BLOCK_SIZE);
-        for (int i = 0; i <= spawnSize; i++)
-        {
-            for (int j = 0; j <= spawnSize; j++)
-            {
-                spawnOffsets.Add(CoordF.From(i * Block.BLOCK_SIZE - spawnRadius, j * Block.BLOCK_SIZE - spawnRadius, 0));
-            }
-        }
-        return spawnOffsets.OrderBy(x => RandomProvider.Get().Next()).ToList();
-    }
-
-    public static List<CoordF> SelectPoints(int count, int spawnRadius)
-    {
-        return SelectPoints(spawnRadius).Take(count).ToList();
-    }
-
-    public static List<NpcMetadata> SelectMobs(int difficulty, int minDifficulty, string[] tags)
+    public static List<NpcMetadata> SelectMobs(int difficulty, int minDifficulty, IEnumerable<string> tags)
     {
         // Look into optimizing this.
         HashSet<NpcMetadata> matchedNpcs = new();

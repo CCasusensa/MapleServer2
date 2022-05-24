@@ -11,9 +11,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class QuestHandler : GamePacketHandler
+public class QuestHandler : GamePacketHandler<QuestHandler>
 {
-    public override RecvOp OpCode => RecvOp.QUEST;
+    public override RecvOp OpCode => RecvOp.Quest;
 
     private enum QuestMode : byte
     {
@@ -21,6 +21,9 @@ public class QuestHandler : GamePacketHandler
         CompleteQuest = 0x04,
         ExplorationQuests = 0x08,
         ToggleTracking = 0x09,
+        SkyFortress = 0x0E,
+        ResumeDungeon = 0x13,
+        DispatchMode = 0x14,
         CompleteNavigator = 0x18
     }
 
@@ -42,13 +45,27 @@ public class QuestHandler : GamePacketHandler
             case QuestMode.CompleteNavigator:
                 HandleCompleteNavigator(session, packet);
                 break;
+            case QuestMode.ResumeDungeon:
+                HandleResumeDungeon(session, packet);
+                break;
+            case QuestMode.DispatchMode:
+                HandleDispatchMode(session, packet);
+                break;
             case QuestMode.ToggleTracking:
                 HandleToggleTracking(session, packet);
                 break;
+            case QuestMode.SkyFortress:
+                HandleSkyFortressTeleport(session);
+                break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
+    }
+
+    private static void HandleSkyFortressTeleport(GameSession session)
+    {
+        session.Player.Warp(Map.SkyFortressBridge);
     }
 
     private static void HandleAcceptQuest(GameSession session, PacketReader packet)
@@ -64,7 +81,7 @@ public class QuestHandler : GamePacketHandler
         questStatus.State = QuestState.Started;
         questStatus.StartTimestamp = TimeInfo.Now();
         DatabaseManager.Quests.Update(questStatus);
-        session.Send(QuestPacket.AcceptQuest(questId));
+        session.Send(QuestPacket.AcceptQuest(questStatus));
         TrophyManager.OnAcceptQuest(session.Player, questId);
     }
 
@@ -73,12 +90,13 @@ public class QuestHandler : GamePacketHandler
         int questId = packet.ReadInt();
         int objectId = packet.ReadInt();
 
-        if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State is QuestState.Finished)
+        if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State is QuestState.Completed)
         {
             return;
         }
 
-        questStatus.State = QuestState.Finished;
+        questStatus.State = QuestState.Completed;
+        questStatus.AmountCompleted++;
         questStatus.CompleteTimestamp = TimeInfo.Now();
 
         session.Player.Levels.GainExp(questStatus.Reward.Exp);
@@ -110,7 +128,7 @@ public class QuestHandler : GamePacketHandler
                 continue;
             }
 
-            session.Player.QuestData.Add(questMetadata.Basic.Id, new(session.Player, questMetadata));
+            session.Player.QuestData.Add(questMetadata.Basic.Id, new(session.Player.CharacterId, questMetadata));
         }
     }
 
@@ -118,7 +136,7 @@ public class QuestHandler : GamePacketHandler
     {
         int questId = packet.ReadInt();
 
-        if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State is QuestState.Finished)
+        if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State is QuestState.Completed)
         {
             return;
         }
@@ -133,7 +151,12 @@ public class QuestHandler : GamePacketHandler
             session.Player.Inventory.AddItem(session, item, true);
         }
 
-        questStatus.State = QuestState.Finished;
+        Condition firstCondition = questStatus.Condition.First();
+        firstCondition.Current++;
+        firstCondition.Completed = true;
+
+        questStatus.State = QuestState.Completed;
+        questStatus.AmountCompleted++;
         questStatus.CompleteTimestamp = TimeInfo.Now();
         DatabaseManager.Quests.Update(questStatus);
         session.Send(QuestPacket.CompleteQuest(questId, false));
@@ -147,17 +170,45 @@ public class QuestHandler : GamePacketHandler
             int questId = packet.ReadInt();
             session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus);
 
-            session.Send(QuestPacket.AcceptQuest(questId));
             if (questStatus is null)
             {
-                QuestMetadata metadata = QuestMetadataStorage.GetMetadata(questId);
-                session.Player.QuestData.Add(questId, new(session.Player, metadata, QuestState.Started, TimeInfo.Now()));
-                return;
+                questStatus = new(session.Player.CharacterId, questId, QuestState.Started, TimeInfo.Now());
+                session.Player.QuestData.Add(questId, questStatus);
+                session.Send(QuestPacket.AcceptQuest(questStatus));
+                continue;
             }
 
+            session.Send(QuestPacket.AcceptQuest(questStatus));
             questStatus.State = QuestState.Started;
             DatabaseManager.Quests.Update(questStatus);
         }
+    }
+
+    private static void HandleResumeDungeon(GameSession session, PacketReader packet)
+    {
+        int questId = packet.ReadInt();
+
+        if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State is QuestState.Completed)
+        {
+            return;
+        }
+
+        QuestMetadata questMetadata = QuestMetadataStorage.GetMetadata(questId);
+        session.Player.Warp(questMetadata.ProgressMap.First());
+    }
+
+    private static void HandleDispatchMode(GameSession session, PacketReader packet)
+    {
+        int questId = packet.ReadInt();
+        short mode = packet.ReadShort();
+
+        if (!session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) || questStatus.State is QuestState.Completed)
+        {
+            return;
+        }
+
+        QuestMetadata questMetadata = QuestMetadataStorage.GetMetadata(questId);
+        session.Player.Warp(questMetadata.Dispatch.FieldId);
     }
 
     private static void HandleToggleTracking(GameSession session, PacketReader packet)

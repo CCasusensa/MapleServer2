@@ -1,8 +1,7 @@
-﻿using Maple2Storage.Extensions;
-using Maple2Storage.Types;
+﻿using Maple2Storage.Types;
 using MapleServer2.Database.Classes;
 using MySql.Data.MySqlClient;
-using NLog;
+using Serilog;
 using SqlKata.Compilers;
 using SqlKata.Execution;
 
@@ -10,8 +9,7 @@ namespace MapleServer2.Database;
 
 public static class DatabaseManager
 {
-    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
-
+    private static readonly ILogger Logger = Log.Logger.ForContext(typeof(DatabaseManager));
     private static readonly int MIN_MYSQL_VERSION = 8;
 
     public static readonly string ConnectionString;
@@ -33,9 +31,12 @@ public static class DatabaseManager
     public static DatabaseCube Cubes { get; } = new();
     public static DatabaseEvent Events { get; } = new();
     public static DatabaseGameOptions GameOptions { get; } = new();
+    public static DatabaseMacros Macros { get; } = new();
     public static DatabaseGuild Guilds { get; } = new();
     public static DatabaseGuildApplication GuildApplications { get; } = new();
     public static DatabaseGuildMember GuildMembers { get; } = new();
+    public static DatabaseClub Clubs { get; } = new();
+    public static DatabaseClubMember ClubMembers { get; } = new();
     public static DatabaseHome Homes { get; } = new();
     public static DatabaseHomeLayout HomeLayouts { get; } = new();
     public static DatabaseHotbar Hotbars { get; } = new();
@@ -43,6 +44,7 @@ public static class DatabaseManager
     public static DatabaseItem Items { get; } = new();
     public static DatabaseLevels Levels { get; } = new();
     public static DatabaseMapleopoly Mapleopoly { get; } = new();
+    public static DatabaseGameEventUserValue GameEventUserValue { get; } = new();
     public static DatabaseMeretMarket MeretMarket { get; } = new();
     public static DatabaseQuest Quests { get; } = new();
     public static DatabaseShop Shops { get; } = new();
@@ -54,11 +56,12 @@ public static class DatabaseManager
     public static DatabaseMail Mails { get; } = new();
     public static DatabaseBlackMarketListing BlackMarketListings { get; } = new();
     public static DatabaseMesoMarketListing MesoMarketListings { get; } = new();
-    public static DatabaseUGCMarketItem UGCMarketItems { get; } = new();
-    public static DatabaseUGCMarketSale UGCMarketSales { get; } = new();
+    public static DatabaseUgcMarketItem UgcMarketItems { get; } = new();
+    public static DatabaseUgcMarketSale UgcMarketSales { get; } = new();
     public static DatabaseServer ServerInfo { get; } = new();
     public static DatabaseMushkingRoyaleStats MushkingRoyaleStats { get; } = new();
     public static DatabaseMedal MushkingRoyaleMedals { get; } = new();
+    public static DatabaseBannerSlot BannerSlot { get; } = new();
 
     static DatabaseManager()
     {
@@ -75,11 +78,11 @@ public static class DatabaseManager
 
         if (DatabaseExists())
         {
-            Logger.Info("Database already exists.");
+            Logger.Information("Database already exists.");
             return;
         }
 
-        Logger.Info("Creating database...");
+        Logger.Information("Creating database...");
         CreateDatabase();
 
         string[] seeds =
@@ -92,7 +95,7 @@ public static class DatabaseManager
             Seed(seed);
         }
 
-        Logger.Info("Database created.".ColorGreen());
+        Logger.Information("Database created.");
     }
 
     public static void RunQuery(string query)
@@ -126,7 +129,7 @@ public static class DatabaseManager
 
     private static void Seed(string type)
     {
-        Logger.Info($"Seeding {type}...");
+        Logger.Information("Seeding {type}...", type);
         ExecuteSqlFile(File.ReadAllText(Paths.SOLUTION_DIR + "/MapleServer2/Database/Seeding/" + type + "Seeding.sql"));
     }
 

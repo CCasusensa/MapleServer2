@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Tools;
-using Maple2Storage.Types;
+﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
@@ -11,9 +10,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class FishingHandler : GamePacketHandler
+public class FishingHandler : GamePacketHandler<FishingHandler>
 {
-    public override RecvOp OpCode => RecvOp.FISHING;
+    public override RecvOp OpCode => RecvOp.Fishing;
 
     private enum FishingMode : byte
     {
@@ -56,7 +55,7 @@ public class FishingHandler : GamePacketHandler
                 HandleFailMinigame();
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -72,13 +71,13 @@ public class FishingHandler : GamePacketHandler
             return;
         }
 
-        if (!session.Player.Inventory.Items.ContainsKey(fishingRodUid))
+        if (!session.Player.Inventory.HasItem(fishingRodUid))
         {
             session.Send(FishingPacket.Notice((short) FishingNotice.InvalidFishingRod));
             return;
         }
 
-        Item fishingRod = session.Player.Inventory.Items[fishingRodUid];
+        Item fishingRod = session.Player.Inventory.GetByUid(fishingRodUid);
         FishingRodMetadata rodMetadata = FishingRodMetadataStorage.GetMetadata(fishingRod.Function.Id);
 
         if (rodMetadata.MasteryLimit < masteryExp.CurrentExp)
@@ -111,7 +110,7 @@ public class FishingHandler : GamePacketHandler
         session.Send(FishingPacket.PrepareFishing(fishingRodUid));
     }
 
-    private static CoordF GetObjectBlock(List<MapBlock> blocks, CoordF playerCoord)
+    private static CoordF GetObjectBlock(IEnumerable<MapBlock> blocks, CoordF playerCoord)
     {
         MapBlock guideBlock = blocks.OrderBy(o => Math.Sqrt(Math.Pow(playerCoord.X - o.Coord.X, 2) + Math.Pow(playerCoord.Y - o.Coord.Y, 2))).First();
         return guideBlock.Coord.ToFloat();
@@ -205,22 +204,6 @@ public class FishingHandler : GamePacketHandler
         return blocks;
     }
 
-    private static bool IsLiquidBlock(MapBlock block)
-    {
-        if (block.Type == "Ground")
-        {
-            return false;
-        }
-
-        return block.Attribute == "water" ||
-            block.Attribute == "seawater" ||
-            block.Attribute == "devilwater" ||
-            block.Attribute == "lava" ||
-            block.Attribute == "poison" ||
-            block.Attribute == "oil" ||
-            block.Attribute == "emeraldwater";
-    }
-
     private static MapBlock ScanZAxisForLiquidBlock(CoordF checkBlock, int mapId)
     {
         for (int zAxis = 0; zAxis < 3; zAxis++)
@@ -231,7 +214,7 @@ public class FishingHandler : GamePacketHandler
             }
 
             MapBlock block = MapMetadataStorage.GetMapBlock(mapId, checkBlock.ToShort());
-            if (block == null || !IsLiquidBlock(block))
+            if (block == null || !MapMetadataStorage.IsLiquidBlock(block))
             {
                 checkBlock.Z -= Block.BLOCK_SIZE;
                 continue;
@@ -262,7 +245,7 @@ public class FishingHandler : GamePacketHandler
         //determine fish rarity
         List<FishMetadata> selectedFishRarities = FilterFishesByRarity(fishes);
 
-        Random rnd = RandomProvider.Get();
+        Random rnd = Random.Shared;
         int randomFishIndex = rnd.Next(selectedFishRarities.Count);
         FishMetadata fish = selectedFishRarities[randomFishIndex];
 
@@ -301,7 +284,7 @@ public class FishingHandler : GamePacketHandler
         int fishRarity;
         do // re-rolls until there is an acceptable rarity
         {
-            fishRarity = RandomProvider.Get().NextDouble() switch
+            fishRarity = Random.Shared.NextDouble() switch
             {
                 >= 0 and < 0.60 => 1,
                 >= 0.60 and < 0.85 => 2,
@@ -321,7 +304,7 @@ public class FishingHandler : GamePacketHandler
         CoordB coord = packet.Read<CoordB>();
         CoordS fishingBlock = coord.ToShort();
         MapBlock block = MapMetadataStorage.GetMapBlock(session.Player.MapId, fishingBlock);
-        if (block == null || !IsLiquidBlock(block))
+        if (block == null || !MapMetadataStorage.IsLiquidBlock(block))
         {
             return;
         }
@@ -331,7 +314,7 @@ public class FishingHandler : GamePacketHandler
         bool minigame = false;
         int fishingTick = 15000; // base fishing tick
 
-        Random rnd = RandomProvider.Get();
+        Random rnd = Random.Shared;
 
         int successChance = rnd.Next(0, 100);
         if (successChance < 90)
@@ -359,7 +342,7 @@ public class FishingHandler : GamePacketHandler
 
     private static void HandleCatchItem(GameSession session)
     {
-        Random rnd = RandomProvider.Get();
+        Random rnd = Random.Shared;
 
         int itemChance = rnd.Next(0, 100);
         if (itemChance > 10)

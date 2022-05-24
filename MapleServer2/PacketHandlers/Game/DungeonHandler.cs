@@ -8,9 +8,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class DungeonHandler : GamePacketHandler
+public class DungeonHandler : GamePacketHandler<DungeonHandler>
 {
-    public override RecvOp OpCode => RecvOp.ROOM_DUNGEON;
+    public override RecvOp OpCode => RecvOp.RoomDungeon;
 
     private enum DungeonMode : byte
     {
@@ -52,7 +52,7 @@ public class DungeonHandler : GamePacketHandler
                 HandleFavorite(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -82,7 +82,7 @@ public class DungeonHandler : GamePacketHandler
         }
 
         int dungeonLobbyId = DungeonStorage.GetDungeonByDungeonId(dungeonId).LobbyFieldId;
-        MapPlayerSpawn spawn = MapEntityStorage.GetRandomPlayerSpawn(dungeonLobbyId);
+        MapPlayerSpawn spawn = MapEntityMetadataStorage.GetRandomPlayerSpawn(dungeonLobbyId);
 
         DungeonSession dungeonSession = GameServer.DungeonManager.CreateDungeonSession(dungeonId, groupEnter ? DungeonType.Group : DungeonType.Solo);
 

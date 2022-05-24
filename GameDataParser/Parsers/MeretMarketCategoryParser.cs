@@ -2,13 +2,14 @@
 using GameDataParser.Files;
 using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Enums;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class MeretMarketCategoryParser : Exporter<List<MeretMarketCategoryMetadata>>
 {
-    public MeretMarketCategoryParser(MetadataResources resources) : base(resources, "meret-market-category") { }
+    public MeretMarketCategoryParser(MetadataResources resources) : base(resources, MetadataName.MeretMarketCategory) { }
 
     protected override List<MeretMarketCategoryMetadata> Parse()
     {
@@ -30,37 +31,37 @@ public class MeretMarketCategoryParser : Exporter<List<MeretMarketCategoryMetada
 
                 MeretMarketSection section = (MeretMarketSection) int.Parse(node.Attributes["id"].Value);
 
+                MeretMarketCategoryMetadata metadata = new()
+                {
+                    Section = section,
+                };
+
                 foreach (XmlNode tabNode in node)
                 {
-                    MeretMarketCategoryMetadata metadata = new()
+                    MeretMarketTab tab = new()
                     {
-                        Section = section,
-                        CategoryId = int.Parse(tabNode.Attributes["id"].Value)
+                        Id = int.Parse(tabNode.Attributes["id"].Value),
                     };
 
                     foreach (XmlNode subTabNode in tabNode.ChildNodes)
                     {
-                        MeretMarketCategoryMetadata subTab = new()
-                        {
-                            Section = section,
-                            CategoryId = int.Parse(subTabNode.Attributes["id"].Value)
-                        };
                         if (subTabNode.Attributes["category"] is not null)
                         {
-                            List<string> itemCategories = new();
-                            itemCategories.AddRange(subTabNode.Attributes["category"].Value.Split(",").ToList());
-                            subTab.ItemCategories = itemCategories;
-                            metadata.ItemCategories.AddRange(itemCategories);
+                            List<string> categoryList = subTabNode.Attributes["category"].Value.Split(",").ToList();
+                            MeretMarketTab subTab = new()
+                            {
+                                Id = int.Parse(subTabNode.Attributes["id"].Value),
+                                ItemCategories = categoryList
+                            };
+                            tab.ItemCategories.AddRange(categoryList);
+                            metadata.Tabs.Add(subTab);
                         }
-
-                        categories.Add(subTab);
                     }
-
-                    categories.Add(metadata);
+                    metadata.Tabs.Add(tab);
                 }
+                categories.Add(metadata);
             }
         }
-
         return categories;
     }
 }

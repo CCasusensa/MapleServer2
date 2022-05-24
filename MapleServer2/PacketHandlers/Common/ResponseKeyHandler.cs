@@ -1,8 +1,11 @@
 ﻿using Maple2Storage.Enums;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Data.Static;
 using MapleServer2.Database;
+using MapleServer2.Database.Types;
 using MapleServer2.Network;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Servers.Login;
@@ -11,16 +14,29 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Common;
 
-public class ResponseKeyHandler : CommonPacketHandler
+public class ResponseKeyHandler : CommonPacketHandler<ResponseKeyHandler>
 {
-    public override RecvOp OpCode => RecvOp.RESPONSE_KEY;
+    public override RecvOp OpCode => RecvOp.ResponseKey;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
         long accountId = packet.ReadLong();
-        AuthData authData = DatabaseManager.AuthData.GetByAccountId(accountId);
+        if (accountId is 0)
+        {
+            Logger.Error("Account ID was 0. Login has failed or connection was made directly to game server.");
+            session.Send(LoginResultPacket.SendLoginMode(LoginMode.SessionVerificationFailed));
+            return;
+        }
 
-        Player dbPlayer = DatabaseManager.Characters.FindPlayerById(authData.OnlineCharacterId);
+        AuthData authData = DatabaseManager.AuthData.GetByAccountId(accountId);
+        if (authData is null)
+        {
+            Logger.Error("AuthData with account ID {accountId} was not found in database.", accountId);
+            session.Send(LoginResultPacket.SendLoginMode(LoginMode.SystemErrorDB));
+            return;
+        }
+
+        Player dbPlayer = DatabaseManager.Characters.FindPlayerById(authData.OnlineCharacterId, session);
 
         // Backwards seeking because we read accountId here
         packet.Skip(-8);
@@ -30,18 +46,6 @@ public class ResponseKeyHandler : CommonPacketHandler
 
         Player player = session.Player;
 
-        player.Session = session;
-        player.Wallet.Meso.Session = session;
-        player.Wallet.ValorToken.Session = session;
-        player.Wallet.Treva.Session = session;
-        player.Wallet.Rue.Session = session;
-        player.Wallet.HaviFruit.Session = session;
-        player.Account.Meret.Session = session;
-        player.Account.GameMeret.Session = session;
-        player.Account.EventMeret.Session = session;
-        player.Account.MesoToken.Session = session;
-        player.Account.BankInventory.Mesos.Session = session;
-        player.Levels.Player = player;
         player.BuddyList = GameServer.BuddyManager.GetBuddies(player.CharacterId);
         player.Mailbox = GameServer.MailManager.GetMails(player.CharacterId);
 
@@ -59,18 +63,45 @@ public class ResponseKeyHandler : CommonPacketHandler
             Guild guild = GameServer.GuildManager.GetGuildById(player.GuildId);
             player.Guild = guild;
             GuildMember guildMember = guild.Members.First(x => x.Id == player.CharacterId);
-            guildMember.Player.Session = session;
+            guildMember.Player = player;
             player.GuildMember = guildMember;
             session.Send(GuildPacket.UpdateGuild(guild));
-            guild.BroadcastPacketGuild(GuildPacket.MemberJoin(player));
-            guild.BroadcastPacketGuild(GuildPacket.MemberLoggedIn(player), session);
+            guild.BroadcastPacketGuild(GuildPacket.UpdatePlayer(player));
+            if (!player.IsMigrating)
+            {
+                guild.BroadcastPacketGuild(GuildPacket.MemberLoggedIn(player), session);
+            }
         }
 
-        player.IsMigrating = false;
+        // Get Clubs
+        foreach (ClubMember member in player.ClubMembers)
+        {
+            Club club = GameServer.ClubManager.GetClubById(member.ClubId);
+            club.Members.First(x => x.Player.CharacterId == player.CharacterId).Player = player;
+            club.BroadcastPacketClub(ClubPacket.UpdateClub(club));
+            if (!player.IsMigrating)
+            {
+                club.BroadcastPacketClub(ClubPacket.LoginNotice(player, club), session);
+            }
+
+            player.Clubs.Add(club);
+            member.Player = player;
+        }
+
+        // Get Group Chats
+        player.GroupChats = GameServer.GroupChatManager.GetGroupChatsByMember(player.CharacterId);
+        foreach (GroupChat groupChat in player.GroupChats)
+        {
+            session.Send(GroupChatPacket.Update(groupChat));
+            if (!player.IsMigrating)
+            {
+                groupChat.BroadcastPacketGroupChat(GroupChatPacket.LoginNotice(groupChat, player));
+            }
+        }
 
         //session.Send(0x27, 0x01); // Meret market related...?
-        session.Send(MushkingRoyaleSystemPacket.LoadStats(session.Player.Account.MushkingRoyaleStats));
-        session.Send(MushkingRoyaleSystemPacket.LoadMedals(session.Player.Account));
+        session.Send(MushkingRoyaleSystemPacket.LoadStats(player.Account.MushkingRoyaleStats));
+        session.Send(MushkingRoyaleSystemPacket.LoadMedals(player.Account));
 
         player.GetUnreadMailCount();
         session.Send(BuddyPacket.Initialize());
@@ -78,23 +109,33 @@ public class ResponseKeyHandler : CommonPacketHandler
         session.Send(BuddyPacket.EndList(player.BuddyList.Count));
 
         // Meret market
-        //session.Send("6E 00 0B 00 00 00 00 00 00 00 00 00 00 00 00".ToByteArray());
-        //session.Send("6E 00 0C 00 00 00 00".ToByteArray());
+        session.Player.GetMeretMarketPersonalListings();
+        session.Player.GetMeretMarketSales();
         // UserConditionEvent
         //session.Send("BF 00 00 00 00 00 00".ToByteArray());
         // PCBangBonus
         //session.Send("A7 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00".ToByteArray());
-        TimeSyncPacket.SetInitial1();
-        TimeSyncPacket.SetInitial2();
-        TimeSyncPacket.Request();
+
+        session.Send(TimeSyncPacket.SetInitial1());
+        session.Send(TimeSyncPacket.SetInitial2());
+
         session.Send(StatPacket.SetStats(session.Player.FieldPlayer));
+        // session.Send(StatPacket.SetStats(session.Player.FieldPlayer)); // Second packet is meant to send the stats initialized, for now we'll just send the first one
+
         session.Player.ClientTickSyncLoop();
-        session.Send(DynamicChannelPacket.DynamicChannel());
+        session.Send(DynamicChannelPacket.DynamicChannel(short.Parse(ConstantsMetadataStorage.GetConstant("ChannelCount"))));
+
         session.Send(ServerEnterPacket.Enter(session));
-        // SendUgc f(0x16), SendCash f(0x09), SendContentShutdown f(0x01, 0x04), SendPvp f(0x0C)
+        session.Send(UGCPacket.Unknown22());
+        session.Send(CashPacket.Unknown09());
+
+        // SendContentShutdown f(0x01, 0x04)
+        session.Send(PvpPacket.Mode0C());
         session.Send(SyncNumberPacket.Send());
-        // 0x112, Prestige f(0x00, 0x07)
-        session.Send(PrestigePacket.Prestige(player));
+        session.Send(SyncValuePacket.SetSyncValue(120000)); // unknown what this value means
+
+        session.Send(PrestigePacket.SetLevels(player));
+        session.Send(PrestigePacket.WeeklyMissions(player.PrestigeMissions));
 
         // Load inventory tabs
         foreach (InventoryTab tab in Enum.GetValues(typeof(InventoryTab)))
@@ -112,6 +153,7 @@ public class ResponseKeyHandler : CommonPacketHandler
             {
                 session.Send(WarehouseInventoryPacket.Load(kvp.Value, ++counter));
             }
+
             session.Send(WarehouseInventoryPacket.EndList());
 
             session.Send(FurnishingInventoryPacket.StartList());
@@ -119,6 +161,7 @@ public class ResponseKeyHandler : CommonPacketHandler
             {
                 session.Send(FurnishingInventoryPacket.Load(cube));
             }
+
             session.Send(FurnishingInventoryPacket.EndList());
         }
 
@@ -131,6 +174,7 @@ public class ResponseKeyHandler : CommonPacketHandler
         {
             session.Send(QuestPacket.SendQuests(item));
         }
+
         session.Send(QuestPacket.EndList());
 
         session.Send(TrophyPacket.WriteTableStart());
@@ -151,13 +195,18 @@ public class ResponseKeyHandler : CommonPacketHandler
         session.Send(UserEnvPacket.Send10());
         session.Send(UserEnvPacket.Send12());
 
-        // SendMeretMarket f(0xC9)
+        session.Send(MeretMarketPacket.ModeC9());
+
         session.Send(FishingPacket.LoadAlbum(player));
-        // SendPvp f(0x16,0x17), ResponsePet f(0x07), 0xF6
+
+        session.Send(PvpPacket.Mode16());
+        session.Send(PvpPacket.Mode17());
+
+        session.Send(ResponsePetPacket.Mode07());
+        // LegionBattle (0xF6)
         // CharacterAbility
         // E1 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
-        // Key bindings and skill slots would normally be loaded from a database
         // If the character is not a new character, this is what we would send
         session.Send(KeyTablePacket.SendFullOptions(player.GameOptions));
 
@@ -166,34 +215,48 @@ public class ResponseKeyHandler : CommonPacketHandler
             session.Send(KeyTablePacket.AskKeyboardOrMouse());
         }
 
+        GameEventHelper.LoadEvents(session.Player);
+        List<GameEvent> gameEvents = DatabaseManager.Events.FindAll();
+        IEnumerable<List<GameEvent>> gameEventPackets = gameEvents.SplitList(5);
+        foreach (List<GameEvent> gameEvent in gameEventPackets)
+        {
+            session.Send(GameEventPacket.Load(gameEvent));
+        }
+
         // SendKeyTable f(0x00), SendGuideRecord f(0x03), GameEvent f(0x00)
         // SendBannerList f(0x19), SendRoomDungeon f(0x05, 0x14, 0x17)
-        // FieldEntrance
-        session.Send("19 00 00 65 00 00 00 29 7C 7D 01 0C 4D A1 6F 01 0C D3 1A 5F 01 0C EF 03 00 00 01 A2 3C 31 01 0C 3F 0C B7 0D 01 6B 55 5F 01 0C 3A 77 31 01 0C B1 98 BA 01 0C 03 90 5F 01 0C F9 7A 40 01 0C 91 B5 40 01 0C F9 57 31 01 0C 2F C7 BB 0D 01 81 97 7D 01 0C C2 70 5F 01 0C 51 96 40 01 0C B9 38 31 01 0C 41 78 7D 01 0C 65 9D 6F 01 0C 83 51 5F 01 0C 52 73 31 01 0C FF E0 B8 0D 01 11 77 40 01 0C A9 B1 40 01 0C 11 54 31 01 0C DA 6C 5F 01 0C 69 92 40 01 0C D1 34 31 01 0C 7D 99 6F 01 0C 03 13 5F 01 0C 69 6F 31 01 0C 32 88 5F 01 0C 9B 4D 5F 01 0C FF 6F B6 0D 01 29 73 40 01 0C C1 AD 40 01 0C 29 50 31 01 0C 81 8E 40 01 0C E9 30 31 01 0C 09 CE 8C 01 0C 95 95 6F 01 0C 1B 0F 5F 01 0C 4A 84 5F 01 0C B3 49 5F 01 0C 82 6B 31 01 0C 4F 15 BC 0D 01 F9 8C BA 01 00 D9 A9 40 01 0C 41 4C 31 01 0C EF B9 B8 0D 01 99 8A 40 01 0C 21 CA 8C 01 0C 01 AD 6F 01 0C 33 0B 5F 01 0C 99 67 31 01 0C 62 80 5F 01 0C CB 45 5F 01 0C 79 08 9C 01 0C F1 A5 40 01 0C E1 87 7D 01 0C BB 9B 5F 01 0C B1 86 40 01 0C 39 C6 8C 01 0C 7A 7C 5F 01 0C B2 63 31 01 0C 29 85 BA 01 0E 91 04 9C 01 0C 09 A2 40 01 0C 71 44 31 01 0C F9 83 7D 01 0C 1D A9 6F 01 0C D3 97 5F 01 0C C9 82 40 01 0C 51 C2 8C 01 0C 61 BD 40 01 0C C9 5F 31 01 0C 51 9F 7D 01 0C 92 78 5F 01 0C 0F 08 B9 0D 01 A9 00 9C 01 0C 89 40 31 01 0C 11 80 7D 01 0C 35 A5 6F 01 0C BB 1E 5F 01 0C 53 59 5F 01 0C E9 03 00 00 01 22 7B 31 01 0C EB 93 5F 01 0C EA 03 00 00 01 E1 7E 40 01 0C 69 BE 8C 01 0C 79 B9 40 01 0C E1 5B 31 01 0C EB 03 00 00 01 69 9B 7D 01 0C AA 74 5F 01 0C EC 03 00 00 01 ED 03 00 00 01 C1 FC 9B 01 0C EE 03 00 00 01".ToByteArray());
+        session.Send(DungeonListPacket.DungeonList());
         // 0xF0, ResponsePet P(0F 01)
         // RequestFieldEnter
         //session.Send("16 00 00 41 75 19 03 00 01 8A 42 0F 00 00 00 00 00 00 C0 28 C4 00 40 03 44 00 00 16 44 00 00 00 00 00 00 00 00 55 FF 33 42 E8 49 01 00".ToByteArray());
-        session.Send(RequestFieldEnterPacket.RequestEnter(session.Player.FieldPlayer));
+        session.Send(RequestFieldEnterPacket.RequestEnter(player.FieldPlayer));
 
         Party party = GameServer.PartyManager.GetPartyByMember(player.CharacterId);
         if (party != null)
         {
             player.Party = party;
-            party.BroadcastPacketParty(PartyPacket.LoginNotice(player), session);
+            if (!player.IsMigrating)
+            {
+                party.BroadcastPacketParty(PartyPacket.LoginNotice(player), session);
+            }
+
             session.Send(PartyPacket.Create(party, false));
+            party.BroadcastPacketParty(PartyPacket.UpdatePlayer(player));
+            party.BroadcastPacketParty(PartyPacket.UpdateDungeonInfo(player));
         }
 
-        // SendUgc: 15 01 00 00 00 00 00 00 00 00 00 00 00 4B 00 00 00
-        // SendHomeCommand: 00 E1 0F 26 89 7F 98 3C 26 00 00 00 00 00 00 00 00
+        player.IsMigrating = false;
 
-        session.Player.TimeSyncLoop();
+        // SendUgc: 15 01 00 00 00 00 00 00 00 00 00 00 00 4B 00 00 00
+        session.Send(HomeCommandPacket.LoadHome(player));
+
+        player.TimeSyncLoop();
         session.Send(TimeSyncPacket.SetSessionServerTick(0));
         //session.Send("B9 00 00 E1 0F 26 89 7F 98 3C 26 00 00 00 00 00 00 00 00".ToByteArray());
         session.Send(ServerEnterPacket.Confirm());
 
         //session.Send(0xF0, 0x00, 0x1F, 0x78, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x00, 0x00);
         //session.Send(0x28, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00);
-        //session.Send(ServerEnterPacket.Confirm());
     }
 
     public override void Handle(LoginSession session, PacketReader packet)
@@ -211,7 +274,7 @@ public class ResponseKeyHandler : CommonPacketHandler
         int tokenA = packet.ReadInt();
         int tokenB = packet.ReadInt();
 
-        Logger.Info($"LOGIN USER: {accountId}");
+        Logger.Information("LOGIN USER: {accountId}", accountId);
         AuthData authData = DatabaseManager.AuthData.GetByAccountId(accountId);
         if (authData == null)
         {
@@ -223,6 +286,6 @@ public class ResponseKeyHandler : CommonPacketHandler
             throw new ArgumentException("Attempted login with invalid tokens...");
         }
 
-        session.Send((byte) SendOp.MOVE_RESULT, 0x00, 0x00);
+        session.Send(MoveResultPacket.SendStatus(status: 0));
     }
 }

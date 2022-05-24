@@ -19,7 +19,7 @@ public static class ChatStickerPacket
 
     public static PacketWriter LoadChatSticker(Player player)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.LoadChatSticker);
         pWriter.WriteShort((short) player.FavoriteStickers.Count);
         foreach (int favorite in player.FavoriteStickers)
@@ -30,23 +30,27 @@ public static class ChatStickerPacket
         foreach (ChatSticker stickerGroup in player.ChatSticker)
         {
             pWriter.WriteInt(stickerGroup.GroupId);
-            pWriter.WriteLong(stickerGroup.Expiration);
+            pWriter.WriteLong(TimeInfo.Now() + 2629743);
         }
         return pWriter;
     }
 
-    public static PacketWriter ExpiredStickerNotification()
+    public static PacketWriter ExpiredStickerNotification(List<ChatSticker> stickers)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.ExpiredStickerNotification);
         pWriter.WriteInt();
-        pWriter.WriteInt(1);
+        pWriter.WriteInt(stickers.Count);
+        foreach (ChatSticker sticker in stickers)
+        {
+            pWriter.WriteInt(sticker.GroupId);
+        }
         return pWriter;
     }
 
-    public static PacketWriter AddSticker(int itemId, int stickerGroupId, long expiration = 9223372036854775807)
+    public static PacketWriter AddSticker(int itemId, int stickerGroupId, long expiration)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.AddSticker);
         pWriter.WriteInt(itemId);
         pWriter.WriteInt(1);
@@ -57,7 +61,7 @@ public static class ChatStickerPacket
 
     public static PacketWriter UseSticker(int stickerId, string script)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.UseSticker);
         pWriter.WriteInt(stickerId);
         pWriter.WriteUnicodeString(script);
@@ -67,7 +71,7 @@ public static class ChatStickerPacket
 
     public static PacketWriter GroupChatSticker(int stickerId, string groupChatName)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.GroupChatSticker);
         pWriter.WriteInt(stickerId);
         pWriter.WriteUnicodeString(groupChatName);
@@ -76,7 +80,7 @@ public static class ChatStickerPacket
 
     public static PacketWriter Favorite(int stickerId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.Favorite);
         pWriter.WriteInt(stickerId);
         return pWriter;
@@ -84,7 +88,7 @@ public static class ChatStickerPacket
 
     public static PacketWriter Unfavorite(int stickerId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.CHAT_STICKER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ChatSticker);
         pWriter.Write(ChatStickerMode.Unfavorite);
         pWriter.WriteInt(stickerId);
         return pWriter;

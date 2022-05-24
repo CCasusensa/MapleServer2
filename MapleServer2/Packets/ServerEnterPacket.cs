@@ -13,7 +13,7 @@ public static class ServerEnterPacket
         Account account = player.Account;
         Wallet wallet = player.Wallet;
 
-        PacketWriter pWriter = PacketWriter.Of(SendOp.SERVER_ENTER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ServerEnter);
         pWriter.WriteInt(player.FieldPlayer.ObjectId);
         pWriter.WriteLong(player.CharacterId);
         pWriter.WriteShort(player.ChannelId);
@@ -60,17 +60,16 @@ public static class ServerEnterPacket
 
         pWriter.WriteLong();
         pWriter.WriteUnicodeString();
-        pWriter.WriteUnicodeString("http://nxcache.nexon.net/maplestory2/maplenews/index.html");
+        pWriter.WriteUnicodeString("https://github.com/AlanMorel/MapleServer2");
         pWriter.WriteUnicodeString();
-        pWriter.WriteUnicodeString(@"^https?://test-nxcache\.nexon\.net ^https?://nxcache\.nexon\.net");
         pWriter.WriteUnicodeString();
-
+        pWriter.WriteUnicodeString();
 
         return pWriter;
     }
 
     public static PacketWriter Confirm()
     {
-        return PacketWriter.Of(SendOp.FINALIZE_SERVER_ENTER);
+        return PacketWriter.Of(SendOp.FinalizeServerEnter);
     }
 }

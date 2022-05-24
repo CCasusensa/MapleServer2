@@ -10,15 +10,15 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class MushkingRoyaleSystemHandler : GamePacketHandler
+public class MushkingRoyaleSystemHandler : GamePacketHandler<MushkingRoyaleSystemHandler>
 {
-    public override RecvOp OpCode => RecvOp.MUSHKING_ROYALE;
+    public override RecvOp OpCode => RecvOp.MushkingRoyale;
 
     private enum MushkingRoyaleSystemMode : byte
     {
         EquipMedal = 0x8,
         PurchaseGoldPass = 0x22,
-        ClaimRewards = 0x23,
+        ClaimRewards = 0x23
     }
 
     public override void Handle(GameSession session, PacketReader packet)
@@ -37,7 +37,7 @@ public class MushkingRoyaleSystemHandler : GamePacketHandler
                 HandleClaimRewards(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }

@@ -11,7 +11,7 @@ using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Servers.Login;
-using NLog;
+using Serilog;
 
 namespace MapleServer2.Network;
 
@@ -41,7 +41,7 @@ public abstract class Session : IDisposable
     private readonly Pipe RecvPipe;
 
     protected abstract PatchType Type { get; }
-    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+    private static readonly ILogger Logger = Log.Logger.ForContext<Session>();
 
     private static readonly RandomNumberGenerator Rng = RandomNumberGenerator.Create();
 
@@ -88,14 +88,14 @@ public abstract class Session : IDisposable
             return;
         }
 
-        if (this is LoginSession)
+        if (this is LoginSession loginSession)
         {
-            MapleServer.GetLoginServer().RemoveSession(this as LoginSession);
+            MapleServer.GetLoginServer().RemoveSession(loginSession);
         }
 
-        if (this is GameSession)
+        if (this is GameSession gameSession)
         {
-            MapleServer.GetGameServer().RemoveSession(this as GameSession);
+            MapleServer.GetGameServer().RemoveSession(gameSession);
         }
 
         Disposed = true;
@@ -144,6 +144,7 @@ public abstract class Session : IDisposable
         {
             throw new ObjectDisposedException("Session has been disposed.");
         }
+
         if (Client == null)
         {
             throw new InvalidOperationException("Cannot start a session without a client.");
@@ -193,7 +194,7 @@ public abstract class Session : IDisposable
         {
             if (!Disposed)
             {
-                Logger.Fatal($"Exception on session thread: {ex}");
+                Logger.Fatal("Exception on session thread: {ex}", ex);
             }
         }
         finally
@@ -208,7 +209,7 @@ public abstract class Session : IDisposable
 
         // No encryption for handshake
         using PoolPacketWriter packet = SendCipher.WriteHeader(handshake.Buffer, 0, handshake.Length);
-        Logger.Debug($"Handshake: {packet}");
+        Logger.Debug("Handshake: {packet}", packet);
         SendRaw(packet);
     }
 
@@ -259,17 +260,25 @@ public abstract class Session : IDisposable
                     {
                         packet.Dispose();
                     }
+
                     buffer = buffer.Slice(bytesRead);
                 }
 
                 reader.AdvanceTo(buffer.Start, buffer.End);
             } while (!Disposed && !result.IsCompleted);
         }
+        catch (IncorrectHeaderException ex)
+        {
+            if (!Disposed)
+            {
+                Logger.Warning("Exception in recv PipeScheduler: {ex}", ex);
+            }
+        }
         catch (Exception ex)
         {
             if (!Disposed)
             {
-                Logger.Fatal($"Exception in recv PipeScheduler: {ex}");
+                Logger.Fatal("Exception in recv PipeScheduler: {ex}", ex);
             }
         }
         finally
@@ -322,29 +331,30 @@ public abstract class Session : IDisposable
         SendOp sendOp = (SendOp) (packet.Buffer[1] << 8 | packet.Buffer[0]);
         switch (sendOp)
         {
-            case SendOp.USER_SYNC:
-            case SendOp.KEY_TABLE:
-            case SendOp.STAT:
-            case SendOp.EMOTION:
-            case SendOp.CHARACTER_LIST:
-            case SendOp.ITEM_INVENTORY:
-            case SendOp.FIELD_ADD_NPC:
-            case SendOp.FIELD_PORTAL:
-            case SendOp.NPC_CONTROL:
-            case SendOp.RIDE_SYNC:
-            case SendOp.FIELD_OBJECT:
-            case SendOp.FIELD_ADD_PLAYER:
-            case SendOp.FIELD_ENTRANCE:
-            case SendOp.SERVER_ENTER:
-            case SendOp.QUEST:
-            case SendOp.STORAGE_INVENTORY:
-            case SendOp.TROPHY:
-            case SendOp.RESPONSE_TIME_SYNC:
-            case SendOp.VIBRATE:
+            case SendOp.UserSync:
+            case SendOp.KeyTable:
+            case SendOp.Stat:
+            case SendOp.Emotion:
+            case SendOp.CharList:
+            case SendOp.ItemInventory:
+            case SendOp.FieldAddNPC:
+            case SendOp.FieldPortal:
+            case SendOp.NpcControl:
+            case SendOp.RideSync:
+            case SendOp.FieldObject:
+            case SendOp.FieldAddPlayer:
+            case SendOp.DungeonList:
+            case SendOp.ServerEnter:
+            case SendOp.Quest:
+            case SendOp.StorageInventory:
+            case SendOp.Trophy:
+            case SendOp.ResponseTimeSync:
+            case SendOp.Vibrate:
                 break;
             default:
                 string packetString = packet.ToString();
-                Logger.Debug($"SEND ({sendOp}): {packetString[Math.Min(packetString.Length, 6)..]}".ColorRed());
+                Logger.Debug("{mode} ({sendOp} - {hexa}): {packetString}",
+                    "SEND".ColorRed(), sendOp, $"0x{sendOp:X}", packetString[Math.Min(packetString.Length, 6)..]);
                 break;
         }
     }
@@ -354,18 +364,19 @@ public abstract class Session : IDisposable
         RecvOp recvOp = (RecvOp) (packet.Buffer[1] << 8 | packet.Buffer[0]);
         switch (recvOp)
         {
-            case RecvOp.USER_SYNC:
-            case RecvOp.KEY_TABLE:
-            case RecvOp.RIDE_SYNC:
-            case RecvOp.GUIDE_OBJECT_SYNC:
-            case RecvOp.REQUEST_TIME_SYNC:
-            case RecvOp.STATE:
-            case RecvOp.STATE_FALL_DAMAGE:
-            case RecvOp.VIBRATE:
+            case RecvOp.UserSync:
+            case RecvOp.KeyTable:
+            case RecvOp.RideSync:
+            case RecvOp.GuideObjectSync:
+            case RecvOp.RequestTimeSync:
+            case RecvOp.State:
+            case RecvOp.StateFallDamage:
+            case RecvOp.Vibrate:
                 break;
             default:
                 string packetString = packet.ToString();
-                Logger.Debug($"RECV ({recvOp}): {packetString[Math.Min(packetString.Length, 6)..]}".ColorGreen());
+                Logger.Debug("{mode} ({recvOp} - {hexa}): {packetString}",
+                    "RECV".ColorGreen(), recvOp, $"0x{recvOp:X}", packetString[Math.Min(packetString.Length, 6)..]);
                 break;
         }
     }

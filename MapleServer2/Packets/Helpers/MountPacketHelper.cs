@@ -6,7 +6,7 @@ namespace MapleServer2.Packets.Helpers;
 
 public static class MountPacketHelper
 {
-    public static PacketWriter WriteMount(this PacketWriter pWriter, IFieldObject<Mount> mount)
+    public static void WriteMount(this PacketWriter pWriter, IFieldObject<Mount> mount)
     {
         pWriter.WriteByte((byte) mount.Value.Type);
 
@@ -19,14 +19,12 @@ public static class MountPacketHelper
             case RideType.UseItem:
                 pWriter.WriteInt(mount.Value.Id);
                 pWriter.WriteLong(mount.Value.Uid);
-                pWriter.WriteUgcTemplate(mount.Value.UGC); // For template mounts
+                pWriter.WriteUGCTemplate(mount.Value.Ugc); // For template mounts
                 break;
             case RideType.AdditionalEffect:
                 pWriter.WriteInt();
                 pWriter.WriteShort();
                 break;
         }
-
-        return pWriter;
     }
 }

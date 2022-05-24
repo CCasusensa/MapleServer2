@@ -6,9 +6,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class SuperChatHandler : GamePacketHandler
+public class SuperChatHandler : GamePacketHandler<SuperChatHandler>
 {
-    public override RecvOp OpCode => RecvOp.SUPER_WORLDCHAT;
+    public override RecvOp OpCode => RecvOp.SuperWorldChat;
 
     private enum SuperChatMode : byte
     {
@@ -29,16 +29,16 @@ public class SuperChatHandler : GamePacketHandler
                 HandleDeselect(session);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
 
     private static void HandleSelect(GameSession session, PacketReader packet)
     {
-        int item = packet.ReadInt();
+        int itemId = packet.ReadInt();
 
-        Item superChatItem = session.Player.Inventory.Items.Values.FirstOrDefault(x => x.Id == item);
+        Item superChatItem = session.Player.Inventory.GetById(itemId);
         if (superChatItem == null)
         {
             return;

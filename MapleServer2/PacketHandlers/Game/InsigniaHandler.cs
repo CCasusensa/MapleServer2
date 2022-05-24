@@ -6,13 +6,12 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class InsigniaHandler : GamePacketHandler
+public class InsigniaHandler : GamePacketHandler<InsigniaHandler>
 {
-    public override RecvOp OpCode => RecvOp.INSIGNIA;
+    public override RecvOp OpCode => RecvOp.Insignia;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-
         short insigniaId = packet.ReadShort();
 
         if (insigniaId < 0 && !InsigniaMetadataStorage.IsValid(insigniaId))
@@ -35,7 +34,7 @@ public class InsigniaHandler : GamePacketHandler
             case "level":
                 return session.Player.Levels.Level >= 50;
             case "enchant":
-                return session.Player.Inventory.Equips.FirstOrDefault(x => x.Value.Enchants >= 12).Value != null;
+                return session.Player.Inventory.Equips.FirstOrDefault(x => x.Value.EnchantLevel >= 12).Value != null;
             case "trophy_point":
                 return session.Player.TrophyCount[0] + session.Player.TrophyCount[1] + session.Player.TrophyCount[2] > 1000;
             case "title":
@@ -43,7 +42,7 @@ public class InsigniaHandler : GamePacketHandler
             case "adventure_level":
                 return session.Player.Levels.PrestigeLevel >= 100;
             default:
-                Logger.Warn($"Unhandled condition type for insigniaid: {insigniaId}, type: {type}");
+                Logger.Warning("Unhandled condition type for insigniaid: {insigniaId}, type: {type}", insigniaId, type);
                 return false;
         }
     }

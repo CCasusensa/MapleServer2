@@ -4,9 +4,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class ClientTickSyncHandler : GamePacketHandler
+public class ClientTickSyncHandler : GamePacketHandler<ClientTickSyncHandler>
 {
-    public override RecvOp OpCode => RecvOp.RESPONSE_CLIENTTICK_SYNC;
+    public override RecvOp OpCode => RecvOp.ResponseClientTickSync;
 
     public override void Handle(GameSession session, PacketReader packet)
     {

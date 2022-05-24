@@ -2,6 +2,7 @@
 using System.Net;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Data.Static;
 using MapleServer2.Database;
 using MapleServer2.Database.Types;
 using MapleServer2.Network;
@@ -13,13 +14,14 @@ using MapleServer2.Types;
 namespace MapleServer2.PacketHandlers.Login;
 
 // ReSharper disable once ClassNeverInstantiated.Global
-public class LoginHandler : LoginPacketHandler
+public class LoginHandler : LoginPacketHandler<LoginHandler>
 {
-    public override RecvOp OpCode => RecvOp.RESPONSE_LOGIN;
+    public override RecvOp OpCode => RecvOp.ResponseLogin;
 
     // TODO: This data needs to be dynamic
     private readonly ImmutableList<IPEndPoint> ServerIPs;
     private readonly string ServerName;
+    private readonly short ChannelCount;
 
     private enum LoginMode : byte
     {
@@ -36,6 +38,7 @@ public class LoginHandler : LoginPacketHandler
 
         ServerIPs = builder.ToImmutable();
         ServerName = Environment.GetEnvironmentVariable("NAME");
+        ChannelCount = short.Parse(ConstantsMetadataStorage.GetConstant("ChannelCount"));
     }
 
     public override void Handle(LoginSession session, PacketReader packet)
@@ -49,21 +52,21 @@ public class LoginHandler : LoginPacketHandler
         {
             if (!DatabaseManager.Accounts.Authenticate(username, password, out account))
             {
-                session.Send(LoginResultPacket.IncorrectPassword());
+                session.Send(LoginResultPacket.SendLoginMode(Packets.LoginMode.IncorrectPassword));
                 return;
             }
 
             Session loggedInAccount = MapleServer.GetSessions(MapleServer.GetLoginServer(), MapleServer.GetGameServer()).FirstOrDefault(p => p switch
             {
                 LoginSession s => s.AccountId == account.Id,
-                GameSession s => s.Player.AccountId == account.Id,
+                GameSession s => s.Player?.AccountId == account.Id,
                 _ => false
             });
 
             if (loggedInAccount != null)
             {
                 loggedInAccount.Disconnect(logoutNotice: true);
-                session.Send(LoginResultPacket.AccountAlreadyLoggedIn());
+                session.Send(LoginResultPacket.SendLoginMode(Packets.LoginMode.AccountAlreadyLoggedIn));
                 return;
             }
         }
@@ -74,9 +77,9 @@ public class LoginHandler : LoginPacketHandler
             account = new(username, passwordHash); // Create a new account if username doesn't exist
         }
 
-        Logger.Debug("Logging in with account ID: {account.Id}", account.Id);
+        Logger.Debug("Logging in with account ID: {accountId}", account.Id);
         session.AccountId = account.Id;
-        account.LastLoginTime = TimeInfo.Now();
+        account.LastLogTime = TimeInfo.Now();
         DatabaseManager.Accounts.Update(account);
 
         switch (mode)
@@ -87,6 +90,9 @@ public class LoginHandler : LoginPacketHandler
             case LoginMode.SendCharacters:
                 SendCharacters(session, account);
                 break;
+            default:
+                LogUnknownMode(mode);
+                break;
         }
     }
 
@@ -95,7 +101,7 @@ public class LoginHandler : LoginPacketHandler
         List<Banner> banners = DatabaseManager.Banners.FindAllBanners();
         session.Send(NpsInfoPacket.SendUsername(account.Username));
         session.Send(BannerListPacket.SetBanner(banners));
-        session.SendFinal(ServerListPacket.SetServers(ServerName, ServerIPs), logoutNotice: true);
+        session.SendFinal(ServerListPacket.SetServers(ServerName, ServerIPs, ChannelCount), logoutNotice: true);
     }
 
     private void SendCharacters(LoginSession session, Account account)
@@ -106,9 +112,9 @@ public class LoginHandler : LoginPacketHandler
 
         List<Player> characters = DatabaseManager.Characters.FindAllByAccountId(session.AccountId);
 
-        Logger.Debug("Initializing login with account id: {session.AccountId}", session.AccountId);
+        Logger.Debug("Initializing login with account id: {AccountId}", session.AccountId);
         session.Send(LoginResultPacket.InitLogin(session.AccountId));
-        session.Send(UgcPacket.SetEndpoint($"{url}/ws.asmx?wsdl", url));
+        session.Send(UGCPacket.SetEndpoint($"{url}/ws.asmx?wsdl", url));
         session.Send(CharacterListPacket.SetMax(account.CharacterSlots));
         session.Send(CharacterListPacket.StartList());
         // Send each character data

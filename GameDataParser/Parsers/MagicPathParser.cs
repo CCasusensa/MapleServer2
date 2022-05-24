@@ -1,6 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using System.Xml;
 using GameDataParser.Files;
+using GameDataParser.Tools;
 using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
@@ -9,14 +10,14 @@ namespace GameDataParser.Parsers;
 
 public class MagicPathParser : Exporter<List<MagicPathMetadata>>
 {
-    public MagicPathParser(MetadataResources resources) : base(resources, "magicpath") { }
+    public MagicPathParser(MetadataResources resources) : base(resources, MetadataName.MagicPath) { }
 
     protected override List<MagicPathMetadata> Parse()
     {
         List<MagicPathMetadata> magicPathList = new();
         foreach (PackFileEntry entry in Resources.XmlReader.Files)
         {
-            if (!entry.Name.StartsWith("table"))
+            if (!entry.Name.StartsWith("table/magicpath"))
             {
                 continue;
             }
@@ -39,9 +40,11 @@ public class MagicPathParser : Exporter<List<MagicPathMetadata>>
                     CoordF controlValue0 = ParseCoordFromString(pathMove.Attributes["controlValue0"]?.Value ?? "0,0,0");
                     CoordF controlValue1 = ParseCoordFromString(pathMove.Attributes["controlValue1"]?.Value ?? "0,0,0");
 
-                    bool ignoreAdjust = pathMove.Attributes["ignoreAdjustCubePosition"] != null;
+                    bool ignoreAdjust = pathMove.Attributes["ignoreAdjustCubePosition"] is null;
+                    bool traceTargetOffsetPos = pathMove.Attributes["traceTargetOffsetPos"]?.Value == "1";
+                    float distance = float.Parse(pathMove.Attributes["distance"]?.Value ?? "0");
 
-                    pathMoves.Add(new(rotation, fireOffsetPosition, direction, controlValue0, controlValue1, ignoreAdjust));
+                    pathMoves.Add(new(rotation, fireOffsetPosition, direction, controlValue0, controlValue1, ignoreAdjust, traceTargetOffsetPos, distance));
                 }
 
                 MagicPathMetadata newMagicPath = new(id, pathMoves);
@@ -52,7 +55,7 @@ public class MagicPathParser : Exporter<List<MagicPathMetadata>>
         return magicPathList;
     }
 
-    public static CoordF ParseCoordWithDuplicateDot(string input)
+    private static CoordF ParseCoordWithDuplicateDot(string input)
     {
         float[] floatArray = new float[input.Length];
 
@@ -64,7 +67,7 @@ public class MagicPathParser : Exporter<List<MagicPathMetadata>>
         return CoordF.From(floatArray[0], floatArray[1], floatArray[2]);
     }
 
-    public static CoordF ParseCoordWithoutLastChar(string input)
+    private static CoordF ParseCoordWithoutLastChar(string input)
     {
         if (input.EndsWith(','))
         {
@@ -74,17 +77,15 @@ public class MagicPathParser : Exporter<List<MagicPathMetadata>>
         return ParseCoordFromString(input);
     }
 
-    public static CoordF ParseCoordFromString(string input)
+    private static CoordF ParseCoordFromString(string input)
     {
-        float[] floatArray = Array.ConvertAll(input.Split(","), float.Parse);
+        float[] floatArray = input.SplitAndParseToFloat(',').ToArray();
 
         if (floatArray.Length < 3)
         {
-            float[] tempFloat = new float[3]
-            {
+            floatArray = new[]{
                 floatArray[0], floatArray[1], 0
             };
-            floatArray = tempFloat;
         }
 
         return CoordF.From(floatArray[0], floatArray[1], floatArray[2]);

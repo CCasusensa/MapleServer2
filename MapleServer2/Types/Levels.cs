@@ -5,24 +5,26 @@ using MapleServer2.Enums;
 using MapleServer2.Managers;
 using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
+using MapleServer2.Servers.Game;
 
 namespace MapleServer2.Types;
 
 public class Levels
 {
     public readonly long Id;
-    public Player Player;
+    private readonly GameSession Session;
+    private Player Player => Session.Player;
+    private IFieldActor<Player> FieldPlayer => Player.FieldPlayer;
+
     public short Level { get; private set; }
     public long Exp { get; private set; }
     public long RestExp { get; private set; }
     public int PrestigeLevel { get; private set; }
     public long PrestigeExp { get; private set; }
-    public List<MasteryExp> MasteryExp { get; private set; }
-
-    public Levels() { }
+    public List<MasteryExp> MasteryExp { get; }
 
     public Levels(short playerLevel, long exp, long restExp, int prestigeLevel, long prestigeExp,
-        List<MasteryExp> masteryExp, long id = 0)
+        List<MasteryExp> masteryExp, GameSession gameSession, long id = 0)
     {
         Level = playerLevel;
         Exp = exp;
@@ -30,6 +32,7 @@ public class Levels
         PrestigeLevel = prestigeLevel;
         PrestigeExp = prestigeExp;
         MasteryExp = masteryExp;
+        Session = gameSession;
 
         if (id == 0)
         {
@@ -44,9 +47,11 @@ public class Levels
     {
         Level = level;
         Exp = 0;
-        Player.Session.Send(ExperiencePacket.ExpUp(0, Exp, 0));
-        Player.Session.Send(ExperiencePacket.LevelUp(Player.FieldPlayer, Level));
+        Session.Send(ExperiencePacket.ExpUp(0, Exp, 0));
+        Session.FieldManager.BroadcastPacket(LevelUpPacket.LevelUp(FieldPlayer.ObjectId, Level));
+        Session.FieldManager.BroadcastPacket(FieldObjectPacket.UpdateCharacterLevel(Player));
 
+        Player.UpdateSocials();
         QuestHelper.GetNewQuests(Player);
     }
 
@@ -59,15 +64,29 @@ public class Levels
 
         Level++;
 
+        Player.Stats.AddBaseStats(Player);
+        Player.FieldPlayer.RecoverHp(FieldPlayer.Stats[StatAttribute.Hp].Bonus);
+
+        Session.FieldManager.BroadcastPacket(RevivalConfirmPacket.Send(FieldPlayer.ObjectId, 0));
+        Session.FieldManager.BroadcastPacket(LevelUpPacket.LevelUp(FieldPlayer.ObjectId, Level));
+        Session.FieldManager.BroadcastPacket(FieldObjectPacket.UpdateCharacterLevel(Player));
+
+        // Find all new skills for current level
+        HashSet<int> newSkillIds = SkillMetadataStorage.GetJobSkills(Player.Job)
+            .Where(x => x.SkillLevels.First().SkillUpgrade.LevelRequired == Level)
+            .Select(x => x.SkillId).ToHashSet();
+        Session.FieldManager.BroadcastPacket(JobPacket.UpdateSkillTab(FieldPlayer, newSkillIds));
+
+        Session.Send(StatPacket.SetStats(FieldPlayer));
+        Session.FieldManager.BroadcastPacket(StatPacket.SetStats(FieldPlayer), Session);
+
+        Session.Send(KeyTablePacket.SendFullOptions(Player.GameOptions));
+
+        Player.UpdateSocials();
         TrophyManager.OnLevelUp(Player);
-
-        Player.StatPointDistribution.AddTotalStatPoints(5);
-        Player.Session.FieldManager.BroadcastPacket(ExperiencePacket.LevelUp(Player.FieldPlayer, Level));
-        // TODO: Gain max HP
-        Player.FieldPlayer.RecoverHp(Player.FieldPlayer.Stats[StatId.Hp].Bonus);
-        Player.Session.Send(StatPointPacket.WriteTotalStatPoints(Player));
-
         QuestHelper.GetNewQuests(Player);
+
+        DatabaseManager.Characters.Update(Player);
         return true;
     }
 
@@ -75,14 +94,18 @@ public class Levels
     {
         PrestigeLevel = level;
         PrestigeExp = 0;
-        Player.Session.Send(PrestigePacket.ExpUp(Player, 0));
-        Player.Session.Send(PrestigePacket.LevelUp(Player.FieldPlayer, PrestigeLevel));
+        Session.Send(PrestigePacket.ExpUp(0, 0));
+        Session.Send(PrestigePacket.LevelUp(FieldPlayer.ObjectId, PrestigeLevel));
     }
 
     public void PrestigeLevelUp()
     {
         PrestigeLevel++;
-        Player.Session.Send(PrestigePacket.LevelUp(Player.FieldPlayer, PrestigeLevel));
+        foreach (PrestigeMission mission in Session.Player.PrestigeMissions)
+        {
+            mission.LevelCount++;
+        }
+        Session.Send(PrestigePacket.LevelUp(FieldPlayer.ObjectId, PrestigeLevel));
     }
 
     public void GainExp(int amount)
@@ -106,15 +129,17 @@ public class Levels
         while (newExp >= ExpMetadataStorage.GetExpToLevel(Level))
         {
             newExp -= ExpMetadataStorage.GetExpToLevel(Level);
-            if (!LevelUp()) // If can't level up because next level doesn't exist, exit the loop
+            if (LevelUp())
             {
-                newExp = 0;
-                break;
+                continue;
             }
+
+            newExp = 0;
+            break;
         }
 
         Exp = newExp;
-        Player.Session.Send(ExperiencePacket.ExpUp(amount, newExp, RestExp));
+        Session.Send(ExperiencePacket.ExpUp(amount, newExp, RestExp));
     }
 
     public void GainPrestigeExp(long amount)
@@ -135,7 +160,7 @@ public class Levels
         }
 
         PrestigeExp = newPrestigeExp;
-        Player.Session.Send(PrestigePacket.ExpUp(Player, amount));
+        Session.Send(PrestigePacket.ExpUp(PrestigeExp, amount));
     }
 
     public void GainMasteryExp(MasteryType type, long amount)
@@ -148,7 +173,7 @@ public class Levels
         }
 
         // user already has some exp in mastery, so simply update it
-        Player.Session.Send(MasteryPacket.SetExp(type, masteryExp.CurrentExp += amount));
+        Session.Send(MasteryPacket.SetExp(type, masteryExp.CurrentExp += amount));
         int currLevel = MasteryMetadataStorage.GetGradeFromXP(type, masteryExp.CurrentExp);
 
         if (currLevel <= masteryExp.Level)
@@ -157,6 +182,6 @@ public class Levels
         }
 
         masteryExp.Level = currLevel;
-        TrophyManager.OnGainMasteryLevel(Player);
+        TrophyManager.OnGainMasteryLevel(Player, masteryExp.Type);
     }
 }

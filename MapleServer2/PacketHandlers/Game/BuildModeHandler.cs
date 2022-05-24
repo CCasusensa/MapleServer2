@@ -7,9 +7,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class BuildModeHandler : GamePacketHandler
+public class BuildModeHandler : GamePacketHandler<BuildModeHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_SET_BUILD_MODE;
+    public override RecvOp OpCode => RecvOp.RequestSetBuildMode;
 
     private enum BuildModeMode : byte
     {
@@ -21,7 +21,7 @@ public class BuildModeHandler : GamePacketHandler
     {
         Stop = 0x0,
         House = 0x1,
-        Liftables = 0x2,
+        Liftables = 0x2
     }
 
     public override void Handle(GameSession session, PacketReader packet)
@@ -37,7 +37,7 @@ public class BuildModeHandler : GamePacketHandler
                 HandleStart(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }

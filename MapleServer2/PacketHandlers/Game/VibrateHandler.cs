@@ -8,9 +8,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class VibrateHandler : GamePacketHandler
+public class VibrateHandler : GamePacketHandler<VibrateHandler>
 {
-    public override RecvOp OpCode => RecvOp.VIBRATE;
+    public override RecvOp OpCode => RecvOp.Vibrate;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
@@ -22,12 +22,12 @@ public class VibrateHandler : GamePacketHandler
         int unkInt = packet.ReadInt();
         CoordF playerCoords = packet.Read<CoordF>();
 
-        if (!MapEntityStorage.IsVibrateObject(session.Player.MapId, entityId))
+        Player player = session.Player;
+        if (!MapEntityMetadataStorage.IsVibrateObject(player.MapId, entityId))
         {
             return;
         }
 
-        SkillCast skillCast = new(skillId, skillLevel, skillSN, session.ServerTick);
-        session.FieldManager.BroadcastPacket(VibratePacket.Vibrate(entityId, skillCast, session.Player.FieldPlayer));
+        session.FieldManager.BroadcastPacket(VibratePacket.Vibrate(entityId, player.FieldPlayer.SkillCast));
     }
 }

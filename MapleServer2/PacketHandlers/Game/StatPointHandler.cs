@@ -6,9 +6,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class StatPointHandler : GamePacketHandler
+public class StatPointHandler : GamePacketHandler<StatPointHandler>
 {
-    public override RecvOp OpCode => RecvOp.STAT_POINT;
+    public override RecvOp OpCode => RecvOp.StatPoint;
 
     private enum StatPointMode : byte
     {
@@ -29,17 +29,17 @@ public class StatPointHandler : GamePacketHandler
                 HandleResetStatDistribution(session);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
 
     private static void HandleStatIncrement(GameSession session, PacketReader packet)
     {
-        byte statTypeIndex = packet.ReadByte();
+        StatAttribute statTypeIndex = (StatAttribute) packet.ReadByte();
 
-        session.Player.StatPointDistribution.AddPoint(statTypeIndex); // Deprecate?
-        session.Player.Stats.Allocate((StatId) statTypeIndex);
+        session.Player.StatPointDistribution.AddPoint(statTypeIndex);
+        session.Player.Stats.Allocate(statTypeIndex);
         session.Send(StatPointPacket.WriteStatPointDistribution(session.Player));
         session.Send(StatPacket.SetStats(session.Player.FieldPlayer));
     }
@@ -47,7 +47,7 @@ public class StatPointHandler : GamePacketHandler
     private static void HandleResetStatDistribution(GameSession session)
     {
         session.Player.Stats.ResetAllocations(session.Player.StatPointDistribution);
-        session.Send(StatPointPacket.WriteStatPointDistribution(session.Player)); // Deprecate?
+        session.Send(StatPointPacket.WriteStatPointDistribution(session.Player));
         session.Send(StatPacket.SetStats(session.Player.FieldPlayer));
     }
 }

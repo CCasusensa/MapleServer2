@@ -1,13 +1,15 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
+using GameDataParser.Tools;
 using Maple2.File.IO.Crypto.Common;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class ItemRepackageParser : Exporter<List<ItemRepackageMetadata>>
 {
-    public ItemRepackageParser(MetadataResources resources) : base(resources, "item-repackage") { }
+    public ItemRepackageParser(MetadataResources resources) : base(resources, MetadataName.ItemRepackage) { }
 
     protected override List<ItemRepackageMetadata> Parse()
     {
@@ -27,9 +29,9 @@ public class ItemRepackageParser : Exporter<List<ItemRepackageMetadata>>
                     Id = int.Parse(node.Attributes["id"].Value),
                     MinLevel = int.Parse(node.Attributes["minLv"].Value),
                     MaxLevel = int.Parse(node.Attributes["maxLv"].Value),
-                    Slots = node.Attributes["slot"].Value.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(int.Parse).ToList(),
+                    Slots = node.Attributes["slot"].Value.SplitAndParseToInt(',').ToList(),
                     PetType = int.Parse(node.Attributes["petType"]?.Value ?? "0"),
-                    Rarities = node.Attributes["rank"].Value.Split(",").Select(int.Parse).ToList()
+                    Rarities = node.Attributes["rank"].Value.SplitAndParseToInt(',').ToList()
                 };
 
                 items.Add(metadata);

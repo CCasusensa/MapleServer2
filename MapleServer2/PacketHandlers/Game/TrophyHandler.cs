@@ -10,9 +10,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class TrophyHandler : GamePacketHandler
+public class TrophyHandler : GamePacketHandler<TrophyHandler>
 {
-    public override RecvOp OpCode => RecvOp.TROPHY;
+    public override RecvOp OpCode => RecvOp.Trophy;
 
     private enum TrophyHandlerMode : byte
     {
@@ -33,7 +33,7 @@ public class TrophyHandler : GamePacketHandler
                 HandleFavorite(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -93,7 +93,7 @@ public class TrophyHandler : GamePacketHandler
             default:
                 break;
             case RewardType.item:
-                session.Player.Inventory.AddItem(session, new(grade.RewardCode, grade.RewardValue), true);
+                session.Player.Inventory.AddItem(session, new(grade.RewardCode, grade.RewardValue, grade.RewardRank), true);
                 break;
             case RewardType.title:
                 session.Player.Titles.Add(grade.RewardCode);

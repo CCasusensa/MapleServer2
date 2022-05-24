@@ -1,14 +1,16 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
+using GameDataParser.Tools;
 using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Enums;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class ScriptParser : Exporter<List<ScriptMetadata>>
 {
-    public ScriptParser(MetadataResources resources) : base(resources, "script") { }
+    public ScriptParser(MetadataResources resources) : base(resources, MetadataName.Script) { }
 
     protected override List<ScriptMetadata> Parse()
     {
@@ -72,7 +74,7 @@ public class ScriptParser : Exporter<List<ScriptMetadata>>
         return scripts;
     }
 
-    private static List<ScriptMetadata> ParseQuest(MetadataResources resources)
+    private static IEnumerable<ScriptMetadata> ParseQuest(MetadataResources resources)
     {
         List<ScriptMetadata> scripts = new();
         foreach (PackFileEntry entry in resources.XmlReader.Files)
@@ -140,15 +142,13 @@ public class ScriptParser : Exporter<List<ScriptMetadata>>
             List<Distractor> distractors = new();
             foreach (XmlNode distractorNode in content.ChildNodes)
             {
-                List<int> gotoList = new();
-                List<int> gotoFailList = new();
                 if (distractorNode.Name != "distractor")
                 {
                     continue;
                 }
 
-                gotoList.AddRange(distractorNode.Attributes["goto"]?.Value.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(int.Parse).ToList());
-                gotoFailList.AddRange(distractorNode.Attributes["gotoFail"]?.Value.Split(",").Where(x => !string.IsNullOrEmpty(x)).Select(int.Parse).ToList());
+                List<int> gotoList = distractorNode.Attributes["goto"]?.Value.SplitAndParseToInt(',').ToList();
+                List<int> gotoFailList = distractorNode.Attributes["gotoFail"]?.Value.SplitAndParseToInt(',').ToList();
                 distractors.Add(new(gotoList, gotoFailList));
             }
 

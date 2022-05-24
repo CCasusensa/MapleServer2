@@ -12,9 +12,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Login;
 
-public class CharacterManagementHandler : LoginPacketHandler
+public class CharacterManagementHandler : LoginPacketHandler<CharacterManagementHandler>
 {
-    public override RecvOp OpCode => RecvOp.CHARACTER_MANAGEMENT;
+    public override RecvOp OpCode => RecvOp.CharManagement;
 
     private enum CharacterManagementMode : byte
     {
@@ -38,7 +38,7 @@ public class CharacterManagementHandler : LoginPacketHandler
                 HandleDelete(session, packet);
                 break;
             default:
-                IPacketHandler<LoginSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -52,32 +52,33 @@ public class CharacterManagementHandler : LoginPacketHandler
             return;
         }
         session.Send(CharacterListPacket.DeleteCharacter(characterId));
-        Logger.Info($"Character id {characterId} deleted!");
+        Logger.Information("Character id {characterId} deleted!", characterId);
     }
 
     private void HandleSelect(LoginSession session, PacketReader packet)
     {
         long characterId = packet.ReadLong();
         packet.ReadShort(); // 01 00
-        Logger.Info($"Logging in to game with char id: {characterId}");
+        Logger.Information("Logging in to game with char id: {characterId}", characterId);
 
         string ipAddress = Environment.GetEnvironmentVariable("IP");
         int port = int.Parse(Environment.GetEnvironmentVariable("GAME_PORT"));
         IPEndPoint endpoint = new(IPAddress.Parse(ipAddress), port);
 
-        Player player = DatabaseManager.Characters.FindPlayerById(characterId);
-        if (player == default)
+        AuthData authData = DatabaseManager.AuthData.GetByAccountId(session.AccountId);
+        Player player = DatabaseManager.Characters.FindPartialPlayerById(characterId);
+        if (player is null)
         {
             Logger.Error("Character not found!");
             return;
         }
 
-        player.Account.AuthData.OnlineCharacterId = characterId;
+        authData.OnlineCharacterId = characterId;
 
-        DatabaseManager.AuthData.UpdateOnlineCharacterId(player.Account.AuthData);
+        DatabaseManager.AuthData.UpdateOnlineCharacterId(authData);
         DatabaseManager.Characters.UpdateChannelId(characterId, channelId: 1, instanceId: 1, isMigrating: false);
 
-        session.SendFinal(MigrationPacket.LoginToGame(endpoint, player), logoutNotice: false);
+        session.SendFinal(MigrationPacket.LoginToGame(endpoint, player.MapId, authData), logoutNotice: false);
     }
 
     private static void HandleCreate(LoginSession session, PacketReader packet)
@@ -215,6 +216,8 @@ public class CharacterManagementHandler : LoginPacketHandler
                     });
                     break;
             }
+            newCharacter.Inventory.Cosmetics[type].BindItem(newCharacter);
+
         }
         packet.ReadInt(); // const? (4)
 

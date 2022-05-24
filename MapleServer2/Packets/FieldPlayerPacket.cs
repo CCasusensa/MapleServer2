@@ -11,15 +11,12 @@ public static class FieldPlayerPacket
     public static PacketWriter AddPlayer(IFieldActor<Player> fieldPlayer)
     {
         Player player = fieldPlayer.Value;
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_ADD_PLAYER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldAddPlayer);
         pWriter.WriteInt(fieldPlayer.ObjectId);
-        CharacterListPacket.WriteCharacter(player, pWriter);
+        pWriter.WriteCharacter(player);
 
         // Skills
-        pWriter.Write(player.JobCode);
-        pWriter.WriteByte(1);
-        pWriter.Write(player.Job);
-        pWriter.WriteSkills(player);
+        pWriter.WriteJobInfo(player);
 
         // Coords
         pWriter.Write(fieldPlayer.Coord);
@@ -71,6 +68,7 @@ public static class FieldPlayerPacket
                 pWriter.WriteByte();
             }
         }
+
         pWriter.WriteInt();
         pWriter.WriteLong(TimeInfo.Now()); // some timestamp
         pWriter.WriteInt();
@@ -119,7 +117,7 @@ public static class FieldPlayerPacket
             pWriter.WriteDeflated(new byte[1], 0, 1); // Empty buffer
         }
 
-        JobPacket.WritePassiveSkills(pWriter, fieldPlayer);
+        pWriter.WritePassiveSkills(fieldPlayer);
 
         pWriter.WriteInt();
         pWriter.WriteInt();
@@ -144,7 +142,7 @@ public static class FieldPlayerPacket
 
     public static PacketWriter RemovePlayer(IFieldObject<Player> player)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_REMOVE_PLAYER);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldRemovePlayer);
         pWriter.WriteInt(player.ObjectId);
 
         return pWriter;

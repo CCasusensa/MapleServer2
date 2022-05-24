@@ -4,6 +4,9 @@ using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
 using MapleServer2.Enums;
+using MapleServer2.Packets;
+using MapleServer2.Tools;
+using MoonSharp.Interpreter;
 
 namespace MapleServer2.Types;
 
@@ -28,6 +31,7 @@ public class Item
     public ItemFunction Function { get; set; }
     public string Tag { get; set; }
     public int ShopID { get; set; }
+    public int PetId { get; set; }
     public ItemHousingCategory HousingCategory;
     public string BlackMarketCategory;
     public string Category;
@@ -48,14 +52,16 @@ public class Item
     public long UnlockTime;
     public short RemainingGlamorForges;
     public int GachaDismantleId;
-
-    public int Enchants;
+    public int GearScore;
+    public int EnchantLevel;
+    public int LimitBreakLevel;
+    public bool DisableEnchant;
 
     // EnchantExp (10000 = 100%) for Peachy
     public int EnchantExp;
-    public int RepackageCount;
+    public int RemainingRepackageCount;
     public int Charges;
-    public TransferFlag TransferFlag;
+    public ItemTransferFlag TransferFlag;
     public TransferType TransferType;
     public int RemainingTrades;
 
@@ -75,7 +81,7 @@ public class Item
     public MusicScore Score;
     public ItemStats Stats;
 
-    public UGC UGC;
+    public UGC Ugc;
 
     public long InventoryId;
     public long BankInventoryId;
@@ -101,20 +107,24 @@ public class Item
         PlayCount = ItemMetadataStorage.GetPlayCount(id);
         Color = ItemMetadataStorage.GetEquipColor(id);
         CreationTime = TimeInfo.Now();
+        RemainingTrades = ItemMetadataStorage.GetTradeableCount(Id);
+        RemainingRepackageCount = ItemMetadataStorage.GetRepackageCount(Id);
         RemainingGlamorForges = ItemExtractionMetadataStorage.GetExtractionCount(id);
         Slot = -1;
         Amount = 1;
         Score = new();
-        Stats = new(id, Rarity, ItemSlot, Level);
+        GearScore = GetGearScore();
+        Stats = new(this);
         if (saveToDatabase)
         {
             Uid = DatabaseManager.Items.Insert(this);
         }
     }
 
-    public Item(int id, int amount, bool saveToDatabase = true) : this(id, saveToDatabase)
+    public Item(int id, int amount, int rarity = 1, bool saveToDatabase = true) : this(id, saveToDatabase)
     {
         Amount = amount;
+        Rarity = rarity;
     }
 
     // Make a copy of item
@@ -147,9 +157,10 @@ public class Item
         UnlockTime = other.UnlockTime;
         RemainingGlamorForges = other.RemainingGlamorForges;
         GachaDismantleId = other.GachaDismantleId;
-        Enchants = other.Enchants;
+        EnchantLevel = other.EnchantLevel;
+        LimitBreakLevel = other.LimitBreakLevel;
         EnchantExp = other.EnchantExp;
-        RepackageCount = other.RepackageCount;
+        RemainingRepackageCount = other.RemainingRepackageCount;
         Charges = other.Charges;
         TransferFlag = other.TransferFlag;
         RemainingTrades = other.RemainingTrades;
@@ -169,7 +180,8 @@ public class Item
         HatData = other.HatData;
         Score = new();
         Stats = new(other.Stats);
-        UGC = other.UGC;
+        Ugc = other.Ugc;
+        SetMetadataValues();
     }
 
     public bool TrySplit(int splitAmount, out Item splitItem)
@@ -208,9 +220,55 @@ public class Item
         return slot is ItemSlot.CP or ItemSlot.CL or ItemSlot.PA or ItemSlot.GL or ItemSlot.SH or ItemSlot.MT;
     }
 
-    public static bool IsPet(int itemId)
+    public bool IsPet()
     {
-        return itemId is >= 60000001 and < 61000000;
+        return ItemMetadataStorage.GetPetId(Id) != 0;
+    }
+
+    public bool BindItem(Player player)
+    {
+        if (OwnerCharacterId != 0 && OwnerCharacterId != player.CharacterId)
+        {
+            return false;
+        }
+
+        if (OwnerCharacterId == player.CharacterId)
+        {
+            return true;
+        }
+
+        OwnerAccountId = player.AccountId;
+        OwnerCharacterId = player.CharacterId;
+        OwnerCharacterName = player.Name;
+        RemainingTrades = 0;
+
+        player.Session?.Send(ItemInventoryPacket.UpdateItem(this));
+        return true;
+    }
+
+    public bool IsBound()
+    {
+        return OwnerCharacterId != 0;
+    }
+
+    public bool IsSelfBound(long characterId)
+    {
+        return OwnerAccountId == characterId;
+    }
+
+    public bool IsExpired()
+    {
+        return TimeInfo.Now() > ExpiryTime && ExpiryTime != 0;
+    }
+
+    public void DecreaseTradeCount()
+    {
+        if (!TransferFlag.HasFlag(ItemTransferFlag.LimitedTradeCount))
+        {
+            return;
+        }
+
+        RemainingTrades--;
     }
 
     public void SetMetadataValues()
@@ -229,19 +287,45 @@ public class Item
         Function = ItemMetadataStorage.GetFunction(Id);
         Tag = ItemMetadataStorage.GetTag(Id);
         ShopID = ItemMetadataStorage.GetShopID(Id);
-        RemainingTrades = ItemMetadataStorage.GetTradeableCount(Id);
         TransferType = ItemMetadataStorage.GetTransferType(Id);
-        RepackageCount = ItemMetadataStorage.GetRepackageCount(Id);
+        TransferFlag = ItemMetadataStorage.GetTransferFlag(Id, Rarity);
         HousingCategory = ItemMetadataStorage.GetHousingCategory(Id);
         BlackMarketCategory = ItemMetadataStorage.GetBlackMarketCategory(Id);
         Category = ItemMetadataStorage.GetCategory(Id);
-        Type = GetItemType(Id);
+        DisableEnchant = ItemMetadataStorage.IsEnchantDisabled(Id);
+        Type = GetItemType();
     }
 
-    private static ItemType GetItemType(int itemId)
+    public ItemType GetItemType()
     {
-        return (itemId / 100000) switch
+        //TODO: Find a better method to find the item type
+        return (Id / 100000) switch
         {
+            112 => ItemType.Earring,
+            113 => ItemType.Hat,
+            114 => ItemType.Clothes,
+            115 => ItemType.Pants,
+            116 => ItemType.Gloves,
+            117 => ItemType.Shoes,
+            118 => ItemType.Cape,
+            119 => ItemType.Necklace,
+            120 => ItemType.Ring,
+            121 => ItemType.Belt,
+            122 => ItemType.Overall,
+            130 => ItemType.Bludgeon,
+            131 => ItemType.Dagger,
+            132 => ItemType.Longsword,
+            133 => ItemType.Scepter,
+            134 => ItemType.ThrowingStar,
+            140 => ItemType.Spellbook,
+            141 => ItemType.Shield,
+            150 => ItemType.Greatsword,
+            151 => ItemType.Bow,
+            152 => ItemType.Staff,
+            153 => ItemType.Cannon,
+            154 => ItemType.Blade,
+            155 => ItemType.Knuckle,
+            156 => ItemType.Orb,
             209 => ItemType.Medal,
             410 or 420 or 430 => ItemType.Lapenshard,
             501 or 502 or 503 or 504 or 505 => ItemType.Furnishing,
@@ -249,5 +333,13 @@ public class Item
             900 => ItemType.Currency,
             _ => ItemType.None
         };
+    }
+
+    public int GetGearScore()
+    {
+        int gearScoreFactor = ItemMetadataStorage.GetGearScoreFactor(Id);
+        Script script = ScriptLoader.GetScript("Functions/calcItemValues");
+        DynValue result = script.RunFunction("calcItemGearScore", gearScoreFactor, Rarity, (int) Type, EnchantLevel, LimitBreakLevel);
+        return (int) result.Tuple[0].Number + (int) result.Tuple[1].Number;
     }
 }

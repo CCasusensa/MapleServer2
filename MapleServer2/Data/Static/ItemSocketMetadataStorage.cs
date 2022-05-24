@@ -1,5 +1,6 @@
 ﻿using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
+using MapleServer2.Tools;
 using ProtoBuf;
 
 namespace MapleServer2.Data.Static;
@@ -10,7 +11,7 @@ public static class ItemSocketMetadataStorage
 
     public static void Init()
     {
-        using FileStream stream = File.OpenRead($"{Paths.RESOURCES_DIR}/ms2-item-socket-metadata");
+        using FileStream stream = MetadataHelper.GetFileStream(MetadataName.ItemSocket);
         List<ItemSocketMetadata> items = Serializer.Deserialize<List<ItemSocketMetadata>>(stream);
         foreach (ItemSocketMetadata item in items)
         {
@@ -18,8 +19,8 @@ public static class ItemSocketMetadataStorage
         }
     }
 
-    public static ItemSocketMetadata GetMetadata(int socketDataId)
+    public static ItemSocketRarityData GetMetadata(int socketDataId, int rarity)
     {
-        return ItemSocketMetadatas.GetValueOrDefault(socketDataId);
+        return ItemSocketMetadatas.GetValueOrDefault(socketDataId)?.RarityData.FirstOrDefault(x => x.Rarity == rarity);
     }
 }

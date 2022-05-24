@@ -22,7 +22,7 @@ public static class FieldObjectPacket
     public static PacketWriter LoadPlayer(IFieldObject<Player> fieldPlayer)
     {
         Player player = fieldPlayer.Value;
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.LoadPlayer);
         pWriter.WriteInt(fieldPlayer.ObjectId);
         pWriter.WriteLong(player.CharacterId);
@@ -51,7 +51,7 @@ public static class FieldObjectPacket
 
     public static PacketWriter RemovePlayer(IFieldObject<Player> fieldPlayer)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.RemovePlayer);
         pWriter.WriteInt(fieldPlayer.ObjectId);
 
@@ -61,7 +61,7 @@ public static class FieldObjectPacket
     public static PacketWriter UpdatePlayer(IFieldActor<Player> player)
     {
         FieldObjectUpdate flag = FieldObjectUpdate.Move | FieldObjectUpdate.Animate;
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.UpdateEntity);
         pWriter.WriteInt(player.ObjectId);
         pWriter.WriteByte((byte) flag);
@@ -70,27 +70,33 @@ public static class FieldObjectPacket
         {
             pWriter.WriteByte();
         }
+
         if (flag.HasFlag(FieldObjectUpdate.Move))
         {
             pWriter.Write(player.Coord);
         }
-        if (flag.HasFlag(FieldObjectUpdate.Type3))
+
+        if (flag.HasFlag(FieldObjectUpdate.Level))
         {
-            pWriter.WriteShort();
+            pWriter.WriteShort(player.Value.Levels.Level);
         }
+
         if (flag.HasFlag(FieldObjectUpdate.Type4))
         {
             pWriter.WriteShort();
             pWriter.WriteInt();
         }
+
         if (flag.HasFlag(FieldObjectUpdate.Type5))
         {
             pWriter.WriteUnicodeString("Unknown");
         }
+
         if (flag.HasFlag(FieldObjectUpdate.Type6))
         {
             pWriter.WriteInt();
         }
+
         if (flag.HasFlag(FieldObjectUpdate.Animate))
         {
             pWriter.WriteShort(player.Animation);
@@ -99,9 +105,22 @@ public static class FieldObjectPacket
         return pWriter;
     }
 
+    // Temporary packet, we should be using the packet above
+    public static PacketWriter UpdateCharacterLevel(Player player)
+    {
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
+
+        pWriter.Write(FieldObjectMode.UpdateEntity);
+        pWriter.WriteInt(player.FieldPlayer.ObjectId);
+        pWriter.Write(FieldObjectUpdate.Level);
+        pWriter.WriteShort(player.Levels.Level);
+
+        return pWriter;
+    }
+
     public static PacketWriter LoadNpc(IFieldObject<NpcMetadata> npc)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.LoadNpc);
         pWriter.WriteInt(npc.ObjectId);
         pWriter.WriteInt(npc.Value.Id);
@@ -113,7 +132,7 @@ public static class FieldObjectPacket
 
     public static PacketWriter LoadMob(IFieldObject<NpcMetadata> mob)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.LoadNpc);
         pWriter.WriteInt(mob.ObjectId);
         pWriter.WriteInt(mob.Value.Id);
@@ -137,7 +156,7 @@ public static class FieldObjectPacket
         npcBuffer.WriteShort(1); // counter (increments every packet)
         // There can be more to this packet, probably dependent on Flag.
 
-        PacketWriter pWriter = PacketWriter.Of(SendOp.NPC_CONTROL);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.NpcControl);
         pWriter.WriteShort(1); // Segments
         pWriter.WriteShort((short) npcBuffer.Length);
         pWriter.WriteBytes(npcBuffer.ToArray());
@@ -150,17 +169,20 @@ public static class FieldObjectPacket
         npcBuffer.WriteInt(mob.ObjectId);
         npcBuffer.WriteByte();
         npcBuffer.Write(mob.Coord.ToShort());
-        // TODO: figure out if it's *10 or *1
         npcBuffer.WriteShort(mob.LookDirection);
         npcBuffer.Write(mob.Velocity.ToShort()); // Target Position's Displacement
         npcBuffer.WriteShort(100); // Unknown
-        //npcBuffer.WriteInt(); // Unknown but is required for Boss, but not for normal mobs.
+        if (mob.Value.IsBoss())
+        {
+            npcBuffer.WriteInt(); // Player target id, only used for bosses. Agro?
+        }
+
         npcBuffer.WriteByte(1); // Flag ?
         npcBuffer.WriteShort(mob.Animation);
         npcBuffer.WriteShort(1); // counter (increments every packet)
         // There can be more to this packet, probably dependent on Flag.
 
-        PacketWriter pWriter = PacketWriter.Of(SendOp.NPC_CONTROL);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.NpcControl);
         pWriter.WriteShort(1); // Segments
         pWriter.WriteShort((short) npcBuffer.Length);
         pWriter.WriteBytes(npcBuffer.ToArray());
@@ -169,7 +191,7 @@ public static class FieldObjectPacket
 
     public static PacketWriter UpdateEntity(int objectId)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.UpdateEntity);
         pWriter.WriteInt(objectId);
         pWriter.WriteByte();
@@ -179,7 +201,7 @@ public static class FieldObjectPacket
 
     public static PacketWriter RemoveNpc(IFieldObject<NpcMetadata> npc)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.RemoveNpc);
         pWriter.WriteInt(npc.ObjectId);
         return pWriter;
@@ -187,7 +209,7 @@ public static class FieldObjectPacket
 
     public static PacketWriter RemoveMob(IFieldObject<NpcMetadata> mob)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.RemoveNpc);
         pWriter.WriteInt(mob.ObjectId);
         return pWriter;
@@ -195,7 +217,7 @@ public static class FieldObjectPacket
 
     public static PacketWriter MoveNpc(IFieldObject<NpcMetadata> npc)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_OBJECT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldObject);
         pWriter.Write(FieldObjectMode.MoveNpc);
         pWriter.WriteInt(npc.ObjectId);
         pWriter.WriteByte();

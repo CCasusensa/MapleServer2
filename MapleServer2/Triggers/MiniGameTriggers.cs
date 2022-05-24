@@ -1,5 +1,4 @@
 ﻿using Maple2.Trigger.Enum;
-using Maple2Storage.Tools;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Managers;
@@ -21,29 +20,41 @@ public partial class TriggerContext
 
     public void EndMiniGame(int winnerBoxId, MiniGame type, bool isOnlyWinner)
     {
-        MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, winnerBoxId);
-        List<IFieldObject<Player>> players = new();
+        MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, winnerBoxId);
+        if (box is null)
+        {
+            return;
+        }
+
         foreach (IFieldObject<Player> player in Field.State.Players.Values)
         {
-            if (FieldManager.IsPlayerInBox(box, player))
+            if (!FieldManager.IsPlayerInBox(box, player))
             {
-                if (type == MiniGame.LudibriumEscape)
-                {
+                continue;
+            }
+
+            switch (type)
+            {
+                case MiniGame.LudibriumEscape:
                     PlayerTrigger trigger = player.Value.Triggers.FirstOrDefault(x => x.Key == "gameStart");
                     player.Value.Triggers.Remove(trigger);
                     player.Value.Session.Send(ResultsPacket.Rounds(1, 1));
-                }
-                else if (type == MiniGame.OXQuiz)
-                {
+                    break;
+                case MiniGame.OXQuiz:
                     player.Value.Session.Send(ResultsPacket.Rounds(10, 10));
-                }
+                    break;
             }
         }
     }
 
     public void EndMiniGameRound(int winnerBoxId, float expRate, bool isOnlyWinner, bool isGainLoserBonus, bool meso, MiniGame type)
     {
-        MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, winnerBoxId);
+        MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, winnerBoxId);
+        if (box is null)
+        {
+            return;
+        }
+
         foreach (IFieldObject<Player> player in Field.State.Players.Values)
         {
             if (FieldManager.IsPlayerInBox(box, player))
@@ -56,7 +67,7 @@ public partial class TriggerContext
 
     public void MiniGameCameraDirection(int boxId, int cameraId)
     {
-        MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, boxId);
+        MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
         List<IFieldObject<Player>> boxPlayers = new();
         foreach (IFieldObject<Player> player in Field.State.Players.Values)
         {
@@ -66,7 +77,7 @@ public partial class TriggerContext
             }
         }
 
-        Random random = RandomProvider.Get();
+        Random random = Random.Shared;
         int index = random.Next(boxPlayers.Count);
         IFieldObject<Player> randomPlayer = boxPlayers[index];
         Field.BroadcastPacket(LocalCameraPacket.Camera(cameraId, 1, randomPlayer.ObjectId));
@@ -78,7 +89,12 @@ public partial class TriggerContext
 
     public void MiniGameGiveReward(int winnerBoxId, string contentType, MiniGame type)
     {
-        MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, winnerBoxId);
+        MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, winnerBoxId);
+        if (box is null)
+        {
+            return;
+        }
+
         List<IFieldObject<Player>> players = new();
         foreach (IFieldObject<Player> player in Field.State.Players.Values)
         {

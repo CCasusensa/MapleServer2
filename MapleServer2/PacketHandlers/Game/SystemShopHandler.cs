@@ -8,9 +8,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class SystemShopHandler : GamePacketHandler
+public class SystemShopHandler : GamePacketHandler<SystemShopHandler>
 {
-    public override RecvOp OpCode => RecvOp.SYSTEM_SHOP;
+    public override RecvOp OpCode => RecvOp.SystemShop;
 
     private enum ShopMode : byte
     {
@@ -35,7 +35,7 @@ public class SystemShopHandler : GamePacketHandler
                 HandleMapleArenaShop(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -51,7 +51,7 @@ public class SystemShopHandler : GamePacketHandler
 
         int itemId = packet.ReadInt();
 
-        Item item = session.Player.Inventory.Items.Values.FirstOrDefault(x => x.Id == itemId);
+        Item item = session.Player.Inventory.GetById(itemId);
         if (item == null)
         {
             return;
@@ -60,7 +60,7 @@ public class SystemShopHandler : GamePacketHandler
         Shop shop = DatabaseManager.Shops.FindById(item.ShopID);
         if (shop == null)
         {
-            Logger.Warn($"Unknown shop ID: {item.ShopID}");
+            Logger.Warning("Unknown shop ID: {shopID}", item.ShopID);
             return;
         }
 

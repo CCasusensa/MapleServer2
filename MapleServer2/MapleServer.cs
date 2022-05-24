@@ -1,9 +1,11 @@
 ﻿using System.Globalization;
 using Autofac;
-using Maple2Storage.Extensions;
+using Maple2.PathEngine;
+using Maple2.PathEngine.Utils;
 using Maple2Storage.Tools;
 using Maple2Storage.Types;
 using MaplePacketLib2.Tools;
+using MapleServer2.Data.Static;
 using MapleServer2.Database;
 using MapleServer2.Managers;
 using MapleServer2.Network;
@@ -11,22 +13,44 @@ using MapleServer2.Servers.Game;
 using MapleServer2.Servers.Login;
 using MapleServer2.Tools;
 using MapleServer2.Types;
-using NLog;
+using Newtonsoft.Json;
+using Serilog;
+using Serilog.Events;
+using Serilog.Templates;
+using Serilog.Templates.Themes;
+using Path = System.IO.Path;
 using TaskScheduler = MapleServer2.Tools.TaskScheduler;
 
 namespace MapleServer2;
 
 public static class MapleServer
 {
+    private static readonly PrintErrorHandler Handler = new(Console.Out); // Assigning to a static variable so it doesn't get GC'd
+    public static readonly PathEngine PathEngine = new(Handler);
+
     private static GameServer _gameServer;
     private static LoginServer _loginServer;
-    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+    private static ILogger _logger;
 
     public static async Task Main()
     {
+        // Setup Serilog
+        const string ConsoleOutputTemplate = "[{@t:HH:mm:ss}] [{@l:u3}]" +
+                                             "{#if SourceContext is not null} {Substring(SourceContext, LastIndexOf(SourceContext, '.') + 1)}:{#end} {@m}\n{@x}";
+        const string FileOutputTemplate = "[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level}] {SourceContext:l}: {Message:lj}{NewLine}{Exception}";
+
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.Console(new ExpressionTemplate(ConsoleOutputTemplate, theme: TemplateTheme.Code))
+            .WriteTo.File($"{Paths.SOLUTION_DIR}/Logs/MapleServer2/LOG-.txt",
+                rollingInterval: RollingInterval.Day, outputTemplate: FileOutputTemplate, restrictedToMinimumLevel: LogEventLevel.Information)
+            .CreateLogger();
+
+        _logger = Log.Logger.ForContext(typeof(MapleServer));
+
         AppDomain currentDomain = AppDomain.CurrentDomain;
         currentDomain.UnhandledException += UnhandledExceptionEventHandler;
-        currentDomain.ProcessExit += SaveAll;
+        currentDomain.ProcessExit += Shutdown;
 
         // Force Globalization to en-US because we use periods instead of commas for decimals
         CultureInfo.CurrentCulture = new("en-US");
@@ -36,8 +60,9 @@ public static class MapleServer
 
         if (!File.Exists(dotenv))
         {
-            throw new ArgumentException(".env file not found!");
+            throw new FileNotFoundException(".env file not found!");
         }
+
         DotEnv.Load(dotenv);
 
         DatabaseManager.Init();
@@ -53,7 +78,7 @@ public static class MapleServer
         }
 
         // Schedule daily reset and repeat every 24 hours
-        TaskScheduler.Instance.ScheduleTask(0, 0, 24, DailyReset);
+        TaskScheduler.Instance.ScheduleTask(0, 0, 24 * 60, DailyReset);
 
         // Load Mob AI files
         string mobAiSchema = Path.Combine(Paths.AI_DIR, "mob-ai.xsd");
@@ -62,17 +87,20 @@ public static class MapleServer
         // Initialize all metadata.
         await MetadataHelper.InitializeAll();
 
+        // Run global events
+        GlobalEventManager.ScheduleEvents();
+
         IContainer loginContainer = LoginContainerConfig.Configure();
-        using ILifetimeScope loginScope = loginContainer.BeginLifetimeScope();
+        await using ILifetimeScope loginScope = loginContainer.BeginLifetimeScope();
         _loginServer = loginScope.Resolve<LoginServer>();
         _loginServer.Start();
 
         IContainer gameContainer = GameContainerConfig.Configure();
-        using ILifetimeScope gameScope = gameContainer.BeginLifetimeScope();
+        await using ILifetimeScope gameScope = gameContainer.BeginLifetimeScope();
         _gameServer = gameScope.Resolve<GameServer>();
         _gameServer.Start();
 
-        Logger.Info("All Servers have been Started.".ColorGreen());
+        _logger.Information("All Servers have been Started.");
 
         // Input commands to the server
         while (true)
@@ -90,14 +118,15 @@ public static class MapleServer
                     {
                         break;
                     }
+
                     string packet = input[1];
                     PacketWriter pWriter = new();
                     pWriter.WriteBytes(packet.ToByteArray());
-                    Logger.Info(pWriter);
+                    _logger.Information(pWriter.ToString());
 
                     foreach (Session session in GetSessions(_loginServer, _gameServer))
                     {
-                        Logger.Info($"Sending packet to {session}: {pWriter}");
+                        _logger.Information("Sending packet to {session}: {pWriter}", session, pWriter);
                         session.Send(pWriter);
                     }
 
@@ -109,11 +138,17 @@ public static class MapleServer
                     {
                         break;
                     }
-                    GameSession first = _gameServer.GetSessions().Single();
+
+                    GameSession first = _gameServer.GetSessions().FirstOrDefault();
+                    if (first is null)
+                    {
+                        break;
+                    }
+
                     resolver.Start(first);
                     break;
                 default:
-                    Logger.Info($"Unknown command:{input[0]} args:{(input.Length > 1 ? input[1] : "N/A")}");
+                    _logger.Information("Unknown command:{input[0]} args:{input}", input[0], input.Length > 1 ? input[1] : "N/A");
                     break;
             }
         }
@@ -136,10 +171,35 @@ public static class MapleServer
         {
             player.GatheringCount = new();
             DatabaseManager.Characters.Update(player);
+
+            List<GameEventUserValue> expiredValues = player.EventUserValues.Where(x => x.ExpirationTimestamp <= TimeInfo.Now()).ToList();
+            foreach (GameEventUserValue userValue in expiredValues)
+            {
+                DatabaseManager.GameEventUserValue.Delete(userValue);
+                player.EventUserValues.Remove(userValue);
+            }
         }
+
+        // Weekly reset
+        if (DateTime.Now.DayOfWeek == DayOfWeek.Friday)
+        {
+            WeeklyReset(players);
+        }
+
         DatabaseManager.RunQuery("UPDATE `characters` SET gathering_count = '[]'");
 
         DatabaseManager.ServerInfo.SetLastDailyReset(TimeInfo.CurrentDate());
+    }
+
+    private static void WeeklyReset(List<Player> players)
+    {
+        foreach (Player player in players)
+        {
+            player.PrestigeMissions = PrestigeLevelMissionMetadataStorage.GetPrestigeMissions;
+        }
+
+        string missions = JsonConvert.SerializeObject(PrestigeLevelMissionMetadataStorage.GetPrestigeMissions);
+        DatabaseManager.RunQuery($"UPDATE `characters` SET prestige_missions = '{missions}'");
     }
 
     public static void BroadcastPacketAll(PacketWriter packet, GameSession sender = null)
@@ -150,6 +210,7 @@ public static class MapleServer
             {
                 return;
             }
+
             session.Send(packet);
         });
     }
@@ -178,12 +239,13 @@ public static class MapleServer
 
     private static void UnhandledExceptionEventHandler(object sender, UnhandledExceptionEventArgs args)
     {
-        SaveAll(sender, args);
+        SaveAll();
         Exception e = (Exception) args.ExceptionObject;
-        Logger.Fatal($"Exception Type: {e.GetType()}\nMessage: {e.Message}\nStack Trace: {e.StackTrace}\n");
+        _logger.Fatal("Exception Type: {type}\nMessage: {message}\nStack Trace: {stackTrace}\n",
+            e.GetType(), e.Message, e.StackTrace);
     }
 
-    private static void SaveAll(object sender, EventArgs e)
+    private static void SaveAll()
     {
         List<Player> players = GameServer.PlayerManager.GetAllPlayers();
         foreach (Player item in players)
@@ -202,5 +264,11 @@ public static class MapleServer
         {
             DatabaseManager.Homes.Update(home);
         }
+    }
+
+    private static void Shutdown(object sender, EventArgs e)
+    {
+        SaveAll();
+        Log.CloseAndFlush();
     }
 }

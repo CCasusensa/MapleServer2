@@ -5,9 +5,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class MyInfoHandler : GamePacketHandler
+public class MyInfoHandler : GamePacketHandler<MyInfoHandler>
 {
-    public override RecvOp OpCode => RecvOp.MY_INFO;
+    public override RecvOp OpCode => RecvOp.MyInfo;
 
     public override void Handle(GameSession session, PacketReader packet)
     {

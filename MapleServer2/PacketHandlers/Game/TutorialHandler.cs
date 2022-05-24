@@ -6,13 +6,13 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class TutorialHandler : GamePacketHandler
+public class TutorialHandler : GamePacketHandler<TutorialHandler>
 {
-    public override RecvOp OpCode => RecvOp.TUTORIAL;
+    public override RecvOp OpCode => RecvOp.Tutorial;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        JobMetadata metadata = JobMetadataStorage.GetJobMetadata((int) session.Player.Job);
+        JobMetadata metadata = JobMetadataStorage.GetJobMetadata(session.Player.Job);
         {
             foreach (int taxiMapId in metadata.OpenTaxis)
             {

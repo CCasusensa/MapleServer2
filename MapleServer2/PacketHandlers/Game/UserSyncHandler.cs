@@ -11,9 +11,9 @@ namespace MapleServer2.PacketHandlers.Game;
 
 // ClientTicks/Time here are probably used for animation
 // Currently I am just updating animation instantly.
-public class UserSyncHandler : GamePacketHandler
+public class UserSyncHandler : GamePacketHandler<UserSyncHandler>
 {
-    public override RecvOp OpCode => RecvOp.USER_SYNC;
+    public override RecvOp OpCode => RecvOp.UserSync;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
@@ -80,7 +80,7 @@ public class UserSyncHandler : GamePacketHandler
         }
 
         // not sure if this needs to be synced here
-        fieldPlayer.Animation = syncStates[0].Animation1;
+        fieldPlayer.Animation = syncStates[0].BoreAnimation;
     }
 
     private static bool IsOutOfBounds(CoordF coord, CoordS[] boundingBox)

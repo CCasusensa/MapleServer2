@@ -5,19 +5,28 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestWorldMapHandler : GamePacketHandler
+public class RequestWorldMapHandler : GamePacketHandler<RequestWorldMapHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_WORLD_MAP;
+    public override RecvOp OpCode => RecvOp.RequestWorldMap;
+
+    private enum WorldMapMode : byte
+    {
+        Open = 0x00
+    }
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        byte mode = packet.ReadByte();
+        WorldMapMode mode = (WorldMapMode) packet.ReadByte();
         switch (mode)
         {
-            case 0: // open
+            case WorldMapMode.Open: // open
                 HandleOpen(session);
                 break;
+            default:
+                LogUnknownMode(mode);
+                break;
         }
+
         packet.ReadByte(); // always 0?
         int tab = packet.ReadInt();
     }

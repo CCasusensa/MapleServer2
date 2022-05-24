@@ -1,22 +1,67 @@
-﻿using MapleServer2.Database;
+﻿using Maple2Storage.Types.Metadata;
+using MapleServer2.Data.Static;
+using MapleServer2.Database;
+using MapleServer2.Enums;
 
 namespace MapleServer2.Types;
 
 public class Hotbar
 {
     public readonly long Id;
-    public const int MAX_SLOTS = 22;
+    private const int MaxSlots = 22;
     public QuickSlot[] Slots { get; private set; }
 
     public Hotbar(long gameOptionsId)
     {
-        Slots = new QuickSlot[MAX_SLOTS];
+        Slots = new QuickSlot[MaxSlots];
 
-        for (int i = 0; i < MAX_SLOTS; i++)
+        for (int i = 0; i < MaxSlots; i++)
         {
             Slots[i] = new();
         }
+
         Id = DatabaseManager.Hotbars.Insert(this, gameOptionsId);
+    }
+
+    public Hotbar(long gameOptionsId, Job job)
+    {
+        Slots = new QuickSlot[MaxSlots];
+
+        for (int i = 0; i < MaxSlots; i++)
+        {
+            Slots[i] = new();
+        }
+
+        AddDefaultSkills();
+
+        Id = DatabaseManager.Hotbars.Insert(this, gameOptionsId);
+
+        void AddDefaultSkills()
+        {
+            JobMetadata jobMetadata = JobMetadataStorage.GetJobMetadata(job);
+            if (jobMetadata is null)
+            {
+                return;
+            }
+
+            List<int> skillIds = new();
+            jobMetadata.LearnedSkills.ForEach(x => skillIds.AddRange(x.SkillIds));
+
+            List<(int skillId, byte slotPriority)> hotbarSkills = new();
+            foreach (int skillId in skillIds)
+            {
+                JobSkillMetadata jobSkillMetadata = jobMetadata.Skills.First(x => x.SkillId == skillId);
+                if (jobSkillMetadata.QuickSlotPriority != 99 && jobSkillMetadata.SubJobCode == 0)
+                {
+                    hotbarSkills.Add((skillId, jobSkillMetadata.QuickSlotPriority));
+                }
+            }
+
+            foreach ((int skillId, byte _) in hotbarSkills.OrderBy(x => x.slotPriority))
+            {
+                AddToFirstSlot(QuickSlot.From(skillId));
+            }
+        }
     }
 
     public Hotbar(QuickSlot[] slots, long id)
@@ -32,21 +77,23 @@ public class Hotbar
             return false;
         }
 
-        for (int i = 0; i < MAX_SLOTS; i++)
+        for (int i = 0; i < MaxSlots; i++)
         {
             if (Slots[i].ItemId != 0 || Slots[i].SkillId != 0)
             {
                 continue;
             }
+
             Slots[i] = quickSlot;
             return true;
         }
+
         return false;
     }
 
     public void MoveQuickSlot(int targetSlotIndex, QuickSlot quickSlot)
     {
-        if (targetSlotIndex < 0 || targetSlotIndex >= MAX_SLOTS)
+        if (targetSlotIndex is < 0 or >= MaxSlots)
         {
             // This should never occur
             throw new ArgumentException($"Invalid target slot {targetSlotIndex}");
@@ -69,7 +116,7 @@ public class Hotbar
 
     private int FindQuickSlotIndex(int skillId, long itemUid = 0)
     {
-        for (int i = 0; i < MAX_SLOTS; i++)
+        for (int i = 0; i < MaxSlots; i++)
         {
             QuickSlot currentSlot = Slots[i];
             if (currentSlot.SkillId == skillId && currentSlot.ItemUid == itemUid)
@@ -84,7 +131,20 @@ public class Hotbar
     public bool RemoveQuickSlot(int skillId, long itemUid)
     {
         int targetSlotIndex = FindQuickSlotIndex(skillId, itemUid);
-        if (targetSlotIndex < 0 || targetSlotIndex >= MAX_SLOTS)
+        if (targetSlotIndex is < 0 or >= MaxSlots)
+        {
+            // TODO - There is either a) hotbar desync or b) something unintended occuring
+            return false;
+        }
+
+        Slots[targetSlotIndex] = new(); // Clear
+        return true;
+    }
+
+    public bool RemoveQuickSlot(QuickSlot quickSlot)
+    {
+        int targetSlotIndex = FindQuickSlotIndex(quickSlot.SkillId, quickSlot.ItemUid);
+        if (targetSlotIndex is < 0 or >= MaxSlots)
         {
             // TODO - There is either a) hotbar desync or b) something unintended occuring
             return false;

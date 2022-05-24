@@ -15,7 +15,7 @@ public static class ItemBreakPacket
 
     public static PacketWriter Add(long uid, short slot, int amount)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.ITEM_BREAK);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ItemBreak);
         pWriter.Write(ItemBreakMode.Add);
         pWriter.WriteLong(uid);
         pWriter.WriteShort(slot);
@@ -26,7 +26,7 @@ public static class ItemBreakPacket
 
     public static PacketWriter Remove(long uid)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.ITEM_BREAK);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ItemBreak);
         pWriter.Write(ItemBreakMode.Remove);
         pWriter.WriteLong(uid);
 
@@ -35,14 +35,14 @@ public static class ItemBreakPacket
 
     public static PacketWriter Results(Dictionary<int, int> rewards)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.ITEM_BREAK);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ItemBreak);
         pWriter.Write(ItemBreakMode.Results);
         pWriter.WriteInt(rewards.Count);
-        foreach (KeyValuePair<int, int> item in rewards)
+        foreach ((int id, int amount) in rewards)
         {
-            pWriter.WriteInt(item.Key);
-            pWriter.WriteInt(item.Value);
-            pWriter.WriteInt(item.Value);
+            pWriter.WriteInt(id);
+            pWriter.WriteInt(amount);
+            pWriter.WriteInt(amount);
         }
 
         return pWriter;
@@ -50,14 +50,14 @@ public static class ItemBreakPacket
 
     public static PacketWriter ShowRewards(Dictionary<int, int> rewards)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.ITEM_BREAK);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.ItemBreak);
         pWriter.Write(ItemBreakMode.ShowRewards);
         pWriter.WriteByte(1); // unknown
         pWriter.WriteInt(rewards.Count);
-        foreach (KeyValuePair<int, int> item in rewards)
+        foreach ((int id, int amount) in rewards)
         {
-            pWriter.WriteInt(item.Key);
-            pWriter.WriteInt(item.Value);
+            pWriter.WriteInt(id);
+            pWriter.WriteInt(amount);
         }
 
         return pWriter;

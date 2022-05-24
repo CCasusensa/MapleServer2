@@ -3,18 +3,18 @@ using System.Xml.Schema;
 using Maple2Storage.Enums;
 using MapleServer2.Enums;
 using MapleServer2.Types;
-using NLog;
+using Serilog;
 
 namespace MapleServer2.Managers;
 
 public static class MobAIManager
 {
     private static readonly Dictionary<string, MobAI> AiTable = new();
-    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+    private static readonly ILogger Logger = Log.Logger.ForContext(typeof(MobAIManager));
 
     public static void Load(string dirPath, string schemaPath = null)
     {
-        Logger.Info("Loading Mob AI...");
+        Logger.Information("Loading Mob AI...");
         foreach (string filePath in Directory.GetFiles(dirPath, "*.xml", SearchOption.AllDirectories))
         {
             string filename = Path.GetFileName(filePath);
@@ -30,20 +30,19 @@ public static class MobAIManager
             }
             catch (XmlException)
             {
-                Logger.Warn($"Skipping {filename}");
+                Logger.Warning("Skipping {filename}", filename);
                 continue;
             }
             catch (XmlSchemaValidationException e)
             {
-                Logger.Warn($"{filename} is invalid:");
-                Logger.Warn(e);
+                Logger.Warning("{filename} is invalid: {e}", filename, e);
                 continue;
             }
 
             ParseAI(document);
-            Logger.Info($"Loaded {filename}");
+            Logger.Information("Loaded {filename}", filename);
         }
-        Logger.Info("Finished loading AI.");
+        Logger.Information("Finished loading AI.");
     }
 
     public static MobAI GetAI(string aiInfo)
@@ -61,7 +60,7 @@ public static class MobAIManager
             NpcState stateValue = GetMobState(node.Name);
             NpcAction newActionValue = GetMobAction(node.Attributes["action"]?.Value);
             MobMovement movementValue = GetMobMovement(node.Attributes["movement"]?.Value);
-            MobAI.Condition[] conditions = GetConditions( /*node*/);
+            IEnumerable<MobAI.Condition> conditions = GetConditions( /*node*/);
 
             ai.Rules.TryAdd(stateValue, (newActionValue, movementValue, Array.Empty<MobAI.Condition>()));
         }
@@ -103,7 +102,7 @@ public static class MobAIManager
         };
     }
 
-    private static MobAI.Condition[] GetConditions( /*XmlNode node*/)
+    private static IEnumerable<MobAI.Condition> GetConditions( /*XmlNode node*/)
     {
         // TODO: Parse actions' conditions
         return Array.Empty<MobAI.Condition>();

@@ -6,13 +6,13 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class EnterEventFieldHandler : GamePacketHandler
+public class EnterEventFieldHandler : GamePacketHandler<EnterEventFieldHandler>
 {
-    public override RecvOp OpCode => RecvOp.ENTER_EVENTFIELD;
+    public override RecvOp OpCode => RecvOp.EnterEventField;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        FieldPopupEvent fieldPopupEvent = DatabaseManager.Events.FindFieldPopupEvent();
+        EventFieldPopup fieldPopupEvent = DatabaseManager.Events.FindFieldPopupEvent();
         if (fieldPopupEvent == null)
         {
             return;

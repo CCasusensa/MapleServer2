@@ -1,5 +1,4 @@
 ﻿using Maple2Storage.Enums;
-using Maple2Storage.Tools;
 using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
@@ -7,15 +6,16 @@ using MapleServer2.Constants;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
 using MapleServer2.Enums;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class BeautyHandler : GamePacketHandler
+public class BeautyHandler : GamePacketHandler<BeautyHandler>
 {
-    public override RecvOp OpCode => RecvOp.BEAUTY;
+    public override RecvOp OpCode => RecvOp.Beauty;
 
     private enum BeautyMode : byte
     {
@@ -76,7 +76,7 @@ public class BeautyHandler : GamePacketHandler
                 HandleBeautyVoucher(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -105,6 +105,7 @@ public class BeautyHandler : GamePacketHandler
                 session.Send(BeautyPacket.LoadDyeShop(beautyShop));
                 return;
             }
+
             session.Send(BeautyPacket.LoadBeautyShop(beautyShop));
             return;
         }
@@ -171,9 +172,9 @@ public class BeautyHandler : GamePacketHandler
         long beautyItemUid = packet.ReadLong();
         EquipColor equipColor = packet.Read<EquipColor>();
 
-        Item beautyItem = session.Player.GetEquippedItem(beautyItemUid);
+        Item beautyItem = session.Player.Inventory.GetEquippedItem(beautyItemUid);
 
-        if (beautyItem.ItemSlot == ItemSlot.CP)
+        if (beautyItem.ItemSlot is ItemSlot.CP) // This should only work with the mirror shop
         {
             HatData hatData = packet.Read<HatData>();
             beautyItem.HatData = hatData;
@@ -182,6 +183,10 @@ public class BeautyHandler : GamePacketHandler
         }
 
         BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(session.Player.ShopId);
+        if (beautyShop is null)
+        {
+            return;
+        }
 
         if (!HandleShopPay(session, beautyShop, useVoucher))
         {
@@ -208,6 +213,7 @@ public class BeautyHandler : GamePacketHandler
         session.Player.SkinColor = skinColor;
         session.FieldManager.BroadcastPacket(SkinColorPacket.Update(session.Player.FieldPlayer, skinColor));
     }
+
     private static void HandleRandomHair(GameSession session, PacketReader packet)
     {
         int shopId = packet.ReadInt();
@@ -222,50 +228,11 @@ public class BeautyHandler : GamePacketHandler
         }
 
         // Grab random hair
-        Random random = RandomProvider.Get();
+        Random random = Random.Shared;
         int indexHair = random.Next(beautyItems.Count);
         BeautyItem chosenHair = beautyItems[indexHair];
 
-        //Grab a preset hair and length of hair
-        ItemMetadata beautyItemData = ItemMetadataStorage.GetMetadata(chosenHair.ItemId);
-        int indexPreset = random.Next(beautyItemData.HairPresets.Count);
-        HairPresets chosenPreset = beautyItemData.HairPresets[indexPreset];
-
-        //Grab random front hair length
-        double chosenFrontLength = random.NextDouble() *
-            (beautyItemData.HairPresets[indexPreset].MaxScale - beautyItemData.HairPresets[indexPreset].MinScale) + beautyItemData.HairPresets[indexPreset].MinScale;
-
-        //Grab random back hair length
-        double chosenBackLength = random.NextDouble() *
-            (beautyItemData.HairPresets[indexPreset].MaxScale - beautyItemData.HairPresets[indexPreset].MinScale) + beautyItemData.HairPresets[indexPreset].MinScale;
-
-        // Grab random preset color
-        ColorPaletteMetadata palette = ColorPaletteMetadataStorage.GetMetadata(2); // pick from palette 2. Seems like it's the correct palette for basic hair colors
-
-        int indexColor = random.Next(palette.DefaultColors.Count);
-        MixedColor color = palette.DefaultColors[indexColor];
-
-        Item newHair = new(chosenHair.ItemId)
-        {
-            Color = EquipColor.Argb(color, indexColor, palette.PaletteId),
-            HairData = new((float) chosenBackLength, (float) chosenFrontLength, chosenPreset.BackPositionCoord, chosenPreset.BackPositionRotation, chosenPreset.FrontPositionCoord, chosenPreset.FrontPositionRotation),
-            IsTemplate = false,
-            IsEquipped = true,
-            OwnerCharacterId = session.Player.CharacterId,
-            OwnerCharacterName = session.Player.Name
-        };
-        Dictionary<ItemSlot, Item> cosmetics = session.Player.Inventory.Cosmetics;
-
-        //Remove old hair
-        if (cosmetics.Remove(ItemSlot.HR, out Item previousHair))
-        {
-            previousHair.Slot = -1;
-            session.Player.HairInventory.RandomHair = previousHair; // store the previous hair
-            DatabaseManager.Items.Delete(previousHair.Uid);
-            session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(session.Player.FieldPlayer, previousHair));
-        }
-
-        cosmetics[ItemSlot.HR] = newHair;
+        BeautyHelper.ChangeHair(session, chosenHair.ItemId, out Item previousHair, out Item newHair);
 
         session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.Player.FieldPlayer, newHair, ItemSlot.HR));
         session.Send(BeautyPacket.RandomHairOption(previousHair, newHair));
@@ -348,11 +315,11 @@ public class BeautyHandler : GamePacketHandler
                 mapId = Map.DouglasDyeWorkshop;
                 break;
             default:
-                Logger.Warn($"teleportId: {teleportId} not found");
+                Logger.Warning("teleportId: {teleportId} not found", teleportId);
                 return;
         }
 
-        session.Player.Warp((int) mapId, instanceId: session.Player.CharacterId);
+        session.Player.Warp(mapId, instanceId: session.Player.CharacterId);
     }
 
     private static void HandleDeleteSavedHair(GameSession session, PacketReader packet)
@@ -425,7 +392,7 @@ public class BeautyHandler : GamePacketHandler
             itemUid[i] = packet.ReadLong();
             itemId[i] = packet.ReadInt();
             equipColor[i] = packet.Read<EquipColor>();
-            Item item = session.Player.GetEquippedItem(itemUid[i]);
+            Item item = session.Player.Inventory.GetEquippedItem(itemUid[i]);
             if (item == null)
             {
                 return;
@@ -452,7 +419,7 @@ public class BeautyHandler : GamePacketHandler
         long itemUid = packet.ReadLong();
 
         Player player = session.Player;
-        Item voucher = player.Inventory.Items[itemUid];
+        Item voucher = player.Inventory.GetByUid(itemUid);
         if (voucher == null || voucher.Function.Name != "ItemChangeBeauty")
         {
             return;
@@ -538,6 +505,7 @@ public class BeautyHandler : GamePacketHandler
                     voucherTag = "beauty_hair_special";
                     break;
                 }
+
                 voucherTag = "beauty_hair";
                 break;
             case BeautyShopType.Face:
@@ -557,10 +525,10 @@ public class BeautyHandler : GamePacketHandler
                 return false;
         }
 
-        Item voucher = session.Player.Inventory.Items.FirstOrDefault(x => x.Value.Tag == voucherTag).Value;
+        Item voucher = session.Player.Inventory.GetAllByTag(voucherTag).FirstOrDefault();
         if (voucher == null)
         {
-            session.Send(NoticePacket.Notice(SystemNotice.ItemNotFound, NoticeType.FastText));
+            session.Send(NoticePacket.Notice(SystemNotice.ErrorItemNotFound, NoticeType.FastText));
             return false;
         }
 
@@ -606,15 +574,17 @@ public class BeautyHandler : GamePacketHandler
             case ShopCurrencyType.EventMeret:
                 return session.Player.Account.RemoveMerets(tokenCost);
             case ShopCurrencyType.Item:
-                Item itemCost = session.Player.Inventory.Items.FirstOrDefault(x => x.Value.Id == requiredItemId).Value;
+                Item itemCost = session.Player.Inventory.GetById(requiredItemId);
                 if (itemCost == null)
                 {
                     return false;
                 }
+
                 if (itemCost.Amount < tokenCost)
                 {
                     return false;
                 }
+
                 session.Player.Inventory.ConsumeItem(session, itemCost.Uid, tokenCost);
                 return true;
             default:

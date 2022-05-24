@@ -1,4 +1,5 @@
-﻿using MaplePacketLib2.Tools;
+﻿using Maple2Storage.Enums;
+using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Enums;
 using MapleServer2.Managers;
@@ -8,9 +9,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RideHandler : GamePacketHandler
+public class RideHandler : GamePacketHandler<RideHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_RIDE;
+    public override RecvOp OpCode => RecvOp.RequestRide;
 
     private enum RideMode : byte
     {
@@ -43,7 +44,7 @@ public class RideHandler : GamePacketHandler
                 HandleStopMultiPersonRide(session);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -56,7 +57,13 @@ public class RideHandler : GamePacketHandler
         long mountUid = packet.ReadLong();
         // [46-0s] (UgcPacketHelper.Ugc()) but client doesn't set this data?
 
-        if (type == RideType.UseItem && !session.Player.Inventory.Items.ContainsKey(mountUid))
+        if (type == RideType.UseItem && !session.Player.Inventory.HasItem(mountUid))
+        {
+            return;
+        }
+
+        Item item = session.Player.Inventory.GetByUid(mountUid);
+        if (item.IsExpired())
         {
             return;
         }
@@ -66,13 +73,20 @@ public class RideHandler : GamePacketHandler
             {
                 Type = type,
                 Id = mountId,
-                Uid = mountUid
+                Uid = mountUid,
+                Ugc = item.Ugc
             });
 
         fieldMount.Value.Players[0] = session.Player.FieldPlayer;
         session.Player.Mount = fieldMount;
 
         PacketWriter startPacket = MountPacket.StartRide(session.Player.FieldPlayer);
+
+        if (item.TransferFlag.HasFlag(ItemTransferFlag.Binds) && !item.IsBound())
+        {
+            item.BindItem(session.Player);
+        }
+
         session.FieldManager.BroadcastPacket(startPacket);
     }
 
@@ -91,9 +105,20 @@ public class RideHandler : GamePacketHandler
         int mountId = packet.ReadInt();
         long mountUid = packet.ReadLong();
 
-        if (!session.Player.Inventory.Items.ContainsKey(mountUid))
+        if (!session.Player.Inventory.HasItem(mountUid))
         {
             return;
+        }
+
+        Item item = session.Player.Inventory.GetByUid(mountUid);
+        if (item.IsExpired())
+        {
+            return;
+        }
+
+        if (item.TransferFlag.HasFlag(ItemTransferFlag.Binds) && !item.IsBound())
+        {
+            item.BindItem(session.Player);
         }
 
         PacketWriter changePacket = MountPacket.ChangeRide(session.Player.FieldPlayer.ObjectId, mountId, mountUid);
@@ -139,7 +164,8 @@ public class RideHandler : GamePacketHandler
         session.Player.Mount = null;
         if (otherPlayer.Value.Mount != null)
         {
-            int index = Array.FindIndex(otherPlayer.Value.Mount.Value.Players, 0, otherPlayer.Value.Mount.Value.Players.Length, x => x.ObjectId == session.Player.FieldPlayer.ObjectId);
+            int index = Array.FindIndex(otherPlayer.Value.Mount.Value.Players, 0, otherPlayer.Value.Mount.Value.Players.Length,
+                x => x.ObjectId == session.Player.FieldPlayer.ObjectId);
             otherPlayer.Value.Mount.Value.Players[index] = null;
         }
     }

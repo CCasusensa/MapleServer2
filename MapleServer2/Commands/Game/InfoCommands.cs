@@ -36,10 +36,12 @@ public class InfoCommands : InGameCommand
             {
                 aliases = $" [{string.Join(", ", commandBase.Aliases.Skip(1))}]";
             }
+
             stringBuilder.Append((commandBase.Aliases.First() + aliases).Color(Color.DarkOrange).Bold() + " ");
 
             stringBuilder.Append($"{commandBase.Usage.Color(Color.Wheat)}\n");
         }
+
         trigger.Session.Send(NoticePacket.Notice(stringBuilder.ToString(), NoticeType.Chat));
     }
 }
@@ -82,6 +84,7 @@ public class InfoCommand : InGameCommand
         {
             aliases = $" [{string.Join(", ", commandBase.Aliases.Skip(1))}]";
         }
+
         stringBuilder.Append((commandBase.Aliases.First() + aliases).Color(Color.DarkOrange).Bold() + " ");
 
         stringBuilder.Append($"{commandBase.Description.Color(Color.Wheat)}\n");
@@ -95,6 +98,7 @@ public class InfoCommand : InGameCommand
                 stringBuilder.Append('\n');
             }
         }
+
         trigger.Session.Send(NoticePacket.Notice(stringBuilder.ToString(), NoticeType.Chat));
     }
 }
@@ -155,11 +159,9 @@ public class OnlineCommand : InGameCommand
 
 public class FindCommand : InGameCommand
 {
-    readonly string[] Options = {
-        "item",
-        "map",
-        "npc",
-        "mob",
+    private readonly string[] Options =
+    {
+        "item", "map", "npc", "mob", "trophy"
     };
 
     public FindCommand()
@@ -172,7 +174,7 @@ public class FindCommand : InGameCommand
         Parameters = new()
         {
             new Parameter<string>("type", "The search type."),
-            new Parameter<string[]>("name", "The search name."),
+            new Parameter<string[]>("name", "The search name.")
         };
         Usage = $"/find [{string.Join("/", Options)}] [name]";
     }
@@ -205,67 +207,88 @@ public class FindCommand : InGameCommand
         switch (type)
         {
             case "item":
-                IEnumerable<ItemMetadata> itemMetadatas = ItemMetadataStorage.GetAll().Where(x => x.Name is not null && x.Name.ToLower().Contains(name));
-                if (itemMetadatas is null || !itemMetadatas.Any())
+                List<ItemMetadata> itemMetadatas = ItemMetadataStorage.GetAll()
+                    .Where(x => x.Name is not null && x.Name.Contains(name, StringComparison.OrdinalIgnoreCase)).ToList();
+                switch (itemMetadatas.Count)
                 {
-                    trigger.Session.SendNotice("Item not found.");
-                    return;
+                    case 0:
+                        trigger.Session.SendNotice($"Item '{name}' not found.");
+                        return;
+                    case > 50:
+                        trigger.Session.SendNotice($"Too many results for '{name}', found {itemMetadatas.Count}, limit it to 50.");
+                        return;
                 }
 
-                if (itemMetadatas.Count() > 50)
-                {
-                    trigger.Session.SendNotice($"Too many results for '{name}'");
-                    return;
-                }
-
-                stringBuilder.Append($"Found {itemMetadatas.Count()} items with name {name}:".Color(Color.DarkOrange).Bold() + "\n");
+                stringBuilder.Append($"Found {itemMetadatas.Count} items with name '{name}':".Color(Color.DarkOrange).Bold() + "\n");
                 foreach (ItemMetadata item in itemMetadatas)
                 {
                     stringBuilder.Append($"{item.Name} - {item.Id}\n".Color(Color.Wheat));
                 }
+
                 break;
             case "map":
-                IEnumerable<MapMetadata> mapMetadatas = MapMetadataStorage.GetAll().Where(x => x.Name.ToLower().Contains(name));
-                if (mapMetadatas is null || !mapMetadatas.Any())
+                List<MapMetadata> mapMetadatas = MapMetadataStorage.GetAll()
+                    .Where(x => x.Name.Contains(name, StringComparison.OrdinalIgnoreCase)).ToList();
+                switch (mapMetadatas.Count)
                 {
-                    trigger.Session.SendNotice($"Map '{name}' not found.");
-                    return;
+                    case 0:
+                        trigger.Session.SendNotice($"Map '{name}' not found.");
+                        return;
+                    case > 50:
+                        trigger.Session.SendNotice($"Too many results for '{name}', found {mapMetadatas.Count}, limit it to 50.");
+                        return;
                 }
 
-                if (mapMetadatas.Count() > 50)
-                {
-                    trigger.Session.SendNotice($"Too many results for '{name}'");
-                    return;
-                }
-
-                stringBuilder.Append($"Found {mapMetadatas.Count()} maps with name {name}:".Color(Color.DarkOrange).Bold() + "\n");
+                stringBuilder.Append($"Found {mapMetadatas.Count} maps with name '{name}':".Color(Color.DarkOrange).Bold() + "\n");
                 foreach (MapMetadata map in mapMetadatas)
                 {
                     stringBuilder.Append($"{map.Name} - {map.Id}\n".Color(Color.Wheat));
                 }
+
                 break;
             case "mob":
             case "npc":
-                IEnumerable<NpcMetadata> npcMetadatas = NpcMetadataStorage.GetAll().Where(x => x.Name.ToLower().Contains(name));
-                if (npcMetadatas is null || !npcMetadatas.Any())
+                List<NpcMetadata> npcMetadatas = NpcMetadataStorage.GetAll()
+                    .Where(x => x.Name.Contains(name, StringComparison.OrdinalIgnoreCase)).ToList();
+                switch (npcMetadatas.Count)
                 {
-                    trigger.Session.SendNotice($"Npc '{name}' not found.");
-                    return;
+                    case 0:
+                        trigger.Session.SendNotice($"Npc '{name}' not found.");
+                        return;
+                    case > 50:
+                        trigger.Session.SendNotice($"Too many results for '{name}', found {npcMetadatas.Count}, limit it to 50.");
+                        return;
                 }
 
-                if (npcMetadatas.Count() > 50)
-                {
-                    trigger.Session.SendNotice($"Too many results for '{name}'");
-                    return;
-                }
-
-                stringBuilder.Append($"Found {npcMetadatas.Count()} npcs/mobs with name {name}:".Color(Color.DarkOrange).Bold() + "\n");
+                stringBuilder.Append($"Found {npcMetadatas.Count} npcs/mobs with name '{name}':".Color(Color.DarkOrange).Bold() + "\n");
                 foreach (NpcMetadata npc in npcMetadatas)
                 {
                     stringBuilder.Append($"{npc.Name} - {npc.Id}\n".Color(Color.Wheat));
                 }
+
+                break;
+            case "trophy":
+                List<TrophyMetadata> trophyMetadatas = TrophyMetadataStorage.GetAll()
+                    .Where(trophy => trophy.Name.Contains(name, StringComparison.OrdinalIgnoreCase)).ToList();
+                switch (trophyMetadatas.Count)
+                {
+                    case 0:
+                        trigger.Session.SendNotice($"Trophy '{name}' not found.");
+                        return;
+                    case > 50:
+                        trigger.Session.SendNotice($"Too many results for '{name}', found {trophyMetadatas.Count}, limit it to 50.");
+                        return;
+                }
+
+                stringBuilder.Append($"Found {trophyMetadatas.Count} trophies with name '{name}':".Color(Color.DarkOrange).Bold() + "\n");
+                foreach (TrophyMetadata trophy in trophyMetadatas)
+                {
+                    stringBuilder.Append($"{trophy.Name} - {trophy.Id}\n".Color(Color.Wheat));
+                }
+
                 break;
         }
+
         trigger.Session.Send(NoticePacket.Notice(stringBuilder.ToString(), NoticeType.Chat));
     }
 }

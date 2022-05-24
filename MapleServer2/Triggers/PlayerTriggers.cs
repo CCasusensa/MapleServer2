@@ -4,6 +4,7 @@ using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Managers;
+using MapleServer2.Managers.Actors;
 using MapleServer2.Packets;
 using MapleServer2.Types;
 
@@ -25,6 +26,38 @@ public partial class TriggerContext
 
     public void FaceEmotion(int spawnPointId, string emotionName)
     {
+        if (spawnPointId == 0)
+        {
+            IFieldActor<Player> firstPlayer = Field.State.Players.FirstOrDefault().Value;
+            Field.BroadcastPacket(TriggerPacket.SetFaceEmotion(firstPlayer.ObjectId, emotionName));
+            return;
+        }
+
+        MapEventNpcSpawnPoint spawnPoint = MapEntityMetadataStorage.GetMapEventNpcSpawnPoint(Field.MapId, spawnPointId);
+        if (spawnPoint is null)
+        {
+            return;
+        }
+
+        foreach (string npcId in spawnPoint.NpcIds)
+        {
+            if (!int.TryParse(npcId, out int id))
+            {
+                continue;
+            }
+
+            if (Field.State.Npcs.TryGetValue(id, out Npc npc))
+            {
+                Field.BroadcastPacket(TriggerPacket.SetFaceEmotion(npc.ObjectId, emotionName));
+                return;
+            }
+
+            if (Field.State.Mobs.TryGetValue(id, out Mob mob))
+            {
+                Field.BroadcastPacket(TriggerPacket.SetFaceEmotion(mob.ObjectId, emotionName));
+                return;
+            }
+        }
     }
 
     public void GiveExp(byte arg1, byte arg2)
@@ -56,7 +89,12 @@ public partial class TriggerContext
         List<IFieldActor<Player>> players = Field.State.Players.Values.ToList();
         if (boxId != 0)
         {
-            MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, boxId);
+            MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
+            if (box is null)
+            {
+                return;
+            }
+
             List<IFieldActor<Player>> boxedPlayers = new();
             foreach (IFieldActor<Player> player in players)
             {
@@ -87,7 +125,7 @@ public partial class TriggerContext
             {
                 player.Coord = portal.Coord;
                 player.Rotation = portal.Rotation;
-                player.Value.Session.Send(UserMoveByPortalPacket.Move(player, portal.Coord, portal.Rotation));
+                Field.BroadcastPacket(UserMoveByPortalPacket.Move(player, portal.Coord, portal.Rotation, isTrigger: true));
             }
 
             return;
@@ -95,10 +133,10 @@ public partial class TriggerContext
 
         CoordF moveCoord;
         CoordF moveRotation;
-        MapPortal dstPortal = MapEntityStorage.GetPortals(mapId).FirstOrDefault(portal => portal.Id == triggerId);
+        MapPortal dstPortal = MapEntityMetadataStorage.GetPortals(mapId).FirstOrDefault(portal => portal.Id == triggerId);
         if (dstPortal == null)
         {
-            MapPlayerSpawn spawn = MapEntityStorage.GetRandomPlayerSpawn(mapId);
+            MapPlayerSpawn spawn = MapEntityMetadataStorage.GetRandomPlayerSpawn(mapId);
             moveCoord = spawn.Coord.ToFloat();
             moveRotation = spawn.Rotation.ToFloat();
         }
@@ -110,7 +148,7 @@ public partial class TriggerContext
 
         foreach (IFieldObject<Player> player in players)
         {
-            player.Value.Warp(mapId, moveCoord, moveRotation);
+            player.Value.Warp(mapId, moveCoord, moveRotation, instanceId: 1);
         }
     }
 
@@ -130,7 +168,8 @@ public partial class TriggerContext
     {
     }
 
-    public void RandomAdditionalEffect(string target, int triggerBoxId, int spawnPointId, byte targetCount, int tick, int waitTick, string targetEffect, int additionalEffectId)
+    public void RandomAdditionalEffect(string target, int triggerBoxId, int spawnPointId, byte targetCount, int tick, int waitTick, string targetEffect,
+        int additionalEffectId)
     {
     }
 
@@ -153,7 +192,12 @@ public partial class TriggerContext
         List<IFieldActor<Player>> players = Field.State.Players.Values.ToList();
         if (boxId != 0)
         {
-            MapTriggerBox box = MapEntityStorage.GetTriggerBox(Field.MapId, boxId);
+            MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
+            if (box is null)
+            {
+                return;
+            }
+
             List<IFieldActor<Player>> boxedPlayers = new();
             foreach (IFieldActor<Player> player in players)
             {
@@ -177,7 +221,19 @@ public partial class TriggerContext
 
     public void SetConversation(byte arg1, int npcId, string script, int delay, byte arg5, Align align)
     {
-        Field.BroadcastPacket(CinematicPacket.Conversation(npcId, script, delay * 1000, align));
+        if (npcId == 0)
+        {
+            IFieldActor<Player> player = Field.State.Players.Values.FirstOrDefault();
+            if (player is null)
+            {
+                return;
+            }
+
+            Field.BroadcastPacket(CinematicPacket.BalloonTalk(player.ObjectId, false, script, delay * 1000, 0));
+            return;
+        }
+
+        Field.BroadcastPacket(CinematicPacket.Conversation(npcId, npcId.ToString(), script, delay * 1000, align));
     }
 
     public void SetOnetimeEffect(int id, bool enable, string path)
@@ -187,6 +243,7 @@ public partial class TriggerContext
 
     public void SetTimeScale(bool enable, float startScale, float endScale, float duration, byte interpolator)
     {
+        Field.BroadcastPacket(TimeScalePacket.SetTimeScale(enable, startScale, endScale, duration, interpolator));
     }
 
     public void AddBuff(int[] arg1, int arg2, byte arg3, bool arg4, bool arg5, string feature)
@@ -203,7 +260,11 @@ public partial class TriggerContext
 
     public void SetUserValue(int triggerId, string key, int value)
     {
-        PlayerTrigger playerTrigger = new(key) { TriggerId = triggerId, Value = value };
+        PlayerTrigger playerTrigger = new(key)
+        {
+            TriggerId = triggerId,
+            Value = value
+        };
         foreach (IFieldObject<Player> player in Field.State.Players.Values)
         {
             player.Value.Triggers.Add(playerTrigger);

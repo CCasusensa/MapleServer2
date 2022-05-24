@@ -7,18 +7,19 @@ namespace MapleServer2.Packets;
 
 public static class FieldNpcPacket
 {
-    public static PacketWriter AddNpc(IFieldObject<NpcMetadata> npc)
+    public static PacketWriter AddNpc(IFieldActor<NpcMetadata> npc)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_ADD_NPC);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldAddNPC);
         pWriter.WriteInt(npc.ObjectId);
         pWriter.WriteInt(npc.Value.Id);
         pWriter.Write(npc.Coord);
         pWriter.Write(npc.Rotation);
         // If NPC is not valid, the packet seems to stop here
 
-        pWriter.DefaultStatsNpc();
+        pWriter.DefaultStatsMob(npc);
 
         pWriter.WriteByte();
+
         short count = 0;
         pWriter.WriteShort(count); // branch
         for (int i = 0; i < count; i++)
@@ -44,26 +45,25 @@ public static class FieldNpcPacket
         return pWriter;
     }
 
-    public static PacketWriter AddBoss(IFieldActor<NpcMetadata> mob)
+    public static PacketWriter AddMob(IFieldActor<NpcMetadata> mob)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_ADD_NPC);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldAddNPC);
 
         pWriter.WriteInt(mob.ObjectId);
         pWriter.WriteInt(mob.Value.Id);
         pWriter.Write(mob.Coord);
         pWriter.Write(mob.Rotation);
-        pWriter.WriteString(mob.Value.Model); // StrA - kfm model string
+        if (mob.Value.IsBoss())
+        {
+            pWriter.WriteString(mob.Value.Model); // StrA - kfm model string
+        }
         // If NPC is not valid, the packet seems to stop here
 
         pWriter.DefaultStatsMob(mob);
 
         pWriter.WriteByte();
-        pWriter.WriteLong();
-        pWriter.WriteLong();
-        pWriter.WriteInt();
-        pWriter.WriteByte();
-        int count = 0;
-        pWriter.WriteInt(count); // branch
+        short count = 0;
+        pWriter.WriteShort(count);
         for (int i = 0; i < count; i++)
         {
             pWriter.WriteInt();
@@ -71,7 +71,7 @@ public static class FieldNpcPacket
             pWriter.WriteInt();
             pWriter.WriteInt();
             pWriter.WriteInt();
-            pWriter.WriteInt();
+            pWriter.WriteInt(); // usually 90000814 (skill id)??
             pWriter.WriteShort();
             pWriter.WriteInt();
             pWriter.WriteByte();
@@ -80,28 +80,21 @@ public static class FieldNpcPacket
 
         pWriter.WriteLong();
         pWriter.WriteByte();
-        pWriter.WriteInt(1);
-        pWriter.WriteInt();
-        pWriter.WriteByte();
+        pWriter.WriteInt(mob.Value.Level);
+        if (mob.Value.IsBoss())
+        {
+            pWriter.WriteInt();
+            pWriter.WriteUnicodeString();
 
-        return pWriter;
-    }
+            int skillCount = 0;
+            pWriter.WriteInt(skillCount);
+            for (int i = 0; i < skillCount; i++)
+            {
+                pWriter.WriteInt(); // skill id
+                pWriter.WriteShort(); // skill level
+            }
+        }
 
-    public static PacketWriter AddMob(IFieldActor<NpcMetadata> mob)
-    {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_ADD_NPC);
-
-        pWriter.WriteInt(mob.ObjectId);
-        pWriter.WriteInt(mob.Value.Id);
-        pWriter.Write(mob.Coord);
-        pWriter.Write(mob.Rotation);
-        // If NPC is not valid, the packet seems to stop here
-
-        pWriter.DefaultStatsMob(mob);
-
-        pWriter.WriteLong();
-        pWriter.WriteInt();
-        pWriter.WriteInt(0x0E); // NPC level
         pWriter.WriteInt();
         pWriter.WriteByte();
 
@@ -110,7 +103,7 @@ public static class FieldNpcPacket
 
     public static PacketWriter RemoveNpc(IFieldActor<NpcMetadata> npc)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.FIELD_REMOVE_NPC);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.FieldRemoveNPC);
         pWriter.WriteInt(npc.ObjectId);
         return pWriter;
     }

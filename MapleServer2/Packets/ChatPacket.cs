@@ -7,9 +7,9 @@ namespace MapleServer2.Packets;
 
 public static class ChatPacket
 {
-    public static PacketWriter Send(Player player, string message, ChatType type)
+    public static PacketWriter Send(Player player, string message, ChatType type, long clubId = 0)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.USER_CHAT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.UserChat);
         pWriter.WriteLong(player.AccountId);
         pWriter.WriteLong(player.CharacterId);
         pWriter.WriteUnicodeString(player.Name);
@@ -28,7 +28,7 @@ public static class ChatPacket
                 pWriter.WriteInt(player.SuperChat);
                 break;
             case ChatType.Club:
-                pWriter.WriteLong(); // clubId
+                pWriter.WriteLong(clubId);
                 break;
         }
 
@@ -38,7 +38,7 @@ public static class ChatPacket
 
     public static PacketWriter Error(Player player, SystemNotice error, ChatType type)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.USER_CHAT);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.UserChat);
         pWriter.WriteLong();
         pWriter.WriteLong();
         pWriter.WriteUnicodeString(player.Name);

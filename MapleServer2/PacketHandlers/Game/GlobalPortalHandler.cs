@@ -7,9 +7,9 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class GlobalPortalHandler : GamePacketHandler
+public class GlobalPortalHandler : GamePacketHandler<GlobalPortalHandler>
 {
-    public override RecvOp OpCode => RecvOp.GLOBAL_PORTAL;
+    public override RecvOp OpCode => RecvOp.GlobalPortal;
 
     private enum GlobalPortalMode : byte
     {
@@ -26,7 +26,7 @@ public class GlobalPortalHandler : GamePacketHandler
                 HandleEnter(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -42,7 +42,7 @@ public class GlobalPortalHandler : GamePacketHandler
             return;
         }
 
-        Map map = Map.Tria;
+        Map map;
         switch (globalEvent.Events[selectionIndex])
         {
             case GlobalEventType.oxquiz:
@@ -85,12 +85,12 @@ public class GlobalPortalHandler : GamePacketHandler
                 map = Map.HolidayDanceDanceStop;
                 break;
             default:
-                Logger.Warn($"Unknown Global Event: {globalEvent.Events[selectionIndex]}");
+                Logger.Warning("Unknown Global Event: {event}", globalEvent.Events[selectionIndex]);
                 return;
         }
 
         session.Player.Mount = null;
-        MapPortal portal = MapEntityStorage.GetPortals((int) map).FirstOrDefault(portal => portal.Id == 1);
-        session.Player.Warp((int) map, portal.Coord.ToFloat(), portal.Rotation.ToFloat());
+        MapPortal portal = MapEntityMetadataStorage.GetPortals((int) map).FirstOrDefault(portal => portal.Id == 1);
+        session.Player.Warp(map, portal.Coord.ToFloat(), portal.Rotation.ToFloat());
     }
 }

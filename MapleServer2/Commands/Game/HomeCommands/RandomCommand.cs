@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Tools;
-using MapleServer2.Commands.Core;
+﻿using MapleServer2.Commands.Core;
 using MapleServer2.Constants;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
@@ -29,13 +28,13 @@ public class RandomUserCommand : InGameCommand
             return;
         }
 
-        string randomPlayer = trigger.Session.FieldManager.State.Players.Values.ToList().OrderBy(_ => RandomProvider.Get().Next()).FirstOrDefault()?.Value.Name;
+        string randomPlayer = trigger.Session.FieldManager.State.Players.Values.ToList().OrderBy(_ => Random.Shared.Next()).FirstOrDefault()?.Value.Name;
         if (randomPlayer is null)
         {
             return;
         }
 
-        trigger.Session.FieldManager.BroadcastPacket(NoticePacket.Notice(SystemNotice.RandomSelection, NoticeType.Chat, new()
+        trigger.Session.FieldManager.BroadcastPacket(NoticePacket.Notice(SystemNotice.PickRandomCharacterName, NoticeType.Chat, new()
         {
             trigger.Session.Player.Name,
             randomPlayer
@@ -54,6 +53,7 @@ public class RandomNumberCommand : InGameCommand
         Description = "Rolls a random number between 1 and 100.";
         Usage = "roll";
     }
+
     public override void Execute(GameCommandTrigger trigger)
     {
         // TODO: Check if the command is being executed in party chat.
@@ -65,6 +65,6 @@ public class RandomNumberCommand : InGameCommand
             return;
         }
 
-        trigger.Session.FieldManager.BroadcastPacket(HomeActionPacket.Roll(trigger.Session.Player, RandomProvider.Get().Next(100)));
+        trigger.Session.FieldManager.BroadcastPacket(HomeActionPacket.Roll(trigger.Session.Player, Random.Shared.Next(100)));
     }
 }

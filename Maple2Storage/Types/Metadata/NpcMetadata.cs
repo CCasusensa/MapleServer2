@@ -56,6 +56,8 @@ public class NpcMetadata
     public short Kind; // 13 = Shop
     [XmlElement(Order = 25)]
     public int ShopId;
+    [XmlElement(Order = 26)]
+    public NpcMetadataCapsule NpcMetadataCapsule;
 
     public override string ToString()
     {
@@ -77,6 +79,8 @@ public class NpcMetadata
     public bool IsDye() => Kind == 34;
 
     public bool IsMirror() => Kind == 35;
+
+    public bool IsBoss() => NpcMetadataBasic.Class >= 3 && Friendly != 2;
 }
 
 [XmlType]
@@ -120,6 +124,8 @@ public class NpcMetadataBasic
     public string[] EventTags = Array.Empty<string>(); // field_elite, 
     [XmlElement(Order = 19)]
     public string Race; // (plane|animal|"|spirit|fairy|combine|bug|devil)
+    [XmlElement(Order = 20)]
+    public string MinimapIconName;
 
     public override string ToString()
     {
@@ -187,32 +193,54 @@ public class NpcMetadataEffect
 [XmlType]
 public class NpcMetadataCombat
 {
-    [XmlElement]
+    [XmlElement(Order = 1)]
     public uint CombatAbandonTick; // 0, or 999999
-    [XmlElement]
+    [XmlElement(Order = 2)]
     public uint CombatAbandonImpossibleTick; // 0, or 999999
-    [XmlElement]
+    [XmlElement(Order = 3)]
     public bool CanIgnoreExtendedLifetime; // "true" or "false" in xml. Coerced to bool here.
-    [XmlElement]
+    [XmlElement(Order = 4)]
     public bool CanShowHiddenTarget; // "true" or "false' in xml. Coerced to bool here.
 }
 
 [XmlType]
 public class NpcMetadataDead
 {
-    [XmlElement]
+    [XmlElement(Order = 1)]
     public float Time;
-    [XmlElement]
+    [XmlElement(Order = 2)]
     public string[] Actions = Array.Empty<string>();
 }
 
 [XmlType]
 public class NpcMetadataInteract
 {
-    [XmlElement]
+    [XmlElement(Order = 1)]
     public string InteractFunction; // UseSkill,50100501,1
-    [XmlElement]
+    [XmlElement(Order = 2)]
     public ushort InteractCastingTime; // 0, 500, 800, 1000, 2000, 4000
-    [XmlElement]
+    [XmlElement(Order = 3)]
     public ushort InteractCooldownTime; // 0, 5400, 7000, 8000, 12000
+}
+
+[XmlType]
+public class NpcMetadataCapsule
+{
+    [XmlElement(Order = 1)]
+    public int Radius;
+
+    [XmlElement(Order = 2)]
+    public int Height;
+
+    [XmlElement(Order = 3)]
+    public bool Ignore;
+
+    public NpcMetadataCapsule() { }
+
+    public NpcMetadataCapsule(int radius, int height, bool ignore)
+    {
+        Radius = radius;
+        Height = height;
+        Ignore = ignore;
+    }
 }

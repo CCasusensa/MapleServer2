@@ -7,19 +7,19 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestTutorialItemHandler : GamePacketHandler
+public class RequestTutorialItemHandler : GamePacketHandler<RequestTutorialItemHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_TUTORIAL_ITEM;
+    public override RecvOp OpCode => RecvOp.RequestTutorialItem;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        List<TutorialItemMetadata> metadata = JobMetadataStorage.GetTutorialItems((int) session.Player.Job);
+        List<TutorialItemMetadata> metadata = JobMetadataStorage.GetTutorialItems(session.Player.Job);
 
         foreach (TutorialItemMetadata tutorialItem in metadata)
         {
-            int tutorialItemsCount = session.Player.Inventory.Items.Where(x => x.Value.Id == tutorialItem.ItemId).Count();
-            tutorialItemsCount += session.Player.Inventory.Cosmetics.Where(x => x.Value.Id == tutorialItem.ItemId).Count();
-            tutorialItemsCount += session.Player.Inventory.Equips.Where(x => x.Value.Id == tutorialItem.ItemId).Count();
+            int tutorialItemsCount = session.Player.Inventory.GetAllById(tutorialItem.ItemId).Count;
+            tutorialItemsCount += session.Player.Inventory.Cosmetics.Count(x => x.Value.Id == tutorialItem.ItemId);
+            tutorialItemsCount += session.Player.Inventory.Equips.Count(x => x.Value.Id == tutorialItem.ItemId);
 
             if (tutorialItemsCount >= tutorialItem.Amount)
             {

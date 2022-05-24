@@ -8,14 +8,14 @@ public static class BannerListPacket
 {
     public static PacketWriter SetBanner(List<Banner> banners)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.BANNER_LIST);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.BannerList);
         pWriter.WriteShort((short) banners.Count);
         foreach (Banner banner in banners)
         {
             pWriter.WriteInt(banner.Id);
             pWriter.WriteUnicodeString(banner.Name);
             pWriter.WriteUnicodeString(banner.Type.ToString());
-            if (banner.Type == BannerType.left || banner.Type == BannerType.right)
+            if (banner.Type is BannerType.left or BannerType.right)
             {
                 pWriter.WriteUnicodeString(banner.SubType.ToString());
             }

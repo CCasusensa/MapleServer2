@@ -7,14 +7,14 @@ using MapleServer2.Types;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class LiftableHandler : GamePacketHandler
+public class LiftableHandler : GamePacketHandler<LiftableHandler>
 {
     private enum LiftableMode : byte
     {
-        PickUp = 1,
+        PickUp = 1
     }
 
-    public override RecvOp OpCode => RecvOp.LIFTABLE;
+    public override RecvOp OpCode => RecvOp.Liftable;
 
     public override void Handle(GameSession session, PacketReader packet)
     {
@@ -26,7 +26,7 @@ public class LiftableHandler : GamePacketHandler
                 HandlePickUp(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
@@ -58,7 +58,7 @@ public class LiftableHandler : GamePacketHandler
 
             session.FieldManager.BroadcastPacket(ResponseCubePacket.RemoveCube(fieldPlayer.ObjectId, fieldPlayer.ObjectId, liftable.Position.ToByte()));
             session.FieldManager.BroadcastPacket(LiftablePacket.RemoveCube(liftable));
-            session.FieldManager.BroadcastPacket(BuildModePacket.Use(fieldPlayer, BuildModeHandler.BuildModeType.Liftables, liftable.ItemId));
+            session.FieldManager.BroadcastPacket(BuildModePacket.Use(fieldPlayer, BuildModeHandler.BuildModeType.Liftables, liftable.Metadata.ItemId));
             return;
         }
 
@@ -71,7 +71,7 @@ public class LiftableHandler : GamePacketHandler
         liftable2.Enabled = false;
 
         session.FieldManager.BroadcastPacket(LiftablePacket.UpdateEntityById(liftable2));
-        session.FieldManager.BroadcastPacket(BuildModePacket.Use(fieldPlayer, BuildModeHandler.BuildModeType.Liftables, liftable2.ItemId));
+        session.FieldManager.BroadcastPacket(BuildModePacket.Use(fieldPlayer, BuildModeHandler.BuildModeType.Liftables, liftable2.Metadata.ItemId));
         session.FieldManager.BroadcastPacket(LiftablePacket.UpdateEntityById(liftable2));
     }
 }

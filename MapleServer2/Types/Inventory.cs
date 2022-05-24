@@ -1,24 +1,27 @@
-﻿using System.Collections.Immutable;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Maple2Storage.Enums;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
+using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
+using Serilog;
 
 // TODO: make this class thread safe?
 namespace MapleServer2.Types;
 
-public class Inventory
+public sealed class Inventory : IInventory
 {
-    public readonly long Id;
+    private static readonly ILogger Logger = Log.Logger.ForContext<Inventory>();
+
+    public long Id { get; }
 
     // This contains ALL inventory Items regardless of tab
-    public readonly Dictionary<long, Item> Items;
-    public readonly Dictionary<ItemSlot, Item> Equips;
-    public readonly Dictionary<ItemSlot, Item> Cosmetics;
-    public readonly Item[] Badges;
-    public readonly Item[] LapenshardStorage;
+    private readonly Dictionary<long, Item> Items;
+    public Dictionary<ItemSlot, Item> Equips { get; }
+    public Dictionary<ItemSlot, Item> Cosmetics { get; }
+    public Item[] Badges { get; }
+    public Item[] LapenshardStorage { get; }
 
     // Map of Slot to Uid for each inventory
     private readonly Dictionary<short, long>[] SlotMaps;
@@ -42,7 +45,7 @@ public class Inventory
         { InventoryTab.Fragment, 48 }
     };
 
-    public readonly Dictionary<InventoryTab, short> ExtraSize = new()
+    public Dictionary<InventoryTab, short> ExtraSize { get; } = new()
     {
         { InventoryTab.Gear, 0 },
         { InventoryTab.Outfit, 0 },
@@ -62,10 +65,9 @@ public class Inventory
     };
 
     // Only use to share information between handler functions. Should always be empty
-    public readonly Dictionary<long, Item> TemporaryStorage = new();
+    public Dictionary<long, Item> TemporaryStorage { get; } = new();
 
     #region Constructors
-
     public Inventory(bool addToDatabase)
     {
         Equips = new();
@@ -102,7 +104,11 @@ public class Inventory
                 switch (item.InventoryTab)
                 {
                     case InventoryTab.Outfit:
-                        Cosmetics.Add(item.ItemSlot, item);
+                        if (!Cosmetics.TryAdd(item.ItemSlot, item))
+                        {
+                            Logger.Error("Failed to add item {id} to inventory {id}, slot {itemSlot} was already taken.", item.Id, Id, item.ItemSlot);
+                        }
+
                         continue;
                     case InventoryTab.Badge:
                         Badges[badgeIndex++] = item;
@@ -111,7 +117,11 @@ public class Inventory
                         LapenshardStorage[item.Slot] = item;
                         continue;
                     case InventoryTab.Gear:
-                        Equips.Add(item.ItemSlot, item);
+                        if (!Equips.TryAdd(item.ItemSlot, item))
+                        {
+                            Logger.Error("Failed to add item {id} to inventory {id}, slot {itemSlot} was already taken.", item.Id, Id, item.ItemSlot);
+                        }
+
                         continue;
                 }
             }
@@ -119,11 +129,9 @@ public class Inventory
             Add(item);
         }
     }
-
     #endregion
 
     #region Public Methods
-
     public void AddItem(GameSession session, Item item, bool isNew)
     {
         switch (item.Type)
@@ -137,6 +145,14 @@ public class Inventory
             case ItemType.Medal:
                 session.Player.Account.AddMedal(session, item);
                 return;
+        }
+
+        if (item.TransferFlag.HasFlag(ItemTransferFlag.Binds) &&
+            (item.TransferType is TransferType.BindOnLoot or TransferType.BindOnTrade))
+        {
+            item.OwnerCharacterId = session.Player.CharacterId;
+            item.OwnerAccountId = session.Player.AccountId;
+            item.OwnerCharacterName = session.Player.Name;
         }
 
         // Checks if item is stackable or not
@@ -161,8 +177,11 @@ public class Inventory
 
                     DatabaseManager.Items.Delete(item.Uid);
 
-                    session.Send(ItemInventoryPacket.Update(existingItem.Uid, existingItem.Amount));
-                    session.Send(ItemInventoryPacket.MarkItemNew(existingItem, item.Amount));
+                    session.Send(ItemInventoryPacket.UpdateAmount(existingItem.Uid, existingItem.Amount));
+                    if (isNew)
+                    {
+                        session.Send(ItemInventoryPacket.MarkItemNew(existingItem, item.Amount));
+                    }
                     return;
                 }
 
@@ -171,8 +190,11 @@ public class Inventory
                 item.Amount -= added;
                 existingItem.Amount = existingItem.StackLimit;
 
-                session.Send(ItemInventoryPacket.Update(existingItem.Uid, existingItem.Amount));
-                session.Send(ItemInventoryPacket.MarkItemNew(existingItem, added));
+                session.Send(ItemInventoryPacket.UpdateAmount(existingItem.Uid, existingItem.Amount));
+                if (isNew)
+                {
+                    session.Send(ItemInventoryPacket.MarkItemNew(existingItem, added));
+                }
             }
 
             // Add item to first free slot
@@ -215,7 +237,7 @@ public class Inventory
         }
 
         item.Amount -= amount;
-        session.Send(ItemInventoryPacket.Update(uid, item.Amount));
+        session.Send(ItemInventoryPacket.UpdateAmount(uid, item.Amount));
     }
 
     public bool RemoveItem(GameSession session, long uid, out Item item)
@@ -229,37 +251,37 @@ public class Inventory
         return true;
     }
 
-    public void DropItem(GameSession session, long uid, int amount, bool isBound)
+    public void DropItem(GameSession session, Item item, int amount)
     {
         // Drops item not bound
-        if (!isBound)
+        if (!item.TransferFlag.HasFlag(ItemTransferFlag.Tradeable))
         {
-            int remaining = Remove(uid, out Item droppedItem, amount); // Returns remaining amount of item
-            switch (remaining)
+            if (!session.Player.Inventory.RemoveItem(session, item.Uid, out item))
             {
-                case < 0:
-                    return; // Removal failed
-                case > 0: // Updates item amount
-                    session.Send(ItemInventoryPacket.Update(uid, remaining));
-                    DatabaseManager.Items.Update(Items[uid]);
-                    break;
-                default: // Removes item
-                    session.Send(ItemInventoryPacket.Remove(uid));
-                    break;
+                return; // Removal from inventory failed
             }
 
-            session.FieldManager.AddItem(session, droppedItem); // Drops item onto floor
+            session.Send(ItemInventoryPacket.Remove(item.Uid));
+            DatabaseManager.Items.Delete(item.Uid);
             return;
         }
 
-        // Drops bound item
-        if (session.Player.Inventory.Remove(uid, out Item removedItem) != 0)
+        // Drops tradeable items
+        int remaining = Remove(item.Uid, out Item droppedItem, amount); // Returns remaining amount of item
+        switch (remaining)
         {
-            return; // Removal from inventory failed
+            case < 0:
+                return; // Removal failed
+            case > 0: // Updates item amount
+                session.Send(ItemInventoryPacket.UpdateAmount(item.Uid, remaining));
+                DatabaseManager.Items.Update(Items[item.Uid]);
+                break;
+            default: // Removes item
+                session.Send(ItemInventoryPacket.Remove(item.Uid));
+                break;
         }
 
-        session.Send(ItemInventoryPacket.Remove(uid));
-        DatabaseManager.Items.Delete(removedItem.Uid);
+        session.FieldManager.AddItem(session, droppedItem); // Drops item onto floor
     }
 
     public void MoveItem(GameSession session, long uid, short dstSlot)
@@ -284,7 +306,7 @@ public class Inventory
 
                     DatabaseManager.Items.Delete(srcItem.Uid);
 
-                    session.Send(ItemInventoryPacket.Update(item.Uid, item.Amount));
+                    session.Send(ItemInventoryPacket.UpdateAmount(item.Uid, item.Amount));
                     session.Send(ItemInventoryPacket.Remove(srcItem.Uid));
                     return;
                 }
@@ -294,8 +316,8 @@ public class Inventory
                 srcItem.Amount -= added;
                 item.Amount = item.StackLimit;
 
-                session.Send(ItemInventoryPacket.Update(srcItem.Uid, srcItem.Amount));
-                session.Send(ItemInventoryPacket.Update(item.Uid, item.Amount));
+                session.Send(ItemInventoryPacket.UpdateAmount(srcItem.Uid, srcItem.Amount));
+                session.Send(ItemInventoryPacket.UpdateAmount(item.Uid, item.Amount));
                 return;
             }
         }
@@ -314,10 +336,65 @@ public class Inventory
         session.Send(ItemInventoryPacket.Move(dstUid, srcSlot, uid, dstSlot));
     }
 
+    public void ConsumeByTag(GameSession session, string tag, int amount)
+    {
+        IReadOnlyCollection<Item> ingredientTotal = GetAllByTag(tag);
+        foreach (Item item in ingredientTotal)
+        {
+            if (item.Amount >= amount)
+            {
+                ConsumeItem(session, item.Uid, amount);
+                break;
+            }
+
+            amount -= item.Amount;
+            ConsumeItem(session, item.Uid, item.Amount);
+        }
+    }
+
+    public bool HasItem(long uid) => Items.ContainsKey(uid);
+
+    public bool HasItem(int id) => Items.Values.Any(i => i.Id == id);
+
+    public Item GetByUid(long uid) => Items[uid];
+
+    public Item GetById(int id) => Items.Values.FirstOrDefault(x => x.Id == id);
+
+    public Item GetFromInventoryOrEquipped(long uid)
+    {
+        if (HasItem(uid))
+        {
+            return GetByUid(uid);
+        }
+        return ItemIsEquipped(uid) ? GetEquippedItem(uid) : null;
+    }
+
+    public bool ItemIsEquipped(long itemUid) => Equips.Values.Any(x => x.Uid == itemUid) || Cosmetics.Values.Any(x => x.Uid == itemUid);
+
+    public Item GetEquippedItem(long itemUid)
+    {
+        Item gearItem = Equips.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
+        if (gearItem is not null)
+        {
+            return gearItem;
+        }
+
+        return Cosmetics.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
+    }
+
+    public IEnumerable<Item> GetItemsNotNull() => Items.Values.Where(x => x != null).ToArray();
+
+    public IReadOnlyCollection<Item> GetAllById(int id) => Items.Values.Where(x => x.Id == id).ToArray();
+
+    public IReadOnlyCollection<Item> GetAllByTag(string tag) => Items.Values.Where(i => i.Tag == tag).ToArray();
+
+    public IEnumerable<Item> GetAllByFunctionId(int functionId) =>
+        Items.Values.Where(x => x.Function.Id == functionId).ToArray();
+
     // Replaces an existing item with an updated copy of itself
     public bool Replace(Item item)
     {
-        if (!Items.ContainsKey(item.Uid))
+        if (!HasItem(item.Uid))
         {
             return false;
         }
@@ -456,15 +533,13 @@ public class Inventory
         return GetSlots(item.InventoryTab).ContainsKey(slot < 0 ? item.Slot : slot);
     }
 
-    public ICollection<Item> GetItems(InventoryTab tab)
+    public IReadOnlyCollection<Item> GetItems(InventoryTab tab)
     {
-        return GetSlots(tab).Select(kvp => Items[kvp.Value]).ToImmutableList();
+        return GetSlots(tab).Select(kvp => Items[kvp.Value]).ToArray();
     }
-
     #endregion
 
     #region Private Methods
-
     // TODO: precompute next free slot to avoid iteration on Add
     // Returns false if inventory is full
     private bool Add(Item item)
@@ -525,7 +600,7 @@ public class Inventory
     // This REQUIRES item.Slot to be set appropriately
     private void AddInternal(Item item)
     {
-        Debug.Assert(!Items.ContainsKey(item.Uid), "Error adding an item that already exists");
+        Debug.Assert(!HasItem(item.Uid), "Error adding an item that already exists");
         Items[item.Uid] = item;
 
         Debug.Assert(!GetSlots(item.InventoryTab).ContainsKey(item.Slot), "Error adding item to slot that is already taken.");
@@ -589,8 +664,13 @@ public class Inventory
             return;
         }
 
+        if (item.Ugc?.Type is UGCType.Furniture)
+        {
+            _ = home.AddWarehouseUgcItem(session, item);
+            return;
+        }
+
         _ = home.AddWarehouseItem(session, item.Id, item.Amount, item);
-        session.Send(WarehouseInventoryPacket.GainItemMessage(item, item.Amount));
     }
 
     private static void AddMoney(GameSession session, Item item)
@@ -630,7 +710,5 @@ public class Inventory
                 return;
         }
     }
-
     #endregion
-
 }

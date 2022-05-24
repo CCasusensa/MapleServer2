@@ -1,5 +1,8 @@
 ﻿using Maple2Storage.Enums;
-using MapleServer2.Database.Types;
+using MapleServer2.Data.Static;
+using MapleServer2.Enums;
+using MapleServer2.PacketHandlers.Game.Helpers;
+using MapleServer2.Types;
 using SqlKata.Execution;
 
 namespace MapleServer2.Database.Classes;
@@ -8,57 +11,77 @@ public class DatabaseMeretMarket : DatabaseTable
 {
     public DatabaseMeretMarket() : base("meret_market_items") { }
 
-    public List<MeretMarketItem> FindAllByCategoryId(MeretMarketCategory category)
+    public IEnumerable<PremiumMarketItem> FindAllByCategory(MeretMarketSection section, MeretMarketCategory category, GenderFlag gender, JobFlag jobFlag, string searchString)
     {
-        List<MeretMarketItem> items = new();
-        IEnumerable<dynamic> results = QueryFactory.Query(TableName).Where("category", (int) category).Get();
+        List<PremiumMarketItem> items = new();
+        IEnumerable<dynamic> results = QueryFactory.Query(TableName).Get();
+        if (section != MeretMarketSection.All)
+        {
+            results = QueryFactory.Query(TableName).Where("section", (int) section).Get();
+        }
+
         foreach (dynamic data in results)
         {
-            MeretMarketItem meretMarketItem = ReadMeretMarketItem(data);
+            if (category != MeretMarketCategory.None && (MeretMarketCategory) data.category != category)
+            {
+                continue;
+            }
+
+            if (data.parent_market_id != 0)
+            {
+                continue;
+            }
+            PremiumMarketItem meretMarketItem = ReadMeretMarketItem(data);
+
+            if (!meretMarketItem.ItemName.ToLower().Contains(searchString.ToLower()))
+            {
+                continue;
+            }
+
+            List<Job> jobs = ItemMetadataStorage.GetRecommendJobs(meretMarketItem.ItemId);
+            if (!JobHelper.CheckJobFlagForJob(jobs, jobFlag))
+            {
+                continue;
+            }
+
+            if (!MeretMarketHelper.CheckGender(gender, meretMarketItem.ItemId))
+            {
+                continue;
+            }
+
             if (meretMarketItem.BannerId != 0)
             {
                 meretMarketItem.Banner = DatabaseManager.Banners.FindById(meretMarketItem.BannerId);
             }
+
             items.Add(meretMarketItem);
         }
+
         return items;
     }
 
-    public MeretMarketItem FindById(int id)
+    public PremiumMarketItem FindById(int id)
     {
         return ReadMeretMarketItem(QueryFactory.Query(TableName).Where("market_id", id).Get().FirstOrDefault());
     }
 
-    private static MeretMarketItem ReadMeretMarketItem(dynamic data)
+    private MeretMarketItem ReadMeretMarketItem(dynamic data)
     {
-        return new MeretMarketItem(
-            data.market_id,
-            data.banner_id ?? 0,
-            data.bonus_quantity,
-            data.category,
-            data.duration,
-            data.flag,
-            data.item_id,
-            data.item_name,
-            data.job_requirement,
-            data.max_level_requirement,
-            data.min_level_requirement,
-            data.pc_cafe,
-            data.parent_market_id,
-            data.price,
-            data.promo_banner_begin_time,
-            data.promo_banner_end_time,
-            data.promo_flag,
-            data.promo_name,
-            data.quantity,
-            data.rarity,
-            data.required_achievement_grade,
-            data.required_achievement_id,
-            data.restock_unavailable,
-            data.sale_price,
-            data.sell_begin_time,
-            data.sell_end_time,
-            data.show_sale_time,
-            data.token_type);
+        PremiumMarketItem item = new(data);
+
+        //Find additional quantities
+        IEnumerable<dynamic> results = QueryFactory.Query(TableName).Where("parent_market_id", item.MarketId).Get();
+        foreach (dynamic result in results)
+        {
+            PremiumMarketItem meretMarketItem = ReadAdditionalQuantityMarketItem(result);
+            item.AdditionalQuantities.Add(meretMarketItem);
+        }
+
+        return item;
+    }
+
+    private static PremiumMarketItem ReadAdditionalQuantityMarketItem(dynamic data)
+    {
+        return new(data);
     }
 }

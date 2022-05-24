@@ -1,7 +1,5 @@
 ﻿using Maple2Storage.Enums;
 using Maple2Storage.Types;
-using MapleServer2.Data.Static;
-using MapleServer2.Enums;
 using MapleServer2.Types;
 using Newtonsoft.Json;
 using SqlKata.Execution;
@@ -30,12 +28,14 @@ public class DatabaseItem : DatabaseTable
             item.Amount,
             bank_inventory_id = item.BankInventoryId == 0 ? null : (int?) item.BankInventoryId,
             mail_id = item.MailId == 0 ? null : (int?) item.MailId,
-            repackage_count = item.RepackageCount,
+            repackage_count = item.RemainingRepackageCount,
             item.Charges,
             color = JsonConvert.SerializeObject(item.Color),
             creation_time = item.CreationTime,
             enchant_exp = item.EnchantExp,
-            item.Enchants,
+            enchant_level = item.EnchantLevel,
+            limit_break_level = item.LimitBreakLevel,
+            gear_score = item.GearScore,
             expiry_time = item.ExpiryTime,
             face_decoration_data = JsonConvert.SerializeObject(item.FaceDecorationData),
             gacha_dismantle_id = item.GachaDismantleId,
@@ -63,7 +63,7 @@ public class DatabaseItem : DatabaseTable
             transparency_badge_bools = JsonConvert.SerializeObject(item.TransparencyBadgeBools),
             unlock_time = item.UnlockTime,
             category = item.Category,
-            ugc_uid = item.UGC == null ? null : (int?) item.UGC.Uid,
+            ugc_uid = item.Ugc == null ? null : (int?) item.Ugc.Uid
         });
     }
 
@@ -79,7 +79,7 @@ public class DatabaseItem : DatabaseTable
         return ReadItem(result);
     }
 
-    public Item FindByUGCUid(long ugcUid)
+    public Item FindByUgcUid(long ugcUid)
     {
         dynamic result = QueryFactory.Query(TableName).Where("ugc_uid", ugcUid).FirstOrDefault();
 
@@ -99,6 +99,7 @@ public class DatabaseItem : DatabaseTable
         {
             items.Add((Item) ReadItem(data));
         }
+
         return items;
     }
 
@@ -110,6 +111,7 @@ public class DatabaseItem : DatabaseTable
         {
             items.Add((Item) ReadItem(data));
         }
+
         return items;
     }
 
@@ -122,6 +124,7 @@ public class DatabaseItem : DatabaseTable
             Item item = (Item) ReadItem(data);
             items.Add(item.Uid, item);
         }
+
         return items;
     }
 
@@ -133,6 +136,7 @@ public class DatabaseItem : DatabaseTable
         {
             items.Add((Item) ReadItem(data));
         }
+
         return items;
     }
 
@@ -148,12 +152,14 @@ public class DatabaseItem : DatabaseTable
             item.Amount,
             bank_inventory_id = item.BankInventoryId == 0 ? null : (int?) item.BankInventoryId,
             mail_id = item.MailId == 0 ? null : (int?) item.MailId,
-            repackage_count = item.RepackageCount,
+            repackage_count = item.RemainingRepackageCount,
             item.Charges,
             color = JsonConvert.SerializeObject(item.Color),
             creation_time = item.CreationTime,
             enchant_exp = item.EnchantExp,
-            item.Enchants,
+            enchant_level = item.EnchantLevel,
+            limit_break_level = item.LimitBreakLevel,
+            gear_score = item.GearScore,
             expiry_time = item.ExpiryTime,
             face_decoration_data = JsonConvert.SerializeObject(item.FaceDecorationData),
             gacha_dismantle_id = item.GachaDismantleId,
@@ -179,7 +185,7 @@ public class DatabaseItem : DatabaseTable
             transfer_flag = item.TransferFlag,
             transparency_badge_bools = JsonConvert.SerializeObject(item.TransparencyBadgeBools),
             unlock_time = item.UnlockTime,
-            ugc_uid = item.UGC == null ? null : (int?) item.UGC.Uid
+            ugc_uid = item.Ugc == null ? null : (int?) item.Ugc.Uid
         });
     }
 
@@ -200,12 +206,14 @@ public class DatabaseItem : DatabaseTable
             Rarity = data.rarity,
             PlayCount = data.play_count,
             Amount = data.amount,
-            RepackageCount = data.repackage_count,
+            RemainingRepackageCount = data.repackage_count,
             Charges = data.charges,
             Color = JsonConvert.DeserializeObject<EquipColor>(data.color),
             CreationTime = data.creation_time,
             EnchantExp = data.enchant_exp,
-            Enchants = data.enchants,
+            EnchantLevel = data.enchant_level,
+            LimitBreakLevel = data.limit_break_level,
+            GearScore = data.gear_score,
             ExpiryTime = data.expiry_time,
             FaceDecorationData = JsonConvert.DeserializeObject<byte[]>(data.face_decoration_data),
             GachaDismantleId = data.gacha_dismantle_id,
@@ -221,13 +229,12 @@ public class DatabaseItem : DatabaseTable
             PairedCharacterName = data.paired_character_name,
             PetSkinBadgeId = data.pet_skin_badge_id,
             RemainingGlamorForges = data.remaining_glamor_forges,
-            RecommendJobs = ItemMetadataStorage.GetRecommendJobs(data.id),
             RemainingTrades = data.remaining_trades,
             Score = JsonConvert.DeserializeObject<MusicScore>(data.score),
             Slot = data.slot,
             Stats = JsonConvert.DeserializeObject<ItemStats>(data.stats, Settings),
             TimesAttributesChanged = data.times_attributes_changed,
-            TransferFlag = (TransferFlag) data.transfer_flag,
+            TransferFlag = (ItemTransferFlag) data.transfer_flag,
             TransparencyBadgeBools = JsonConvert.DeserializeObject<byte[]>(data.transparency_badge_bools),
             UnlockTime = data.unlock_time,
             InventoryId = data.inventory_id ?? 0,
@@ -236,7 +243,7 @@ public class DatabaseItem : DatabaseTable
             Category = data.category,
             MailId = data.mail_id ?? 0,
             HomeId = data.home_id ?? 0,
-            UGC = data.ugc_uid == null ? null : DatabaseManager.UGC.FindByUid(data.ugc_uid)
+            Ugc = data.ugc_uid == null ? null : DatabaseManager.UGC.FindByUid(data.ugc_uid)
         };
     }
 }

@@ -1,13 +1,14 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
 using Maple2.File.IO.Crypto.Common;
+using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 
 namespace GameDataParser.Parsers;
 
 public class ItemDropParser : Exporter<List<ItemDropMetadata>>
 {
-    public ItemDropParser(MetadataResources resources) : base(resources, "item-drop") { }
+    public ItemDropParser(MetadataResources resources) : base(resources, MetadataName.ItemDrop) { }
 
     protected override List<ItemDropMetadata> Parse()
     {
@@ -87,12 +88,12 @@ public class ItemDropParser : Exporter<List<ItemDropMetadata>>
                 itemGroups[boxId].Add(newGroup);
             }
 
-            foreach (KeyValuePair<int, List<DropGroup>> kvp in itemGroups)
+            foreach ((int id, List<DropGroup> groups) in itemGroups)
             {
                 ItemDropMetadata metadata = new()
                 {
-                    Id = kvp.Key,
-                    DropGroups = kvp.Value
+                    Id = id,
+                    DropGroups = groups
                 };
                 drops.Add(metadata);
             }

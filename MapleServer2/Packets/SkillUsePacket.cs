@@ -1,6 +1,4 @@
-﻿using Maple2Storage.Tools;
-using Maple2Storage.Types;
-using MaplePacketLib2.Tools;
+﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Types;
 
@@ -8,22 +6,19 @@ namespace MapleServer2.Packets;
 
 public static class SkillUsePacket
 {
-    public static readonly Dictionary<long, SkillCast> SkillCastMap = new();
-
-    public static PacketWriter SkillUse(SkillCast skillCast, CoordF position, CoordF direction, CoordF rotation)
+    public static PacketWriter SkillUse(SkillCast skillCast)
     {
-        SkillCastMap[skillCast.SkillSN] = skillCast;
-        PacketWriter pWriter = PacketWriter.Of(SendOp.SKILL_USE);
+        PacketWriter pWriter = PacketWriter.Of(SendOp.SkillUse);
 
-        pWriter.WriteLong(skillCast.SkillSN);
+        pWriter.WriteLong(skillCast.SkillSn);
         pWriter.WriteInt(skillCast.ServerTick);
-        pWriter.WriteInt(skillCast.EntityId);
+        pWriter.WriteInt(skillCast.CasterObjectId);
         pWriter.WriteInt(skillCast.SkillId);
         pWriter.WriteShort(skillCast.SkillLevel);
         pWriter.WriteByte();
-        pWriter.Write(position.ToShort());
-        pWriter.Write(direction);
-        pWriter.Write(rotation); // rotation
+        pWriter.Write(skillCast.Position.ToShort());
+        pWriter.Write(skillCast.Direction);
+        pWriter.Write(skillCast.Rotation);
         pWriter.WriteShort();
         pWriter.WriteByte();
         pWriter.WriteByte();
@@ -34,8 +29,8 @@ public static class SkillUsePacket
     // TODO: change to SkillCast (refactor SkillCast / SkillManager)
     public static PacketWriter MobSkillUse(IFieldObject mob, int skillId, short skillLevel, byte part)
     {
-        PacketWriter pWriter = PacketWriter.Of(SendOp.SKILL_USE);
-        pWriter.WriteInt(RandomProvider.Get().Next()); // Seems to be an incrementing number - unique id
+        PacketWriter pWriter = PacketWriter.Of(SendOp.SkillUse);
+        pWriter.WriteInt(Random.Shared.Next()); // Seems to be an incrementing number - unique id
         pWriter.WriteInt(mob.ObjectId);
         pWriter.WriteInt();
         pWriter.WriteInt(mob.ObjectId);

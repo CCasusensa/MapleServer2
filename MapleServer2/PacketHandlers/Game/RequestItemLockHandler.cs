@@ -4,9 +4,9 @@ using MapleServer2.Servers.Game;
 
 namespace MapleServer2.PacketHandlers.Game;
 
-public class RequestItemLockHandler : GamePacketHandler
+public class RequestItemLockHandler : GamePacketHandler<RequestItemLockHandler>
 {
-    public override RecvOp OpCode => RecvOp.REQUEST_ITEM_LOCK;
+    public override RecvOp OpCode => RecvOp.RequestItemLock;
 
     private enum ItemLockMode : byte
     {
@@ -34,7 +34,7 @@ public class RequestItemLockHandler : GamePacketHandler
                 HandleUpdateItem(session, packet);
                 break;
             default:
-                IPacketHandler<GameSession>.LogUnknownMode(mode);
+                LogUnknownMode(mode);
                 break;
         }
     }
