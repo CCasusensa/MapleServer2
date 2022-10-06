@@ -11,7 +11,7 @@ public class JobHandler : GamePacketHandler<JobHandler>
 {
     public override RecvOp OpCode => RecvOp.Job;
 
-    private enum JobMode : byte
+    private enum Mode : byte
     {
         Close = 0x08,
         Save = 0x09,
@@ -21,19 +21,19 @@ public class JobHandler : GamePacketHandler<JobHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        JobMode mode = (JobMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
         switch (mode)
         {
-            case JobMode.Close:
+            case Mode.Close:
                 HandleCloseSkillTree(session);
                 break;
-            case JobMode.Save:
+            case Mode.Save:
                 HandleSaveSkillTree(session, packet);
                 break;
-            case JobMode.Reset:
+            case Mode.Reset:
                 HandleResetSkillTree(session, packet);
                 break;
-            case JobMode.Preset:
+            case Mode.Preset:
                 HandlePresetSkillTree(session, packet);
                 break;
             default:
@@ -79,7 +79,7 @@ public class JobHandler : GamePacketHandler<JobHandler>
             return;
         }
 
-        skillTab.ResetSkillTree(player.Job, player.JobCode);
+        skillTab.ResetSkillTree(player.JobCode, player.SubJobCode);
         player.RemoveSkillsFromHotbar();
 
         session.Send(JobPacket.Save(player.FieldPlayer));
@@ -98,7 +98,7 @@ public class JobHandler : GamePacketHandler<JobHandler>
             return;
         }
 
-        skillTab.ResetSkillTree(player.Job, player.JobCode);
+        skillTab.ResetSkillTree(player.JobCode, player.SubJobCode);
 
         ReadSkills(packet, skillTab, out HashSet<int> newSkillIds);
 

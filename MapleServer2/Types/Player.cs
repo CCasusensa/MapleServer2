@@ -8,6 +8,7 @@ using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.Managers;
 using MapleServer2.Managers.Actors;
+using MapleServer2.PacketHandlers.Game;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 
@@ -15,10 +16,8 @@ namespace MapleServer2.Types;
 
 public class Player
 {
-    // Bypass Key is constant PER ACCOUNT, unsure how it is validated
-    // Seems like as long as it's valid, it doesn't matter though
-    public readonly long UnknownId = 0x01EF80C2; //0x01CC3721;
-    public GameSession Session;
+    public long SessionId;
+    public GameSession? Session;
 
     public Account Account;
 
@@ -27,6 +26,7 @@ public class Player
     public long CharacterId { get; set; }
     public long CreationTime { get; set; }
     public long LastLogTime { get; set; }
+    public long DeletionTime { get; set; }
     public long Birthday { get; set; } // Currently just uses the creation time from account
     private long OnlineTime { get; set; }
     public bool IsDeleted;
@@ -37,18 +37,18 @@ public class Player
     public bool Awakened { get; set; }
 
     // Job Group, according to jobgroupname.xml
-    public Job Job { get; set; }
+    public JobCode JobCode { get; set; }
 
-    public JobCode JobCode
+    public SubJobCode SubJobCode
     {
         get
         {
-            if (Job == Job.GameMaster)
+            if (JobCode == JobCode.GameMaster)
             {
-                return JobCode.GameMaster;
+                return SubJobCode.GameMaster;
             }
 
-            return (JobCode) ((int) Job * 10 + (Awakened ? 1 : 0));
+            return (SubJobCode) ((int) JobCode * 10 + (Awakened ? 1 : 0));
         }
     }
 
@@ -66,12 +66,18 @@ public class Player
     public List<PrestigeMission> PrestigeMissions = new();
 
     public Stats Stats;
-    public IFieldObject<Mount> Mount;
-    public IFieldObject<Pet> Pet;
-    public IFieldObject<GuideObject> Guide;
-    public IFieldObject<Instrument> Instrument;
 
-    public int SuperChat;
+    public IFieldObject<Mount>? Mount;
+    public IFieldObject<GuideObject>? Guide;
+    public IFieldObject<Instrument>? Instrument;
+
+    public Item? ActivePet;
+
+    public long HouseStorageAccessTime;
+    public long HouseDoctorAccessTime;
+    public int DungeonHelperAccessTime; // tick
+
+    public int SuperChatId;
     public int ShopId; // current shop player is interacting
 
     public short ChannelId;
@@ -105,6 +111,7 @@ public class Player
     public List<GameEventUserValue> EventUserValues = new();
     public long RPSOpponentId;
     public RpsChoice RPSSelection;
+    public int RouletteId;
 
     public int MaxSkillTabs { get; set; }
     public long ActiveSkillTabId { get; set; }
@@ -120,7 +127,8 @@ public class Player
     public LockInventory LockInventory = new();
     public HairInventory HairInventory = new();
     public TradeInventory TradeInventory;
-    public ItemEnchant ItemEnchant; // Current item player is enchanting
+    public ItemEnchant? ItemEnchant; // Current item player is enchanting
+    public List<Wardrobe> Wardrobes = new();
 
     public List<Mail> Mailbox = new();
 
@@ -134,8 +142,8 @@ public class Player
     public List<GroupChat> GroupChats = new();
 
     public long GuildId;
-    public Guild Guild;
-    public GuildMember GuildMember;
+    public Guild? Guild;
+    public GuildMember? GuildMember;
     public List<GuildApplication> GuildApplications = new();
 
     public Dictionary<int, Fishing> FishAlbum = new();
@@ -146,31 +154,36 @@ public class Player
 
     public CancellationTokenSource OnlineCTS;
     public Task OnlineTimeThread;
+    public Task TimeSyncTask;
 
     public List<GatheringCount> GatheringCount;
 
+    public AdditionalEffects AdditionalEffects = new();
     public List<Status> StatusContainer = new();
     public List<int> UnlockedTaxis;
     public List<int> UnlockedMaps;
 
     public List<string> GmFlags = new();
     public int DungeonSessionId = -1;
+    public int MushkingRoyaleSession = -1;
 
     public List<PlayerTrigger> Triggers = new();
 
-    public Character FieldPlayer;
+    public Character? FieldPlayer;
 
+    private Dictionary<int, short> PassiveSkillEffects = new();
+    private Dictionary<int, SkillLevel> EnabledPassiveSkillEffects = new();
     public Player() { }
 
     // Initializes all values to be saved into the database
-    public Player(Account account, string name, Gender gender, Job job, SkinColor skinColor)
+    public Player(Account account, string name, Gender gender, JobCode jobCode, SkinColor skinColor)
     {
         AccountId = account.Id;
         Account = account;
         Name = name;
         Gender = gender;
-        Job = job;
-        GameOptions = new(job);
+        JobCode = jobCode;
+        GameOptions = new(jobCode);
         Macros = new();
         Wallet = new(meso: 0, valorToken: 0, treva: 0, rue: 0, haviFruit: 0, gameSession: null);
         Levels = new(playerLevel: 1, exp: 0, restExp: 0, prestigeLevel: 1, prestigeExp: 0, masteryExp: new()
@@ -187,9 +200,9 @@ public class Player
             new(MasteryType.Cooking),
             new(MasteryType.PetTaming)
         }, gameSession: null);
-        MapId = JobMetadataStorage.GetStartMapId(job);
-        SavedCoord = MapEntityMetadataStorage.GetRandomPlayerSpawn(MapId).Coord.ToFloat();
-        Stats = new(job);
+        MapId = JobMetadataStorage.GetStartMapId(jobCode) ?? 0;
+        SavedCoord = MapEntityMetadataStorage.GetRandomPlayerSpawn(MapId)?.Coord.ToFloat() ?? default;
+        Stats = new(jobCode);
         Motto = "Motto";
         ProfileUrl = "";
         CreationTime = TimeInfo.Now();
@@ -232,7 +245,7 @@ public class Player
         GatheringCount = new();
         TrophyCount = new int[3];
         ReturnMapId = (int) Map.Tria;
-        ReturnCoord = MapEntityMetadataStorage.GetRandomPlayerSpawn(ReturnMapId).Coord.ToFloat();
+        ReturnCoord = MapEntityMetadataStorage.GetRandomPlayerSpawn(ReturnMapId)?.Coord.ToFloat() ?? default;
         PrestigeMissions = PrestigeLevelMissionMetadataStorage.GetPrestigeMissions;
         SkinColor = skinColor;
         UnlockedTaxis = new();
@@ -241,11 +254,11 @@ public class Player
         CharacterId = DatabaseManager.Characters.Insert(this);
         SkillTabs = new()
         {
-            new(CharacterId, job, JobCode, id: 1, name: "Build 1")
+            new(CharacterId, jobCode, SubJobCode, id: 1, name: "Build 1")
         };
 
         // Add initial quests
-        foreach (QuestMetadata questMetadata in QuestMetadataStorage.GetAvailableQuests(Levels.Level, job))
+        foreach (QuestMetadata questMetadata in QuestMetadataStorage.GetAvailableQuests(Levels.Level, jobCode))
         {
             QuestData.Add(questMetadata.Basic.Id, new(CharacterId, questMetadata));
         }
@@ -270,8 +283,8 @@ public class Player
             }
 
             Buddy myBuddy = GameServer.BuddyManager.GetBuddyByPlayerAndId(buddy.Friend, buddy.SharedId);
-            buddy.Friend.Session.Send(BuddyPacket.LoginLogoutNotification(myBuddy));
-            buddy.Friend.Session.Send(BuddyPacket.UpdateBuddy(myBuddy));
+            buddy.Friend.Session?.Send(BuddyPacket.LoginLogoutNotification(myBuddy));
+            buddy.Friend.Session?.Send(BuddyPacket.UpdateBuddy(myBuddy));
         });
     }
 
@@ -286,17 +299,38 @@ public class Player
         }
     }
 
-    public void Warp(int mapId, CoordF? coord = null, CoordF? rotation = null, long instanceId = 1)
+    public void Warp(int mapId, CoordF? coord = null, CoordF? rotation = null, long instanceId = -1)
     {
-        UpdateCoords(mapId, instanceId, coord, rotation);
-
-        if (coord is null && rotation is null)
+        if (MapMetadataStorage.GetMetadata(mapId)?.Property.IsTutorialMap ?? true)
         {
-            GetSpawnCoords(mapId);
+            WarpGameToGame(mapId, instanceId, coord, rotation);
+            return;
         }
 
+        if (mapId == MapId)
+        {
+            if (coord is null || rotation is null)
+            {
+                MapPlayerSpawn? spawn = GetSpawnCoords(mapId);
+                if (spawn is null)
+                {
+                    Move(SavedCoord, SavedRotation);
+                    return;
+                }
+
+                Move(spawn.Coord.ToFloat(), spawn.Rotation.ToFloat());
+                return;
+            }
+
+            Move((CoordF) coord, (CoordF) rotation);
+            return;
+        }
+
+        UpdateCoords(mapId, instanceId, coord, rotation);
+
+        Session?.FieldManager.RemovePlayer(this);
         DatabaseManager.Characters.Update(this);
-        Session.Send(RequestFieldEnterPacket.RequestEnter(FieldPlayer));
+        Session?.Send(FieldEnterPacket.RequestEnter(FieldPlayer));
         Party?.BroadcastPacketParty(PartyPacket.UpdateMemberLocation(this));
         Guild?.BroadcastPacketGuild(GuildPacket.UpdateMemberLocation(Name, MapId));
         foreach (Club club in Clubs)
@@ -314,16 +348,24 @@ public class Player
     {
         UpdateCoords(mapId, instanceId, coord, rotation);
 
-        string ipAddress = Environment.GetEnvironmentVariable("IP");
-        int port = int.Parse(Environment.GetEnvironmentVariable("GAME_PORT"));
+        string ipAddress = (Session?.IsLocalHost() ?? true) ? Constant.LocalHost : Environment.GetEnvironmentVariable("IP")!;
+        int port = int.Parse(Environment.GetEnvironmentVariable("GAME_PORT")!);
         IPEndPoint endpoint = new(IPAddress.Parse(ipAddress), port);
 
         IsMigrating = true;
 
-        Session.SendFinal(MigrationPacket.GameToGame(endpoint, this), logoutNotice: false);
+        Session?.SendFinal(MigrationPacket.GameToGame(endpoint, this), logoutNotice: false);
     }
 
-    public Dictionary<ItemSlot, Item> GetEquippedInventory(InventoryTab tab)
+    public void Move(CoordF coord, CoordF rotation, bool isTrigger = false)
+    {
+        FieldPlayer.Coord = coord;
+        FieldPlayer.Rotation = rotation;
+
+        Session?.Send(UserMoveByPortalPacket.Move(FieldPlayer, coord, rotation, isTrigger));
+    }
+
+    public Dictionary<ItemSlot, Item>? GetEquippedInventory(InventoryTab tab)
     {
         return tab switch
         {
@@ -337,12 +379,12 @@ public class Player
     {
         return Task.Run(async () =>
         {
-            while (Session != null)
+            while (Session is not null)
             {
-                Session.Send(TimeSyncPacket.Request());
-                await Task.Delay(TimeSpan.FromSeconds(1));
+                Session?.Send(TimeSyncPacket.Request());
+                await Task.Delay(TimeSpan.FromSeconds(1), OnlineCTS.Token);
             }
-        });
+        }, OnlineCTS.Token);
     }
 
     public Task ClientTickSyncLoop()
@@ -351,7 +393,7 @@ public class Player
         {
             while (Session != null)
             {
-                Session.Send(RequestPacket.TickSync());
+                Session?.Send(RequestPacket.TickSync());
                 await Task.Delay(TimeSpan.FromMinutes(5));
             }
         });
@@ -359,10 +401,16 @@ public class Player
 
     public void IncrementGatheringCount(int recipeId, int amount)
     {
-        GatheringCount gatheringCount = GatheringCount.FirstOrDefault(x => x.RecipeId == recipeId);
+        GatheringCount? gatheringCount = GatheringCount.FirstOrDefault(x => x.RecipeId == recipeId);
         if (gatheringCount is null)
         {
-            int maxLimit = (int) (RecipeMetadataStorage.GetRecipe(recipeId).NormalPropLimitCount * 1.4);
+            RecipeMetadata? recipeMetadata = RecipeMetadataStorage.GetRecipe(recipeId);
+            if (recipeMetadata is null)
+            {
+                return;
+            }
+
+            int maxLimit = (int) (recipeMetadata.NormalPropLimitCount * 1.4);
             gatheringCount = new(recipeId, 0, maxLimit);
             GatheringCount.Add(gatheringCount);
         }
@@ -394,7 +442,13 @@ public class Player
     public void AddStatPoint(int amount, OtherStatsIndex index)
     {
         StatPointDistribution.AddTotalStatPoints(amount, index);
-        Session.Send(StatPointPacket.WriteTotalStatPoints(this));
+        Session?.Send(StatPointPacket.WriteTotalStatPoints(this));
+    }
+
+    public void AddSkillPoint(int amount, int rank, SkillPointSource index)
+    {
+        StatPointDistribution.AddTotalSkillPoints(amount, rank, index);
+        Session?.Send(SkillPointPacket.ExtraSkillPoints(this));
     }
 
     public void GetUnreadMailCount(bool sendExpiryNotification = false)
@@ -402,19 +456,25 @@ public class Player
         int unreadCount = Mailbox.Count(x => x.ReadTimestamp == 0);
         if (sendExpiryNotification)
         {
-            Session.Send(MailPacket.ExpireNotification());
+            Session?.Send(MailPacket.ExpireNotification());
         }
 
-        Session.Send(MailPacket.Notify(unreadCount, true));
+        Session?.Send(MailPacket.Notify(unreadCount, true));
     }
 
     public void FallDamage()
     {
+        MapUi? mapUi = MapMetadataStorage.GetMapUi(MapId);
+        if (mapUi is { EnableFallDamage: false })
+        {
+            return;
+        }
+
         long currentHp = Stats[StatAttribute.Hp].TotalLong;
         int fallDamage = (int) (currentHp * Math.Clamp(currentHp * 4 / 100 - 1, 0, 25) / 100); // TODO: Create accurate damage model
         FieldPlayer.ConsumeHp(fallDamage);
-        Session.Send(StatPacket.UpdateStats(FieldPlayer, StatAttribute.Hp));
-        Session.Send(FallDamagePacket.FallDamage(FieldPlayer.ObjectId, fallDamage));
+        Session?.Send(StatPacket.UpdateStats(FieldPlayer, StatAttribute.Hp));
+        Session?.Send(FallDamagePacket.FallDamage(FieldPlayer.ObjectId, fallDamage));
     }
 
     public void GetMeretMarketPersonalListings()
@@ -431,13 +491,13 @@ public class Player
             }
         }
 
-        Session.Send(MeretMarketPacket.LoadPersonalListings(items));
+        Session?.Send(MeretMarketPacket.LoadPersonalListings(items));
     }
 
     public void GetMeretMarketSales()
     {
         List<UgcMarketSale> sales = GameServer.UgcMarketManager.GetSalesByCharacterId(CharacterId);
-        Session.Send(MeretMarketPacket.LoadSales(sales));
+        Session?.Send(MeretMarketPacket.LoadSales(sales));
     }
 
     /// <summary>
@@ -474,18 +534,28 @@ public class Player
         }
     }
 
-    private void GetSpawnCoords(int mapId)
+    public bool TryGetWardrobe(int index, out Wardrobe? wardrobe)
     {
-        MapPlayerSpawn spawn = MapEntityMetadataStorage.GetRandomPlayerSpawn(mapId);
-        if (spawn is null)
+        if (Wardrobes.ElementAtOrDefault(index) is null)
         {
-            Session.SendNotice($"Could not find a spawn for map {mapId}");
-            return;
+            wardrobe = null;
+            return false;
         }
 
-        SavedCoord = spawn.Coord.ToFloat();
-        SafeBlock = spawn.Coord.ToFloat();
-        SavedRotation = spawn.Rotation.ToFloat();
+        wardrobe = Wardrobes[index];
+        return true;
+    }
+
+    private MapPlayerSpawn? GetSpawnCoords(int mapId)
+    {
+        MapPlayerSpawn? spawn = MapEntityMetadataStorage.GetRandomPlayerSpawn(mapId);
+        if (spawn is null)
+        {
+            Session?.SendNotice($"Could not find a spawn for map {mapId}");
+            return null;
+        }
+
+        return spawn;
     }
 
     private void UpdateCoords(int mapId, long instanceId, CoordF? coord = null, CoordF? rotation = null)
@@ -507,8 +577,23 @@ public class Player
             SavedRotation = (CoordF) rotation;
         }
 
+        if (coord is null && rotation is null)
+        {
+            MapPlayerSpawn? spawn = GetSpawnCoords(mapId);
+            if (spawn is not null)
+            {
+                SavedCoord = spawn.Coord;
+                SavedRotation = spawn.Rotation;
+                SafeBlock = SavedCoord;
+            }
+        }
+
         MapId = mapId;
-        InstanceId = instanceId;
+
+        if (instanceId != -1)
+        {
+            InstanceId = instanceId;
+        }
 
         if (!UnlockedMaps.Contains(MapId))
         {
@@ -529,6 +614,208 @@ public class Player
             case ItemType.Spellbook:
                 return;
         }
+
         GearScore += value;
+    }
+
+    public void ComputeStatContribution(ItemStats stats)
+    {
+        foreach (ItemStat stat in stats.Constants.Values)
+        {
+            Stats.AddStat(stat.ItemAttribute, stat.AttributeType, stat.Flat, stat.Rate);
+        }
+
+        foreach (ItemStat stat in stats.Statics.Values)
+        {
+            Stats.AddStat(stat.ItemAttribute, stat.AttributeType, stat.Flat, stat.Rate);
+        }
+
+        foreach (ItemStat stat in stats.Randoms.Values)
+        {
+            Stats.AddStat(stat.ItemAttribute, stat.AttributeType, stat.Flat, stat.Rate);
+        }
+
+        foreach (ItemStat stat in stats.Enchants.Values)
+        {
+            int constantValue = stats.Constants.TryGetValue(stat.ItemAttribute, out ItemStat? itemStat) ? itemStat.Flat : 0;
+            int staticValue = stats.Statics.TryGetValue(stat.ItemAttribute, out ItemStat? itemStat2) ? itemStat2.Flat : 0;
+            int totalStat = constantValue + staticValue;
+            Stats[stat.ItemAttribute].Add((int) (totalStat * stat.Rate));
+        }
+
+        foreach (ItemStat stat in stats.LimitBreakEnchants.Values)
+        {
+            if (stat.ItemAttribute is StatAttribute.MinWeaponAtk or StatAttribute.MaxWeaponAtk)
+            {
+                int constantValue = stats.Constants.TryGetValue(stat.ItemAttribute, out ItemStat? itemStat) ? itemStat.Flat : 0;
+                int staticValue = stats.Statics.TryGetValue(stat.ItemAttribute, out ItemStat? itemStat2) ? itemStat2.Flat : 0;
+                int totalStat = constantValue + staticValue;
+                Stats[stat.ItemAttribute].Add((int) (totalStat * stat.Rate));
+
+                continue;
+            }
+
+            Stats.AddStat(stat.ItemAttribute, stat.AttributeType, stat.Flat, stat.Rate);
+        }
+    }
+
+    public void AddStats()
+    {
+        Stats = new(JobCode);
+        Stats.AddBaseStats(this, Levels.Level);
+        Stats.RecomputeAllocations(StatPointDistribution);
+
+        foreach ((ItemSlot _, Item item) in Inventory.Equips)
+        {
+            ComputeStatContribution(item.Stats);
+
+            foreach (GemSocket? socket in item.GemSockets.Sockets)
+            {
+                if (socket.Gemstone != null)
+                {
+                    ComputeStatContribution(socket.Gemstone.Stats);
+                }
+            }
+        }
+
+        if (ActivePet != null)
+        {
+            if (ActivePet.PetInfo != null)
+            {
+                Stats[StatAttribute.PetBonusAtk].Add(0, (float) ActivePet.PetInfo.Level - 1);
+            }
+
+            ComputeStatContribution(ActivePet.Stats);
+        }
+
+        foreach (AdditionalEffect effect in AdditionalEffects.Effects)
+        {
+            FieldPlayer.IncreaseStats(effect);
+        }
+
+        foreach (SetBonus setBonus in Inventory.SetBonuses)
+        {
+            foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
+            {
+                if (bonus.Count > setBonus.EquipCount)
+                {
+                    continue;
+                }
+
+                foreach ((StatAttribute attribute, EffectStatMetadata stat) in bonus.Stats)
+                {
+                    Stats.AddStat(attribute, stat.AttributeType, stat.Flat, stat.Rate);
+                }
+            }
+        }
+
+        Stats.ComputeStatBonuses();
+
+        if (JobCode == JobCode.Runeblade)
+        {
+            Stats.Data[StatAttribute.Int].AddBonus((long) (0.7f * Stats.Data[StatAttribute.Str].TotalLong));
+        }
+
+        Stats.AddAttackBonus(this);
+    }
+
+    public void EffectAdded(AdditionalEffect effect) { }
+
+    public void EffectRemoved(AdditionalEffect effect) { }
+
+    public void InitializeEffects()
+    {
+        AdditionalEffects.Parent = FieldPlayer;
+
+        foreach (Item? item in Inventory.LapenshardStorage)
+        {
+            if (item != null)
+            {
+                LapenshardHandler.AddEffects(this, item);
+            }
+        }
+
+        UpdatePassiveSkills();
+    }
+
+    public void AddEffects(ItemAdditionalEffectMetadata? effects)
+    {
+        if (effects?.Level == null || effects.Id == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < effects.Level.Length; ++i)
+        {
+            AdditionalEffects.AddEffect(new(effects.Id[i], effects.Level[i]));
+        }
+    }
+
+    public void RemoveEffects(ItemAdditionalEffectMetadata? effects)
+    {
+        if (effects?.Level == null || effects?.Id == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < effects.Level.Length; ++i)
+        {
+            AdditionalEffects.GetEffect(effects.Id[i], 0, ConditionOperator.GreaterEquals, effects.Level[i], FieldPlayer);
+        }
+    }
+
+    public void UpdatePassiveSkills()
+    {
+        foreach ((int id, short _) in PassiveSkillEffects)
+        {
+            PassiveSkillEffects[id] = -1;
+        }
+
+        foreach ((int id, short level) in SkillTabs[(int) ActiveSkillTabId - 1].GetSkillsByType(SkillType.Passive))
+        {
+            PassiveSkillEffects[id] = level;
+        }
+
+        foreach ((int id, short level) in PassiveSkillEffects)
+        {
+            SkillLevel? skillLevel;
+
+            if (level < 1)
+            {
+                if (!EnabledPassiveSkillEffects.TryGetValue(id, out skillLevel))
+                {
+                    continue;
+                }
+
+                if (skillLevel.ConditionSkills == null)
+                {
+                    continue;
+                }
+
+                foreach (SkillCondition trigger in skillLevel.ConditionSkills)
+                {
+                    foreach (int skillId in trigger.SkillId)
+                    {
+                        AdditionalEffects.GetEffect(skillId, 0, ConditionOperator.GreaterEquals, level).Stop(FieldPlayer);
+                    }
+                }
+
+                EnabledPassiveSkillEffects.Remove(id);
+
+                continue;
+            }
+
+            SkillMetadata? skill = SkillMetadataStorage.GetSkill(id);
+            skillLevel = skill?.SkillLevels.FirstOrDefault(x => x.Level == level, skill.SkillLevels[0]);
+
+            if (skillLevel is null)
+            {
+                continue;
+            }
+
+            EnabledPassiveSkillEffects[id] = skillLevel;
+
+            FieldPlayer.SkillTriggerHandler.FireTriggerSkills(skillLevel.ConditionSkills, new(id, level, 0, 0), new(FieldPlayer, FieldPlayer, FieldPlayer));
+        }
     }
 }

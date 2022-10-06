@@ -12,7 +12,7 @@ public class DungeonHandler : GamePacketHandler<DungeonHandler>
 {
     public override RecvOp OpCode => RecvOp.RoomDungeon;
 
-    private enum DungeonMode : byte
+    private enum Mode : byte
     {
         ResetDungeon = 0x01,
         CreateDungeon = 0x02,
@@ -26,29 +26,29 @@ public class DungeonHandler : GamePacketHandler<DungeonHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        DungeonMode mode = (DungeonMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case DungeonMode.EnterDungeonPortal:
+            case Mode.EnterDungeonPortal:
                 HandleEnterDungeonPortal(session);
                 break;
-            case DungeonMode.CreateDungeon:
+            case Mode.CreateDungeon:
                 HandleCreateDungeon(session, packet);
                 break;
-            case DungeonMode.EnterDungeonButton:
+            case Mode.EnterDungeonButton:
                 HandleEnterDungeonButton(session);
                 break;
-            case DungeonMode.AddRewards:
+            case Mode.AddRewards:
                 HandleAddRewards(session, packet);
                 break;
-            case DungeonMode.GetHelp:
+            case Mode.GetHelp:
                 HandleGetHelp(session, packet);
                 break;
-            case DungeonMode.Veteran:
+            case Mode.Veteran:
                 HandleVeteran(session, packet);
                 break;
-            case DungeonMode.Favorite:
+            case Mode.Favorite:
                 HandleFavorite(session, packet);
                 break;
             default:
@@ -59,8 +59,7 @@ public class DungeonHandler : GamePacketHandler<DungeonHandler>
 
     public static void HandleEnterDungeonPortal(GameSession session)
     {
-        long instanceId = session.Player.InstanceId;
-        DungeonSession dungeonSession = GameServer.DungeonManager.GetDungeonSessionByInstanceId(instanceId);
+        DungeonSession dungeonSession = GameServer.DungeonManager.GetDungeonSessionBySessionId(session.Player.DungeonSessionId);
         if (dungeonSession == null)
         {
             return;
@@ -145,20 +144,25 @@ public class DungeonHandler : GamePacketHandler<DungeonHandler>
     private static void HandleGetHelp(GameSession session, PacketReader packet)
     {
         int dungeonId = packet.ReadInt();
-
-        if (session.Player.Party == null)
+        if (session.Player.DungeonHelperAccessTime > session.ClientTick)
         {
-            Party newParty = new(session.Player);
-            GameServer.PartyManager.AddParty(newParty);
-
-            session.Send(PartyPacket.Create(newParty, false));
-            session.Send(PartyPacket.PartyHelp(dungeonId));
-            MapleServer.BroadcastPacketAll(DungeonHelperPacket.BroadcastAssist(newParty, dungeonId));
-
+            session.Send(PartyPacket.DungeonHelperCooldown(session.Player.DungeonHelperAccessTime - session.ClientTick));
             return;
         }
 
         Party party = session.Player.Party;
+        if (party is null)
+        {
+            party = new(session.Player);
+            GameServer.PartyManager.AddParty(party);
+
+            session.Send(PartyPacket.Create(party, false));
+            session.Send(PartyPacket.PartyHelp(dungeonId));
+            MapleServer.BroadcastPacketAll(DungeonHelperPacket.BroadcastAssist(party, dungeonId));
+            return;
+        }
+
+        session.Player.DungeonHelperAccessTime = session.ClientTick + 30000; // 30 second cooldown
 
         party.BroadcastPacketParty(PartyPacket.PartyHelp(dungeonId));
         MapleServer.BroadcastPacketAll(DungeonHelperPacket.BroadcastAssist(party, dungeonId));

@@ -1,8 +1,10 @@
 ﻿using System.Diagnostics;
 using Maple2Storage.Enums;
+using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
 using MapleServer2.Enums;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using Serilog;
@@ -22,6 +24,7 @@ public sealed class Inventory : IInventory
     public Dictionary<ItemSlot, Item> Cosmetics { get; }
     public Item[] Badges { get; }
     public Item[] LapenshardStorage { get; }
+    public List<SetBonus> SetBonuses { get; }
 
     // Map of Slot to Uid for each inventory
     private readonly Dictionary<short, long>[] SlotMaps;
@@ -68,6 +71,7 @@ public sealed class Inventory : IInventory
     public Dictionary<long, Item> TemporaryStorage { get; } = new();
 
     #region Constructors
+
     public Inventory(bool addToDatabase)
     {
         Equips = new();
@@ -75,6 +79,7 @@ public sealed class Inventory : IInventory
         Badges = new Item[12];
         Items = new();
         LapenshardStorage = new Item[6];
+        SetBonuses = new();
 
         byte maxTabs = Enum.GetValues(typeof(InventoryTab)).Cast<byte>().Max();
         SlotMaps = new Dictionary<short, long>[maxTabs + 1];
@@ -114,7 +119,7 @@ public sealed class Inventory : IInventory
                         Badges[badgeIndex++] = item;
                         continue;
                     case InventoryTab.Lapenshard:
-                        LapenshardStorage[item.Slot] = item;
+                        LapenshardStorage[item.Slot - 1] = item;
                         continue;
                     case InventoryTab.Gear:
                         if (!Equips.TryAdd(item.ItemSlot, item))
@@ -129,9 +134,156 @@ public sealed class Inventory : IInventory
             Add(item);
         }
     }
+
     #endregion
 
     #region Public Methods
+
+    public void RecomputeSetBonuses(GameSession session)
+    {
+        foreach (SetBonus setBonus in SetBonuses)
+        {
+            foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
+            {
+                for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
+                {
+                    int id = bonus.AdditionalEffectIds[i];
+
+                    if (id != 0)
+                    {
+                        session.Player.FieldPlayer?.AdditionalEffects.GetEffect(id)?.Stop(session.Player.FieldPlayer);
+                    }
+                }
+            }
+        }
+
+        foreach ((ItemSlot slot, Item item) in Cosmetics)
+        {
+            ItemEquipped(session, item);
+        }
+
+        foreach ((ItemSlot slot, Item item) in Equips)
+        {
+            ItemEquipped(session, item);
+        }
+    }
+
+    public void IncrementSetBonus(GameSession session, SetBonus setBonus)
+    {
+        setBonus.EquipCount++;
+
+        bool addedEffect = false;
+        bool recompute = false;
+
+        foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
+        {
+            if (bonus.Count != setBonus.EquipCount)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
+            {
+                int id = bonus.AdditionalEffectIds[i];
+                int level = bonus.AdditionalEffectLevels[i];
+
+                if (id != 0)
+                {
+                    session.Player.FieldPlayer?.AdditionalEffects.AddEffect(new(id, level));
+                }
+            }
+
+            addedEffect |= bonus.AdditionalEffectIds.Length > 0;
+            recompute |= bonus.AdditionalEffectIds.Length == 0;
+        }
+
+        if (recompute && !addedEffect)
+        {
+            session.Player.FieldPlayer?.ComputeStats();
+        }
+    }
+
+    public void ItemEquipped(GameSession session, Item item)
+    {
+        foreach (SetBonus setBonus in SetBonuses)
+        {
+            if (!setBonus.HasItem(item))
+            {
+                continue;
+            }
+
+            IncrementSetBonus(session, setBonus);
+
+            return;
+        }
+
+        SetBonus? newBonus = SetBonus.From(item);
+
+        if (newBonus is null)
+        {
+            return;
+        }
+
+        SetBonuses.Add(newBonus);
+
+        IncrementSetBonus(session, newBonus);
+    }
+
+    public void ItemUnequipped(GameSession session, Item item)
+    {
+        SetBonus? removeBonus = null;
+
+        foreach (SetBonus setBonus in SetBonuses)
+        {
+            if (!setBonus.HasItem(item))
+            {
+                continue;
+            }
+
+            removeBonus = setBonus;
+
+            break;
+        }
+
+        if (removeBonus is null)
+        {
+            return;
+        }
+
+        removeBonus.EquipCount--;
+
+        if (removeBonus.EquipCount == 0)
+        {
+            SetBonuses.Remove(removeBonus);
+        }
+
+        bool removedEffect = false;
+        bool recompute = false;
+
+        foreach (SetBonusMetadata bonus in removeBonus.Bonuses.Parts)
+        {
+            if (bonus.Count != removeBonus.EquipCount - 1)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
+            {
+                session.Player.FieldPlayer?.AdditionalEffects.GetEffect(bonus.AdditionalEffectIds[i])?.Stop(session.Player.FieldPlayer);
+            }
+
+            removedEffect |= bonus.AdditionalEffectIds.Length > 0;
+            recompute |= bonus.AdditionalEffectIds.Length == 0;
+
+            break;
+        }
+
+        if (recompute && !removedEffect)
+        {
+            session.Player.FieldPlayer?.ComputeStats();
+        }
+    }
+
     public void AddItem(GameSession session, Item item, bool isNew)
     {
         switch (item.Type)
@@ -155,6 +307,11 @@ public sealed class Inventory : IInventory
             item.OwnerCharacterName = session.Player.Name;
         }
 
+        if (item.Uid is 0) // If item has no uid, generate one
+        {
+            item.Uid = DatabaseManager.Items.Insert(item);
+        }
+
         // Checks if item is stackable or not
         if (item.StackLimit > 1)
         {
@@ -167,7 +324,8 @@ public sealed class Inventory : IInventory
 
             // If slot is occupied
             // Finds item in inventory with same id, rarity and a stack not full
-            Item existingItem = Items.Values.FirstOrDefault(x => x.Id == item.Id && x.Amount < x.StackLimit && x.Rarity == item.Rarity);
+            Item? existingItem = Items.Values.FirstOrDefault(x =>
+                x.Id == item.Id && x.Amount < x.StackLimit && x.Rarity == item.Rarity && x.ExpiryTime == item.ExpiryTime);
             if (existingItem is not null)
             {
                 // Updates item amount
@@ -182,6 +340,7 @@ public sealed class Inventory : IInventory
                     {
                         session.Send(ItemInventoryPacket.MarkItemNew(existingItem, item.Amount));
                     }
+
                     return;
                 }
 
@@ -219,13 +378,19 @@ public sealed class Inventory : IInventory
             };
             newItem.Uid = DatabaseManager.Items.Insert(newItem);
 
-            AddNewItem(session, newItem, isNew);
+            if (CanHold(item))
+            {
+                AddNewItem(session, newItem, isNew);
+                continue;
+            }
+
+            MailHelper.InventoryWasFull(newItem, session.Player.CharacterId);
         }
     }
 
     public void ConsumeItem(GameSession session, long uid, int amount)
     {
-        if (!Items.TryGetValue(uid, out Item item) || amount > item.Amount)
+        if (!Items.TryGetValue(uid, out Item? item) || amount > item.Amount)
         {
             return;
         }
@@ -233,10 +398,12 @@ public sealed class Inventory : IInventory
         if (amount == item.Amount || item.Amount - amount <= 0)
         {
             RemoveItem(session, uid, out Item _);
+            DatabaseManager.Items.Delete(uid);
             return;
         }
 
         item.Amount -= amount;
+        DatabaseManager.Items.Update(item);
         session.Send(ItemInventoryPacket.UpdateAmount(uid, item.Amount));
     }
 
@@ -253,6 +420,12 @@ public sealed class Inventory : IInventory
 
     public void DropItem(GameSession session, Item item, int amount)
     {
+        if (ItemMetadataStorage.GetPropertyMetadata(item.Id)?.DisableDrop ?? true)
+        {
+            session.Send(NoticePacket.Notice(SystemNotice.ItemErrDrop));
+            return;
+        }
+
         // Drops item not bound
         if (!item.TransferFlag.HasFlag(ItemTransferFlag.Tradeable))
         {
@@ -261,7 +434,6 @@ public sealed class Inventory : IInventory
                 return; // Removal from inventory failed
             }
 
-            session.Send(ItemInventoryPacket.Remove(item.Uid));
             DatabaseManager.Items.Delete(item.Uid);
             return;
         }
@@ -281,7 +453,7 @@ public sealed class Inventory : IInventory
                 break;
         }
 
-        session.FieldManager.AddItem(session, droppedItem); // Drops item onto floor
+        session.FieldManager.AddItem(session.Player.FieldPlayer, droppedItem, source: session.Player.FieldPlayer);
     }
 
     public void MoveItem(GameSession session, long uid, short dstSlot)
@@ -336,9 +508,147 @@ public sealed class Inventory : IInventory
         session.Send(ItemInventoryPacket.Move(dstUid, srcSlot, uid, dstSlot));
     }
 
-    public void ConsumeByTag(GameSession session, string tag, int amount)
+    public bool TryEquip(GameSession session, long uid, ItemSlot equipSlot)
+    {
+        if (!HasItem(uid))
+        {
+            return false;
+        }
+
+        Item? item = GetByUid(uid);
+        if (item is null || !item.CanEquip(session))
+        {
+            return false;
+        }
+
+        // Remove the item from the users inventory
+        RemoveItem(session, uid, out item);
+
+        Player player = session.Player;
+
+        // Get correct equipped inventory
+        Dictionary<ItemSlot, Item>? equippedInventory = player.GetEquippedInventory(item.InventoryTab);
+        if (equippedInventory is null)
+        {
+            Logger.Warning("equippedInventory was null: {inventoryTab}", item.InventoryTab);
+            return false;
+        }
+
+        // Unequip multiple slots if new item takes two slots (overalls, 2H weps)
+        List<ItemSlot>? metadataSlots = ItemMetadataStorage.GetItemSlots(item.Id);
+        if (metadataSlots is null)
+        {
+            return false;
+        }
+        foreach (ItemSlot slot in metadataSlots)
+        {
+            if (equippedInventory.TryGetValue(slot, out Item? equip))
+            {
+                TryUnequip(session, equip.Uid);
+            }
+        }
+
+        if (item.TransferType == TransferType.BindOnEquip & !item.IsBound())
+        {
+            item.BindItem(session.Player);
+        }
+
+        // Equip new item
+        ItemEquipped(session, item);
+        item.IsEquipped = true;
+        item.ItemSlot = equipSlot;
+        equippedInventory[equipSlot] = item;
+        session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(player.FieldPlayer, item, equipSlot));
+        player.FieldPlayer?.ComputeStats();
+
+        if (item.AdditionalEffects != null)
+        {
+            player.AddEffects(item.AdditionalEffects);
+
+            foreach (GemSocket socket in item.GemSockets.Sockets)
+            {
+                if (socket.Gemstone != null)
+                {
+                    player.AddEffects(socket.Gemstone.AdditionalEffects);
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public bool TryUnequip(GameSession session, long uid)
+    {
+        Player player = session.Player;
+        Item? item = player.Inventory.GetEquippedItem(uid);
+        if (item is null)
+        {
+            return false;
+        }
+
+        Dictionary<ItemSlot, Item>? equippedInventory = player.GetEquippedInventory(item.InventoryTab);
+        if (equippedInventory is null)
+        {
+            return false;
+        }
+
+        if (equippedInventory.Remove(item.ItemSlot, out Item? prevItem))
+        {
+            ItemUnequipped(session, item);
+            prevItem.Slot = -1;
+            prevItem.IsEquipped = false;
+            player.Inventory.AddItem(session, prevItem, false);
+            session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(player.FieldPlayer, prevItem));
+            player.FieldPlayer?.ComputeStats();
+
+            if (item.AdditionalEffects != null)
+            {
+                player.RemoveEffects(item.AdditionalEffects);
+
+                foreach (GemSocket socket in item.GemSockets.Sockets)
+                {
+                    if (socket.Gemstone != null)
+                    {
+                        player.RemoveEffects(socket.Gemstone.AdditionalEffects);
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public void ConsumeByTag(GameSession session, string tag, int amount, int rarity = 0)
     {
         IReadOnlyCollection<Item> ingredientTotal = GetAllByTag(tag);
+        if (rarity > 0)
+        {
+            ingredientTotal = ingredientTotal.Where(x => x.Rarity == rarity).ToList();
+        }
+
+        foreach (Item item in ingredientTotal)
+        {
+            if (item.Amount >= amount)
+            {
+                ConsumeItem(session, item.Uid, amount);
+                break;
+            }
+
+            amount -= item.Amount;
+            ConsumeItem(session, item.Uid, item.Amount);
+        }
+    }
+
+    public void ConsumeById(GameSession session, int id, int amount, int rarity = 0)
+    {
+        IReadOnlyCollection<Item> ingredientTotal = GetAllById(id);
+        if (rarity > 0)
+        {
+            ingredientTotal = ingredientTotal.Where(x => x.Rarity == rarity).ToList();
+        }
+
         foreach (Item item in ingredientTotal)
         {
             if (item.Amount >= amount)
@@ -356,33 +666,34 @@ public sealed class Inventory : IInventory
 
     public bool HasItem(int id) => Items.Values.Any(i => i.Id == id);
 
-    public Item GetByUid(long uid) => Items[uid];
+    public Item? GetByUid(long uid) => Items.TryGetValue(uid, out Item? item) ? item : null;
 
-    public Item GetById(int id) => Items.Values.FirstOrDefault(x => x.Id == id);
+    public Item? GetById(int id) => Items.Values.FirstOrDefault(x => x.Id == id);
 
-    public Item GetFromInventoryOrEquipped(long uid)
+    public Item? GetFromInventoryOrEquipped(long uid)
     {
         if (HasItem(uid))
         {
             return GetByUid(uid);
         }
+
         return ItemIsEquipped(uid) ? GetEquippedItem(uid) : null;
     }
 
     public bool ItemIsEquipped(long itemUid) => Equips.Values.Any(x => x.Uid == itemUid) || Cosmetics.Values.Any(x => x.Uid == itemUid);
 
-    public Item GetEquippedItem(long itemUid)
+    public Item? GetEquippedItem(long itemUid)
     {
-        Item gearItem = Equips.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
+        Item? gearItem = Equips.Values.FirstOrDefault(x => x.Uid == itemUid);
         if (gearItem is not null)
         {
             return gearItem;
         }
 
-        return Cosmetics.FirstOrDefault(x => x.Value.Uid == itemUid).Value;
+        return Cosmetics.Values.FirstOrDefault(x => x.Uid == itemUid);
     }
 
-    public IEnumerable<Item> GetItemsNotNull() => Items.Values.Where(x => x != null).ToArray();
+    public IEnumerable<Item> GetItemsNotNull() => Items.Values.ToList();
 
     public IReadOnlyCollection<Item> GetAllById(int id) => Items.Values.Where(x => x.Id == id).ToArray();
 
@@ -421,20 +732,14 @@ public sealed class Inventory : IInventory
         // Add items that can't be grouped
         groupedItems.AddRange(tabItems.Where(x => x.StackLimit == 1));
 
-        // Sort by item id
-        groupedItems.Sort((x, y) => x.Id.CompareTo(y.Id));
-
         // Update the slot mapping
         slots.Clear();
         short slotId = 0;
 
-        // Items that overflow stack limit
-        List<Item> itemList = new();
-
         // Delete items that got grouped
         foreach (Item oldItem in tabItems)
         {
-            Item newItem = groupedItems.FirstOrDefault(x => x.Uid == oldItem.Uid);
+            Item? newItem = groupedItems.FirstOrDefault(x => x.Uid == oldItem.Uid);
             if (newItem is null)
             {
                 Items.Remove(oldItem.Uid);
@@ -442,48 +747,55 @@ public sealed class Inventory : IInventory
                 continue;
             }
 
-            if (newItem.Amount > newItem.StackLimit)
+            if (newItem.Amount <= newItem.StackLimit)
             {
-                // how many times can we split the item?
-                int splitAmount = newItem.Amount / newItem.StackLimit;
-                // how many items are left over?
-                int remainder = newItem.Amount % newItem.StackLimit;
+                continue;
+            }
 
-                // split the item
-                for (int i = 0; i < splitAmount; i++)
+            // how many times can we split the item?
+            int splitAmount = newItem.Amount / newItem.StackLimit;
+            // how many items are left over?
+            int remainder = newItem.Amount % newItem.StackLimit;
+
+            // split the item
+            for (int i = 0; i < splitAmount; i++)
+            {
+                if (!newItem.TrySplit(newItem.StackLimit, out Item splitItem))
                 {
-                    if (!newItem.TrySplit(newItem.StackLimit, out Item splitItem))
-                    {
-                        continue;
-                    }
-
-                    itemList.Add(splitItem);
-                }
-
-                // Delete the original item if remainder is 0
-                if (remainder <= 0)
-                {
-                    Items.Remove(oldItem.Uid);
-                    DatabaseManager.Items.Delete(oldItem.Uid);
                     continue;
                 }
 
-                // set the remainder
-                newItem.Amount = remainder;
+                groupedItems.Add(splitItem);
             }
 
+            // Delete the original item if remainder is 0
+            if (remainder <= 0)
+            {
+                Items.Remove(oldItem.Uid);
+                DatabaseManager.Items.Delete(oldItem.Uid);
+                continue;
+            }
+
+            // set the remainder
+            newItem.Amount = remainder;
+        }
+
+        // Sort by item id, then by rarity, then by amount and creation time
+        groupedItems = groupedItems.OrderBy(x => x.Id)
+            .ThenBy(x => x.Rarity)
+            .ThenByDescending(x => x.Amount)
+            .ThenBy(x => x.CreationTime).ToList();
+
+        foreach (Item newItem in groupedItems)
+        {
             // Update the slot mapping
-            slots.Add(slotId++, newItem.Uid);
+            slots.Add(slotId, newItem.Uid);
             newItem.Slot = slotId;
+            slotId++;
 
             // Update the item
             Items[newItem.Uid] = newItem;
             DatabaseManager.Items.Update(newItem);
-        }
-
-        foreach (Item item in itemList)
-        {
-            AddNewItem(session, item, false);
         }
 
         session.Send(ItemInventoryPacket.ResetTab(tab));
@@ -499,7 +811,7 @@ public sealed class Inventory : IInventory
 
     public void ExpandInventory(GameSession session, InventoryTab tab)
     {
-        long meretPrice = long.Parse(ConstantsMetadataStorage.GetConstant("InventoryExpandPrice1Row"));
+        long meretPrice = long.Parse(ConstantsMetadataStorage.GetConstant("InventoryExpandPrice1Row") ?? "0");
         const short ExpansionAmount = 6;
 
         if (!session.Player.Account.RemoveMerets(meretPrice))
@@ -525,7 +837,8 @@ public sealed class Inventory : IInventory
 
     public bool CanHold(int itemId, int amount)
     {
-        return CanHold(itemId, amount, ItemMetadataStorage.GetTab(itemId));
+        InventoryTab? inventoryTab = ItemMetadataStorage.GetTab(itemId);
+        return inventoryTab is not null && CanHold(itemId, amount, (InventoryTab) inventoryTab);
     }
 
     public bool SlotTaken(Item item, short slot = -1)
@@ -537,9 +850,11 @@ public sealed class Inventory : IInventory
     {
         return GetSlots(tab).Select(kvp => Items[kvp.Value]).ToArray();
     }
+
     #endregion
 
     #region Private Methods
+
     // TODO: precompute next free slot to avoid iteration on Add
     // Returns false if inventory is full
     private bool Add(Item item)
@@ -708,7 +1023,14 @@ public sealed class Inventory : IInventory
                 session.Player.Guild.BroadcastPacketGuild(GuildPacket.UpdateGuildFunds(session.Player.Guild.Funds));
                 DatabaseManager.Guilds.Update(session.Player.Guild);
                 return;
+            case 90000022: // reverse coin
+            case 90000023: // mentor point
+            case 90000024: // mentee point
+            case 90000027: // meso token
+                // TODO: Handle these coins
+                break;
         }
     }
+
     #endregion
 }

@@ -4,11 +4,27 @@ using MapleServer2.Enums;
 
 namespace MapleServer2.Types;
 
+public class InvokeStatValue
+{
+    public InvokeEffectType Type;
+    public float Value;
+    public float Rate;
+}
+
+public class InvokeStat
+{
+    public List<InvokeStatValue> Values = new();
+}
+
 public class Stats
 {
     // TODO: Handle stat allocation in here?
     // ReSharper disable once FieldCanBeMadeReadOnly.Global - JsonConvert.DeserializeObject can't set values if it's readonly
     public Dictionary<StatAttribute, Stat> Data;
+    public Dictionary<int, InvokeStat> Effects = new();
+    public Dictionary<int, InvokeStat> EffectGroups = new();
+    public Dictionary<int, InvokeStat> Skills = new();
+    public Dictionary<int, InvokeStat> SkillGroups = new();
 
     public Stats() { }
 
@@ -18,171 +34,170 @@ public class Stats
         {
             {
                 StatAttribute.Str,
-                new(metadata.Stats.Str)
+                new(metadata.NpcStats.Str)
             },
             {
                 StatAttribute.Dex,
-                new(metadata.Stats.Dex)
+                new(metadata.NpcStats.Dex)
             },
             {
                 StatAttribute.Int,
-                new(metadata.Stats.Int)
+                new(metadata.NpcStats.Int)
             },
             {
                 StatAttribute.Luk,
-                new(metadata.Stats.Luk)
+                new(metadata.NpcStats.Luk)
             },
             {
                 StatAttribute.Hp,
-                new(metadata.Stats.Hp)
+                new(metadata.NpcStats.Hp)
             },
             {
                 StatAttribute.HpRegen,
-                new(metadata.Stats.HpRegen)
+                new(metadata.NpcStats.HpRegen)
             },
             {
                 StatAttribute.HpRegenInterval,
-                new(metadata.Stats.HpInterval)
+                new(metadata.NpcStats.HpInterval)
             },
             {
                 StatAttribute.Spirit,
-                new(metadata.Stats.Sp)
+                new(metadata.NpcStats.Sp)
             },
             {
                 StatAttribute.SpRegen,
-                new(metadata.Stats.SpRegen)
+                new(metadata.NpcStats.SpRegen)
             },
             {
                 StatAttribute.SpRegenInterval,
-                new(metadata.Stats.SpInterval)
+                new(metadata.NpcStats.SpInterval)
             },
             {
                 StatAttribute.Stamina,
-                new(metadata.Stats.Ep)
+                new(metadata.NpcStats.Ep)
             },
             {
                 StatAttribute.StaminaRegen,
-                new(metadata.Stats.EpRegen)
+                new(metadata.NpcStats.EpRegen)
             },
             {
                 StatAttribute.StaminaRegenInterval,
-                new(metadata.Stats.EpInterval)
+                new(metadata.NpcStats.EpInterval)
             },
             {
                 StatAttribute.AttackSpeed,
-                new(metadata.Stats.AtkSpd)
+                new(metadata.NpcStats.AtkSpd)
             },
             {
                 StatAttribute.MovementSpeed,
-                new(metadata.Stats.MoveSpd)
+                new(metadata.NpcStats.MoveSpd)
             },
             {
                 StatAttribute.Accuracy,
-                new(metadata.Stats.Accuracy)
+                new(metadata.NpcStats.Accuracy)
             },
             {
                 StatAttribute.Evasion,
-                new(metadata.Stats.Evasion)
+                new(metadata.NpcStats.Evasion)
             },
             {
                 StatAttribute.CritRate,
-                new(metadata.Stats.CritRate)
+                new(metadata.NpcStats.CritRate)
             },
             {
                 StatAttribute.CritDamage,
-                new(metadata.Stats.CritDamage)
+                new(metadata.NpcStats.CritDamage)
             },
             {
                 StatAttribute.CritEvasion,
-                new(metadata.Stats.CritResist)
+                new(metadata.NpcStats.CritResist)
             },
             {
                 StatAttribute.Defense,
-                new(metadata.Stats.Defense)
+                new(metadata.NpcStats.Defense)
             },
             {
                 StatAttribute.PerfectGuard,
-                new(metadata.Stats.Guard)
+                new(metadata.NpcStats.Guard)
             },
             {
                 StatAttribute.JumpHeight,
-                new(metadata.Stats.JumpHeight)
+                new(metadata.NpcStats.JumpHeight)
             },
             {
                 StatAttribute.PhysicalAtk,
-                new(metadata.Stats.PhysAtk)
+                new(metadata.NpcStats.PhysAtk)
             },
             {
                 StatAttribute.MagicAtk,
-                new(metadata.Stats.MagAtk)
+                new(metadata.NpcStats.MagAtk)
             },
             {
                 StatAttribute.PhysicalRes,
-                new(metadata.Stats.PhysRes)
+                new(metadata.NpcStats.PhysRes)
             },
             {
                 StatAttribute.MagicRes,
-                new(metadata.Stats.MagRes)
+                new(metadata.NpcStats.MagRes)
             },
             {
                 StatAttribute.MinWeaponAtk,
-                new(metadata.Stats.MinAtk)
+                new(metadata.NpcStats.MinAtk)
             },
             {
                 StatAttribute.MaxWeaponAtk,
-                new(metadata.Stats.MaxAtk)
+                new(metadata.NpcStats.MaxAtk)
             },
             {
                 StatAttribute.MinDamage,
-                new(metadata.Stats.Damage)
+                new(metadata.NpcStats.Damage)
             },
             {
                 StatAttribute.MaxDamage,
-                new(metadata.Stats.Damage)
+                new(metadata.NpcStats.Damage)
             },
             {
                 StatAttribute.Pierce,
-                new(metadata.Stats.Pierce)
+                new(metadata.NpcStats.Pierce, StatAttributeType.Rate)
             },
             {
                 StatAttribute.MountMovementSpeed,
-                new(metadata.Stats.MountSpeed)
+                new(metadata.NpcStats.MountSpeed)
             },
             {
                 StatAttribute.BonusAtk,
-                new(metadata.Stats.BonusAtk)
+                new(metadata.NpcStats.BonusAtk)
             },
             {
                 StatAttribute.PetBonusAtk,
-                new(metadata.Stats.BonusAtkPet)
+                new(metadata.NpcStats.BonusAtkPet)
             }
         };
     }
 
-    public Stats(Job job)
+    public Stats(JobCode jobCode)
     {
-        (int strBase, int dexBase, int intBase, int lukBase, int hpBase, int critBase) = GetJobBaseStats(job);
         Data = new()
         {
             {
                 StatAttribute.Str,
-                new(strBase)
+                new(BaseStats.Strength(jobCode, 1))
             },
             {
                 StatAttribute.Dex,
-                new(dexBase)
+                new(BaseStats.Dexterity(jobCode, 1))
             },
             {
                 StatAttribute.Int,
-                new(intBase)
+                new(BaseStats.Intelligence(jobCode, 1))
             },
             {
                 StatAttribute.Luk,
-                new(lukBase)
+                new(BaseStats.Luck(jobCode, 1))
             },
             {
                 StatAttribute.Hp,
-                new(hpBase) // Max = 0 on login
+                new(BaseStats.Health(jobCode, 1)) // Max = 0 on login
             },
             {
                 StatAttribute.HpRegen,
@@ -226,15 +241,15 @@ public class Stats
             },
             {
                 StatAttribute.Accuracy,
-                new(82)
+                new(BaseStats.Accuracy(jobCode, 1))
             },
             {
                 StatAttribute.Evasion,
-                new(70) // TODO: changes with job
+                new(BaseStats.Evasion(jobCode, 1)) // TODO: changes with job
             },
             {
                 StatAttribute.CritRate,
-                new(critBase) // TODO: changes with job
+                new(BaseStats.CriticalRate(jobCode, 1)) // TODO: changes with job
             },
             {
                 StatAttribute.CritDamage,
@@ -290,7 +305,7 @@ public class Stats
             },
             {
                 StatAttribute.Pierce,
-                new(0)
+                new(0, StatAttributeType.Rate)
             },
             {
                 StatAttribute.MountMovementSpeed,
@@ -305,11 +320,6 @@ public class Stats
                 new(0) // base 0 (bonuses can be added)
             }
         };
-
-        if (job is Job.Runeblade)
-        {
-            Data[StatAttribute.Int].IncreaseBonus(5);
-        }
     }
 
     public Stat this[StatAttribute statIndex]
@@ -334,339 +344,248 @@ public class Stats
             _ => 1
         };
 
-        Data[statAttribute].IncreaseBonus(gainAmount);
+        Data[statAttribute].Add(gainAmount);
     }
 
-    public void ResetAllocations(StatDistribution statDist)
+    public void RecomputeAllocations(StatDistribution statDist)
     {
         foreach ((StatAttribute id, int value) in statDist.AllocatedStats)
         {
-            int gainAmount = id switch
+            for (int i = 0; i < value; i++)
             {
-                StatAttribute.Hp => 10,
-                StatAttribute.CritRate => 3,
-                _ => 1
+                Allocate(id);
+            }
+        }
+    }
+
+    public void ResetStats()
+    {
+        foreach ((StatAttribute id, Stat stat) in Data)
+        {
+            if (stat != null)
+            {
+                stat.Reset();
+            }
+        }
+
+        Effects.Clear();
+        EffectGroups.Clear();
+        Skills.Clear();
+        SkillGroups.Clear();
+    }
+
+    public void ComputeStatBonuses()
+    {
+        foreach ((StatAttribute id, Stat stat) in Data)
+        {
+            if (stat != null)
+            {
+                stat.ComputeBonus();
+            }
+        }
+    }
+
+    // TODO: level 50+ has a different formula
+    public void AddBaseStats(Player player, short level = 1)
+    {
+        long str = BaseStats.Strength(player.JobCode, level);
+        long dex = BaseStats.Dexterity(player.JobCode, level);
+        long luk = BaseStats.Luck(player.JobCode, level);
+        long inte = BaseStats.Intelligence(player.JobCode, level);
+        long hp = BaseStats.Health(player.JobCode, level);
+
+        Data[StatAttribute.Str].Value.BaseLong = str;
+        Data[StatAttribute.Dex].Value.BaseLong = dex;
+        Data[StatAttribute.Luk].Value.BaseLong = luk;
+        Data[StatAttribute.Int].Value.BaseLong = inte;
+        Data[StatAttribute.Hp].Value.BaseLong = hp;
+
+        Data[StatAttribute.PhysicalAtk].Value.BaseLong = BaseStats.PhysicalAttack(player.JobCode, str, dex, luk);
+        Data[StatAttribute.MagicAtk].Value.BaseLong = BaseStats.MagicAttack(player.JobCode, inte);
+    }
+
+    public void AddAttackBonus(Player player)
+    {
+        long str = Data[StatAttribute.Str].Value.BonusAmountLong;
+        long dex = Data[StatAttribute.Dex].Value.BonusAmountLong;
+        long luk = Data[StatAttribute.Luk].Value.BonusAmountLong;
+        long inte = Data[StatAttribute.Int].Value.BonusAmountLong;
+        long hp = Data[StatAttribute.Hp].Value.BonusAmountLong;
+
+        Data[StatAttribute.PhysicalAtk].AddBonus(BaseStats.PhysicalAttack(player.JobCode, str, dex, luk));
+        Data[StatAttribute.MagicAtk].AddBonus(BaseStats.MagicAttack(player.JobCode, inte));
+    }
+
+    public void AddStat(StatAttribute attribute, StatAttributeType type, long flat, float rate)
+    {
+        if (!Data.TryGetValue(attribute, out Stat stat))
+        {
+            stat = new();
+            stat.Modifier.Type = type;
+            stat.Modifier.Rate = type == StatAttributeType.Flat ? 1 : 0;
+
+            Data[attribute] = stat;
+        }
+
+        stat.Add(flat, rate);
+    }
+
+    public InvokeStatValue GetStat(InvokeStat stats, InvokeEffectType type)
+    {
+        InvokeStatValue? stat = stats.Values.FirstOrDefault(stat => stat.Type == type, null);
+
+        if (stat is null)
+        {
+            stat = new()
+            {
+                Type = type
             };
 
-            Data[id].DecreaseBonus(value * gainAmount);
+            stats.Values.Add(stat);
         }
 
-        statDist.ResetPoints();
+        return stat;
     }
 
-    private static (int strBase, int dexBase, int intBase, int lukBase, int hpBase, int critBase) GetJobBaseStats(Job job)
+    public InvokeStatValue GetStat(int id, Dictionary<int, InvokeStat> statDictionary, InvokeEffectType type)
     {
-        int strBase = 0, dexBase = 0, intBase = 0, lukBase = 0, hpBase = 0, critBase = 0;
-        switch (job)
+        if (!statDictionary.TryGetValue(id, out InvokeStat stats))
         {
-            case Job.Beginner:
-                strBase = 7;
-                dexBase = 6;
-                intBase = 2;
-                lukBase = 2;
-                hpBase = 63;
-                critBase = 35;
-                break;
-            case Job.Knight:
-                strBase = 8;
-                dexBase = 6;
-                intBase = 2;
-                lukBase = 1;
-                hpBase = 65;
-                critBase = 51;
-                break;
-            case Job.Berserker:
-                strBase = 8;
-                dexBase = 6;
-                intBase = 1;
-                lukBase = 2;
-                hpBase = 70;
-                critBase = 47;
-                break;
-            case Job.Wizard:
-                strBase = 1;
-                dexBase = 1;
-                intBase = 14;
-                lukBase = 1;
-                hpBase = 61;
-                critBase = 40;
-                break;
-            case Job.Priest:
-                strBase = 1;
-                dexBase = 1;
-                intBase = 14;
-                lukBase = 1;
-                hpBase = 63;
-                critBase = 45;
-                break;
-            case Job.Archer:
-                strBase = 6;
-                dexBase = 8;
-                intBase = 1;
-                lukBase = 2;
-                hpBase = 61;
-                critBase = 55;
-                break;
-            case Job.HeavyGunner:
-                strBase = 2;
-                dexBase = 8;
-                intBase = 1;
-                lukBase = 6;
-                hpBase = 63;
-                critBase = 52;
-                break;
-            case Job.Thief:
-                strBase = 6;
-                dexBase = 2;
-                intBase = 1;
-                lukBase = 8;
-                hpBase = 62;
-                critBase = 50;
-                break;
-            case Job.Assassin:
-                strBase = 2;
-                dexBase = 6;
-                intBase = 1;
-                lukBase = 8;
-                hpBase = 61;
-                critBase = 53;
-                break;
-            case Job.Runeblade:
-                strBase = 8;
-                dexBase = 6;
-                intBase = 2;
-                lukBase = 1;
-                hpBase = 64;
-                critBase = 46;
-                break;
-            case Job.Striker:
-                strBase = 6;
-                dexBase = 8;
-                intBase = 1;
-                lukBase = 2;
-                hpBase = 64;
-                critBase = 48;
-                break;
-            case Job.SoulBinder:
-                strBase = 1;
-                dexBase = 1;
-                intBase = 14;
-                lukBase = 1;
-                hpBase = 62;
-                critBase = 48;
-                break;
-            default:
-            case Job.GameMaster:
-            case Job.None:
-                break;
+            stats = new InvokeStat();
+            statDictionary[id] = stats;
         }
 
-        return (strBase, dexBase, intBase, lukBase, hpBase, critBase);
+        return GetStat(stats, type);
     }
 
-    private static (int strIncrease, int dexIncrease, int intIncrease, int lukIncrease, int hpIncrease) GetJobStatIncrease(Player player)
+    public void AddSkillStats(int id, InvokeEffectType type, float value, float rate)
     {
-        Job job = player.Job;
-        int level = player.Levels.Level;
-        Dictionary<StatAttribute, Stat> stats = player.Stats.Data;
+        InvokeStatValue stat = GetStat(id, Skills, type);
 
-        // TODO: Find HP formula
-        int strIncrease = 0, dexIncrease = 0, intIncrease = 0, lukIncrease = 0, hpIncrease = 0;
-        switch (job)
+        stat.Value += value;
+        stat.Rate += rate;
+    }
+
+    public void AddSkillGroupStats(int id, InvokeEffectType type, float value, float rate)
+    {
+        InvokeStatValue stat = GetStat(id, SkillGroups, type);
+
+        stat.Value += value;
+        stat.Rate += rate;
+    }
+
+    public void AddEffectStats(int id, InvokeEffectType type, float value, float rate)
+    {
+        InvokeStatValue stat = GetStat(id, Effects, type);
+
+        stat.Value += value;
+        stat.Rate += rate;
+    }
+
+    public void AddEffectGroupStats(int id, InvokeEffectType type, float value, float rate)
+    {
+        InvokeStatValue stat = GetStat(id, EffectGroups, type);
+
+        stat.Value += value;
+        stat.Rate += rate;
+    }
+
+    public InvokeStatValue GetSkillStats(int id, InvokeEffectType type)
+    {
+        return GetStat(id, Skills, type);
+    }
+
+    public InvokeStatValue GetSkillGroupStats(int id, InvokeEffectType type)
+    {
+        return GetStat(id, SkillGroups, type);
+    }
+
+    public InvokeStatValue GetSkillGroupStats(int[]? ids, InvokeEffectType type)
+    {
+        InvokeStatValue stat = new()
         {
-            case Job.Beginner:
-                strIncrease = 7;
-                dexIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    lukIncrease = 1;
-                }
-                else
-                {
-                    intIncrease = 1;
-                }
+            Type = type
+        };
 
-                hpIncrease = 0;
-                break;
-            case Job.Knight:
-                strIncrease = 7;
-                dexIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    intIncrease = 1;
-                }
-                else
-                {
-                    lukIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Berserker:
-                strIncrease = 7;
-                dexIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    intIncrease = 1;
-                }
-                else
-                {
-                    lukIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Wizard:
-                intIncrease = 8;
-                if (stats[StatAttribute.Str].Base > stats[StatAttribute.Dex].Base)
-                {
-                    dexIncrease = 1;
-                }
-                else if (stats[StatAttribute.Str].Base > stats[StatAttribute.Luk].Base)
-                {
-                    lukIncrease = 1;
-                }
-                else
-                {
-                    strIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Priest:
-                intIncrease = 8;
-                if (stats[StatAttribute.Str].Base > stats[StatAttribute.Dex].Base)
-                {
-                    dexIncrease = 1;
-                }
-                else if (stats[StatAttribute.Str].Base > stats[StatAttribute.Luk].Base)
-                {
-                    lukIncrease = 1;
-                }
-                else
-                {
-                    strIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Archer:
-                dexIncrease = 7;
-                strIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    lukIncrease = 1;
-                }
-                else
-                {
-                    intIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.HeavyGunner:
-                dexIncrease = 7;
-                lukIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    strIncrease = 1;
-                }
-                else
-                {
-                    intIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Thief:
-                lukIncrease = 7;
-                strIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    dexIncrease = 1;
-                }
-                else
-                {
-                    intIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Assassin:
-                lukIncrease = 7;
-                dexIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    strIncrease = 1;
-                }
-                else
-                {
-                    intIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Runeblade:
-                strIncrease = 7;
-                dexIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    lukIncrease = 1;
-                }
-                else
-                {
-                    intIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.Striker:
-                dexIncrease = 7;
-                strIncrease = 1;
-                if (level % 2 == 0)
-                {
-                    intIncrease = 1;
-                }
-                else
-                {
-                    lukIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            case Job.SoulBinder:
-                intIncrease = 8;
-                if (stats[StatAttribute.Str].Base > stats[StatAttribute.Dex].Base)
-                {
-                    dexIncrease = 1;
-                }
-                else if (stats[StatAttribute.Str].Base > stats[StatAttribute.Luk].Base)
-                {
-                    lukIncrease = 1;
-                }
-                else
-                {
-                    strIncrease = 1;
-                }
-
-                hpIncrease = 0;
-                break;
-            default:
-            case Job.GameMaster:
-            case Job.None:
-                break;
+        if (ids is null)
+        {
+            return stat;
         }
 
-        return (strIncrease, dexIncrease, intIncrease, lukIncrease, hpIncrease);
+        foreach (int id in ids)
+        {
+            InvokeStatValue idStat = GetStat(id, SkillGroups, type);
+
+            stat.Value += idStat.Value;
+            stat.Rate += idStat.Rate;
+        }
+
+        return stat;
     }
 
-    public void AddBaseStats(Player player, int repeat = 1)
+    public InvokeStatValue GetSkillStats(int id, int[]? groupIds, InvokeEffectType type)
     {
-        (int strIncrease, int dexIncrease, int intIncrease, int lukIncrease, int hpIncrease) = GetJobStatIncrease(player);
-        Data[StatAttribute.Str].IncreaseBase(strIncrease * repeat);
-        Data[StatAttribute.Dex].IncreaseBase(dexIncrease * repeat);
-        Data[StatAttribute.Int].IncreaseBase(intIncrease * repeat);
-        Data[StatAttribute.Luk].IncreaseBase(lukIncrease * repeat);
-        Data[StatAttribute.Hp].IncreaseBase(hpIncrease * repeat);
+        InvokeStatValue groupStat = GetSkillGroupStats(groupIds, type);
+        InvokeStatValue stat = GetSkillStats(id, type);
+
+        groupStat.Rate += stat.Rate;
+        groupStat.Value += stat.Value;
+
+        return groupStat;
+    }
+
+    public InvokeStatValue GetEffectStats(int id, InvokeEffectType type)
+    {
+        return GetStat(id, Effects, type);
+    }
+
+    public InvokeStatValue GetEffectGroupStats(int id, InvokeEffectType type)
+    {
+        return GetStat(id, EffectGroups, type);
+    }
+
+    public InvokeStatValue GetEffectGroupStats(int[]? ids, InvokeEffectType type)
+    {
+        InvokeStatValue stat = new()
+        {
+            Type = type
+        };
+
+        if (ids is null)
+        {
+            return stat;
+        }
+
+        foreach (int id in ids)
+        {
+            InvokeStatValue idStat = GetStat(id, EffectGroups, type);
+
+            stat.Value += idStat.Value;
+            stat.Rate += idStat.Rate;
+        }
+
+        return stat;
+    }
+
+    public InvokeStatValue GetEffectStats(int id, int[]? groupIds, InvokeEffectType type)
+    {
+        InvokeStatValue groupStat = GetEffectGroupStats(groupIds, type);
+        InvokeStatValue stat = GetEffectStats(id, type);
+
+        groupStat.Rate += stat.Rate;
+        groupStat.Value += stat.Value;
+
+        return groupStat;
+    }
+
+    public InvokeStatValue GetEffectStats(int id, int groupId, InvokeEffectType type)
+    {
+        InvokeStatValue groupStat = GetEffectGroupStats(groupId, type);
+        InvokeStatValue stat = GetEffectStats(id, type);
+
+        groupStat.Rate += stat.Rate;
+        groupStat.Value += stat.Value;
+
+        return groupStat;
     }
 }

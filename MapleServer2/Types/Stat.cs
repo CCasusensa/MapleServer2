@@ -1,4 +1,5 @@
-﻿using Maple2Storage.Types;
+﻿using Maple2Storage.Enums;
+using Maple2Storage.Types;
 
 namespace MapleServer2.Types;
 
@@ -8,47 +9,89 @@ namespace MapleServer2.Types;
  *
  * Change Stat.Bonus for temporary changes.
  */
-public class Stat
+public struct StatValue
 {
     public long BonusLong;
     public long BaseLong;
     public long TotalLong;
-    public int Bonus { get => (int) BonusLong; protected set { BonusLong = value; } }
-    public int Base { get => (int) BaseLong; protected set { BaseLong = value; } }
-    public int Total { get => (int) TotalLong; protected set { TotalLong = value; } }
+    public int Bonus { get => (int) BonusLong; set { BonusLong = value; } }
+    public int Base { get => (int) BaseLong; set { BaseLong = value; } }
+    public int Total { get => (int) TotalLong; set { TotalLong = value; } }
+    public long BonusAmountLong { get => BonusLong - BaseLong; }
+    public int BonusAmount { get => (int) BonusAmountLong; }
+}
+
+/* Flat is only used on StatAttributeType.Flat
+ * Rate can be used on StatAttributeType.Flat or StatAttributeType.Rate, but the meaning of the two changes based on context.
+ * On StatAttributeType.Flat the rates for a single stat type will be accumulated, and the bonus and total will be multiplied by the accumulated rate at the end
+ * On StatAttributeType.Rate the rates will just be accumulated as 1000 * rate to support up to a tenth of a percent of precision
+ */
+public struct StatModifier
+{
+    public StatAttributeType Type;
+    public long Flat;
+    public float Rate;
+}
+
+public struct StatGroup
+{
+    public float Value;
+    public float Rate;
+}
+
+public class Stat
+{
+    public StatValue Value;
+    public StatModifier Modifier;
+    public int Bonus { get => (int) Value.BonusLong; }
+    public int Base { get => (int) Value.BaseLong; }
+    public int Total { get => (int) Value.TotalLong; }
+    public int BonusAmount { get => (int) Value.BonusAmountLong; }
+    public long BonusLong { get => Value.BonusLong; }
+    public long BaseLong { get => Value.BaseLong; }
+    public long TotalLong { get => Value.TotalLong; }
+    public long BonusAmountLong { get => Value.BonusAmountLong; }
 
     public Stat() { }
 
-    public Stat(NpcStat<int> statInt)
+    public Stat(XmlStat<int> statInt, StatAttributeType type = StatAttributeType.Flat)
     {
-        Bonus = statInt.Bonus;
-        Base = statInt.Base;
-        Total = statInt.Total;
+        Value.Bonus = statInt.Bonus;
+        Value.Base = statInt.Base;
+        Value.Total = statInt.Total;
+        Modifier.Type = type;
+        Modifier.Rate = 1;
     }
 
-    public Stat(NpcStat<long> statLong)
+    public Stat(XmlStat<long> statLong, StatAttributeType type = StatAttributeType.Flat)
     {
-        BonusLong = statLong.Bonus;
-        BaseLong = statLong.Base;
-        TotalLong = statLong.Total;
+        Value.BonusLong = statLong.Bonus;
+        Value.BaseLong = statLong.Base;
+        Value.TotalLong = statLong.Total;
+        Modifier.Type = type;
+        Modifier.Rate = 1;
     }
 
-    public Stat(int totalStat) : this(totalStat, totalStat, totalStat) { }
+    public Stat(int totalStat, StatAttributeType type = StatAttributeType.Flat) : this(totalStat, totalStat, totalStat, type) { }
 
-    public Stat(int bonusStat, int baseStat, int totalStat)
+    public Stat(int bonusStat, int baseStat, int totalStat, StatAttributeType type = StatAttributeType.Flat)
     {
-        Bonus = bonusStat;
-        Base = baseStat;
-        Total = totalStat;
+        Value.Bonus = bonusStat;
+        Value.Base = baseStat;
+        Value.Total = totalStat;
+        Modifier.Type = type;
+        Modifier.Rate = 1;
     }
 
-    public Stat(long totalStat) : this(totalStat, totalStat, totalStat) { }
+    public Stat(long totalStat, StatAttributeType type = StatAttributeType.Flat) : this(totalStat, totalStat, totalStat, type) { }
 
-    public Stat(long bonusStat, long baseStat, long totalStat)
+    public Stat(long bonusStat, long baseStat, long totalStat, StatAttributeType type = StatAttributeType.Flat)
     {
-        BonusLong = bonusStat;
-        BaseLong = baseStat;
-        TotalLong = totalStat;
+        Value.BonusLong = bonusStat;
+        Value.BaseLong = baseStat;
+        Value.TotalLong = totalStat;
+        Modifier.Type = type;
+        Modifier.Rate = 1;
     }
 
     public int this[int i] => i switch
@@ -58,89 +101,103 @@ public class Stat
         _ => Total
     };
 
-    public void IncreaseBonus(int amount)
+    public void Reset()
     {
-        Bonus += amount;
-        Total += amount;
+        Value.Bonus = 0;
+        Value.Base = 0;
+        Value.Total = 0;
+        Modifier.Flat = 0;
+        Modifier.Rate = 1;
     }
 
-    public void IncreaseBonus(long amount)
+    public void Add(StatModifier modifier)
     {
-        BonusLong += amount;
-        TotalLong += amount;
+        if (modifier.Type != Modifier.Type)
+        {
+            throw new ArgumentException($"Attempt to add mismatching stat type {modifier.Type} to type {Modifier.Type}");
+        }
+
+        Modifier.Flat += modifier.Flat;
+        Modifier.Rate += modifier.Rate;
     }
 
-    public void IncreaseBase(int amount)
+    public void Add(int flat, float rate = 0)
     {
-        Bonus += amount;
-        Base += amount;
-        Total += amount;
+        Modifier.Flat += flat;
+        Modifier.Rate += rate;
     }
 
-    public void IncreaseBase(long amount)
+    public void Add(long flat, float rate = 0)
     {
-        BonusLong += amount;
-        BaseLong += amount;
-        TotalLong += amount;
+        Modifier.Flat += flat;
+        Modifier.Rate += rate;
     }
 
-    public void Increase(int amount)
+    public void Add(float rate)
     {
-        Total = Math.Min(Bonus, Total + amount);
+        Modifier.Rate += rate;
     }
 
-    public void Increase(long amount)
+    public long ComputeValue()
     {
-        TotalLong = Math.Min(BonusLong, TotalLong + amount);
+        if (Modifier.Type == StatAttributeType.Flat)
+        {
+            return (long) (Modifier.Rate * (Value.BaseLong + Modifier.Flat));
+        }
+
+        return (long) (Value.BaseLong + Modifier.Flat + 1000 * Modifier.Rate);
     }
 
-    public void DecreaseBonus(int amount)
+    public void ComputeBonus()
     {
-        int newMax = Math.Clamp(Bonus - amount, Base, Bonus);
-        int newCurrent = Total - amount;
-        //if (statIndex == PlayerStatId.Hp || statIndex == PlayerStatId.Spirit)
-        //{
-        //    newCurrent = Math.Clamp(newCurrent, 50, newMax); // TODO: Find Hp/Sp reset formula
-        //}
-        Bonus = newMax;
-        Total = newCurrent;
+        Value.BonusLong = ComputeValue();
+        Value.TotalLong = Value.BonusLong;
     }
 
-    public void DecreaseBonus(long amount)
+    public void ComputeBase()
     {
-        long newMax = Math.Clamp(BonusLong - amount, BaseLong, BonusLong);
-        long newCurrent = Total - amount;
-        //if (statIndex == PlayerStatId.Hp || statIndex == PlayerStatId.Spirit)
-        //{
-        //    newCurrent = Math.Clamp(newCurrent, 50, newMax); // TODO: Find Hp/Sp reset formula
-        //}
-        BonusLong = newMax;
-        TotalLong = newCurrent;
+        Value.BaseLong = ComputeValue();
     }
 
-    public void DecreaseBase(int amount)
+    public void AddBase(int value)
     {
-        // Clamp Min to 0?
-        Bonus -= amount;
-        Base -= amount;
-        Total -= amount;
+        Value.Base += value;
     }
 
-    public void DecreaseBase(long amount)
+    public void AddBase(long value)
     {
-        // Clamp Min to 0?
-        BonusLong -= amount;
-        BaseLong -= amount;
-        TotalLong -= amount;
+        Value.BaseLong += value;
     }
 
-    public void Decrease(int amount)
+    public void AddBonus(int value)
     {
-        Total -= amount;
+        Value.Bonus += value;
+        Value.Total += value;
     }
 
-    public void Decrease(long amount)
+    public void AddBonus(long value)
     {
-        TotalLong -= amount;
+        Value.BonusLong += value;
+        Value.TotalLong += value;
+    }
+
+    public void AddValue(int value)
+    {
+        SetValue(Total + value);
+    }
+
+    public void AddValue(long value)
+    {
+        SetValue(TotalLong + value);
+    }
+
+    public void SetValue(int value)
+    {
+        Value.Total = Math.Clamp(value, 0, Bonus);
+    }
+
+    public void SetValue(long value)
+    {
+        Value.TotalLong = Math.Clamp(value, 0, BonusLong);
     }
 }

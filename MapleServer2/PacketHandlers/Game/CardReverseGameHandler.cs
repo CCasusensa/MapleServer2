@@ -12,7 +12,7 @@ public class CardReverseGameHandler : GamePacketHandler<CardReverseGameHandler>
 {
     public override RecvOp OpCode => RecvOp.CardReverseGame;
 
-    private enum CardReverseGameMode : byte
+    private enum Mode : byte
     {
         Open = 0x0,
         Mix = 0x1,
@@ -21,17 +21,17 @@ public class CardReverseGameHandler : GamePacketHandler<CardReverseGameHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        CardReverseGameMode mode = (CardReverseGameMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case CardReverseGameMode.Open:
+            case Mode.Open:
                 HandleOpen(session);
                 break;
-            case CardReverseGameMode.Mix:
+            case Mode.Mix:
                 HandleMix(session);
                 break;
-            case CardReverseGameMode.Select:
+            case Mode.Select:
                 HandleSelect(session);
                 break;
             default:
@@ -69,11 +69,7 @@ public class CardReverseGameHandler : GamePacketHandler<CardReverseGameHandler>
         int index = Random.Shared.Next(cards.Count);
 
         CardReverseGame card = cards[index];
-        Item item = new(card.ItemId)
-        {
-            Amount = card.ItemAmount,
-            Rarity = card.ItemRarity
-        };
+        Item item = new(card.ItemId, card.ItemAmount, card.ItemRarity);
 
         session.Send(CardReverseGamePacket.Select(index));
         session.Player.Inventory.AddItem(session, item, true);

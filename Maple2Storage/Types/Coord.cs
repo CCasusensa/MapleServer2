@@ -38,6 +38,21 @@ public struct CoordF
         };
     }
 
+    public static CoordF Rotate(CoordF vector, double zRotation)
+    {
+        double angle = Math.PI * zRotation / 1800;
+        double cos = Math.Cos(angle);
+        double sin = Math.Sin(angle);
+
+        // from the definition of a 2D rotation matrix in MS2's coord space
+        return new()
+        {
+            X = (float) (cos * vector.X - sin * vector.Y),
+            Y = (float) (sin * vector.X + cos * vector.Y),
+            Z = vector.Z // xy plane rotation won't change z
+        };
+    }
+
     public static CoordF FromVector3(Vector3 vector3)
     {
         return From(vector3.X, vector3.Y, vector3.Z);
@@ -119,6 +134,11 @@ public struct CoordF
             coord.X - value,
             coord.Y - value,
             coord.Z - value);
+    }
+
+    public static CoordF operator -(CoordF coord)
+    {
+        return From(-coord.X, -coord.Y, -coord.Z);
     }
 
     public static float operator *(CoordF left, CoordF right)
@@ -574,7 +594,7 @@ public struct CoordB
     /// </summary>
     public long AsHexadecimal()
     {
-        string coordRevertedAsString = $"{Z}{Y:X2}{X:X2}";
+        string coordRevertedAsString = $"{Z:X2}{Y:X2}{X:X2}";
         return Convert.ToInt64(coordRevertedAsString, 16);
     }
 

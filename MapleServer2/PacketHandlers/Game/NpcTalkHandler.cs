@@ -5,6 +5,7 @@ using MapleServer2.Constants;
 using MapleServer2.Data.Static;
 using MapleServer2.Managers;
 using MapleServer2.Managers.Actors;
+using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Tools;
@@ -17,11 +18,12 @@ public class NpcTalkHandler : GamePacketHandler<NpcTalkHandler>
 {
     public override RecvOp OpCode => RecvOp.NpcTalk;
 
-    private enum NpcTalkMode : byte
+    private enum Mode : byte
     {
         Close = 0,
-        Respond = 1,
+        Begin = 1,
         Continue = 2,
+        Enchant = 6,
         NextQuest = 7
     }
 
@@ -34,18 +36,21 @@ public class NpcTalkHandler : GamePacketHandler<NpcTalkHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        NpcTalkMode function = (NpcTalkMode) packet.ReadByte();
+        Mode function = (Mode) packet.ReadByte();
         switch (function)
         {
-            case NpcTalkMode.Close:
+            case Mode.Close:
                 return;
-            case NpcTalkMode.Respond:
-                HandleRespond(session, packet);
+            case Mode.Begin:
+                HandleBegin(session, packet);
                 break;
-            case NpcTalkMode.Continue:
+            case Mode.Continue:
                 HandleContinue(session, packet.ReadInt());
                 break;
-            case NpcTalkMode.NextQuest:
+            case Mode.Enchant:
+                HandleEnchant(session, packet);
+                break;
+            case Mode.NextQuest:
                 HandleNextQuest(session, packet);
                 break;
             default:
@@ -54,13 +59,14 @@ public class NpcTalkHandler : GamePacketHandler<NpcTalkHandler>
         }
     }
 
-    private static void HandleRespond(GameSession session, PacketReader packet)
+    private static void HandleBegin(GameSession session, PacketReader packet)
     {
-        List<QuestStatus> npcQuests = new();
         int objectId = packet.ReadInt();
+        List<QuestStatus> npcQuests = new();
+        int contentIndex = 0;
 
         // Find if npc object id exists in field manager
-        if (!session.FieldManager.State.Npcs.TryGetValue(objectId, out Npc npc))
+        if (!session.FieldManager.State.Npcs.TryGetValue(objectId, out Npc? npc))
         {
             return;
         }
@@ -82,151 +88,413 @@ public class NpcTalkHandler : GamePacketHandler<NpcTalkHandler>
         session.Player.NpcTalk = new(npc.Value, npcQuests);
         NpcTalk npcTalk = session.Player.NpcTalk;
 
-        Script script = ScriptLoader.GetScript($"Npcs/{npc.Value.Id}", session);
+        ScriptMetadata? scriptMetadata = ScriptMetadataStorage.GetNpcScriptMetadata(npc.Value.Id);
+        NpcKind kind = npc.Value.NpcMetadataBasic.Kind;
 
-        // If NPC is a shop, load and open the shop
-        if (npc.Value.IsShop())
+        NpcScript? script = null;
+
+        // find select script
+        NpcScript? selectScript = scriptMetadata?.NpcScripts?.FirstOrDefault(x => x.Type == ScriptType.Select);
+
+        // find any first script
+        NpcScript? talkScript = GetFirstTalkScript(session, scriptMetadata);
+
+        // find any quest scripts
+        NpcScript? questScript = GetFirstQuestScript(session, npcTalk, npcQuests);
+
+        if (npc.Value.ShopId != 0)
         {
-            ShopHandler.HandleOpen(session, npc);
-            return;
+            npcTalk.DialogType |= DialogType.UI;
         }
 
-        if (npc.Value.IsBank())
+        // determine which script to use
+        if (questScript is not null)
         {
-            session.Send(HomeBank.OpenBank());
-            return;
-        }
-
-        if (npc.Value.IsBeauty())
-        {
-            NpcMetadata npcTarget = NpcMetadataStorage.GetNpcMetadata(npcTalk.Npc.Id);
-            if (npcTarget.ShopId == 507) // mirror
+            npcTalk.DialogType |= DialogType.Quest;
+            if (npcTalk.DialogType.HasFlag(DialogType.UI))
             {
-                session.Send(NpcTalkPacket.Respond(npc, NpcType.Default, DialogType.Beauty, 0));
-                HandleBeauty(session);
-                return;
+                script = selectScript;
+                npcTalk.DialogType |= DialogType.Options;
+                if (talkScript is not null)
+                {
+                    npcTalk.DialogType |= DialogType.Talk;
+                }
             }
-
-            session.Send(NpcTalkPacket.Respond(npc, NpcType.Default, DialogType.Beauty, 1));
-            return;
+            else
+            {
+                if (talkScript is not null)
+                {
+                    if (talkScript.Type == ScriptType.Job)
+                    {
+                        npcTalk.DialogType |= DialogType.UI;
+                    }
+                    else
+                    {
+                        npcTalk.DialogType |= DialogType.Talk;
+                    }
+                    npcTalk.DialogType |= DialogType.Options;
+                    script = selectScript;
+                }
+                else
+                {
+                    script = questScript;
+                }
+            }
+        }
+        else
+        {
+            if (talkScript is not null)
+            {
+                if (kind is NpcKind.BalmyShop or NpcKind.FixedShop or NpcKind.RotatingShop)
+                {
+                    script = selectScript;
+                    npcTalk.DialogType |= DialogType.Options;
+                    npcTalk.DialogType |= DialogType.Talk;
+                }
+                else
+                {
+                    script = talkScript;
+                    if (talkScript.Type != ScriptType.Job)
+                    {
+                        npcTalk.DialogType |= DialogType.Talk;
+                    }
+                    else
+                    {
+                        npcTalk.DialogType |= DialogType.UI;
+                    }
+                }
+            }
         }
 
-        // Check if npc has an exploration quest
-        QuestManager.OnTalkNpc(session.Player, npc.Value.Id, 0);
-
-        // If npc has quests, send quests and talk option
-        if (npcQuests.Count != 0)
+        switch (kind)
         {
-            // Check if npc has scripts available
-            if (ScriptMetadataStorage.NpcHasScripts(npc.Value.Id))
-            {
-                npcTalk.ScriptId = 0;
-                session.Send(QuestPacket.SendDialogQuest(objectId, npcQuests));
-                session.Send(NpcTalkPacket.Respond(npc, NpcType.QuestOptions, DialogType.TalkOption, npcTalk.ScriptId));
-                return;
-            }
+            // reputation NPCs only have UI Dialog Type even if they have quests to accept/accepted.
+            case NpcKind.SkyLumiknightCommander:
+            case NpcKind.SkyGreenHoodCommander:
+            case NpcKind.SkyDarkWindCommander:
+            case NpcKind.SkyMapleAllianceCommander:
+            case NpcKind.SkyRoyalGuardCommander:
+            case NpcKind.KritiasLumiknightCommander:
+            case NpcKind.KritiasGreenHoodCommander:
+            case NpcKind.KritiasMapleAllianceCommander:
+            case NpcKind.Humanitas:
+                npcTalk.DialogType = DialogType.UI;
+                ShopHandler.HandleOpen(session, npc, npc.Value.Id);
+                break;
+            case NpcKind.BalmyShop:
+            case NpcKind.FixedShop:
+            case NpcKind.RotatingShop:
+                ShopHandler.HandleOpen(session, npc, npc.Value.Id);
+                break;
+            case NpcKind.Storage:
+            case NpcKind.BlackMarket:
+            case NpcKind.Birthday: // TODO: needs a special case? select if birthday. script if not
+                npcTalk.DialogType = DialogType.UI;
+                break;
+        }
 
-            // If npc has no scripts, send the quest script id
-            npcTalk.IsQuest = true;
-            npcTalk.QuestId = npcQuests.First().Id;
+        npcTalk.ScriptId = script?.Id ?? 0;
+        ResponseSelection responseSelection = GetResponseSelection(kind, npcTalk.DialogType, contentIndex, script);
 
-            ScriptMetadata questScript = ScriptMetadataStorage.GetQuestScriptMetadata(npcTalk.QuestId);
-            npcTalk.ScriptId = GetNextScript(questScript, npcTalk, 0, script, session.Player);
-
+        if (npcTalk.DialogType.HasFlag(DialogType.Quest))
+        {
             session.Send(QuestPacket.SendDialogQuest(objectId, npcQuests));
-            session.Send(NpcTalkPacket.Respond(npc, NpcType.Quest, DialogType.CloseNext, npcTalk.ScriptId));
-            return;
         }
 
-        ScriptMetadata scriptMetadata = ScriptMetadataStorage.GetNpcScriptMetadata(npc.Value.Id);
-        if (!scriptMetadata.Options.Exists(x => x.Type == ScriptType.Script))
+        QuestManager.OnTalkNpc(session.Player, npc.Value.Id, npcTalk.ScriptId);
+        session.Send(NpcTalkPacket.Respond(npc, npcTalk.DialogType, contentIndex, responseSelection, npcTalk.ScriptId));
+
+        if (script is not null)
         {
-            return;
-        }
-
-        int firstScriptId = GetFirstScriptId(script, scriptMetadata);
-        npcTalk.ScriptId = firstScriptId;
-
-        Option option = scriptMetadata.Options.First(x => x.Id == firstScriptId);
-
-        DialogType dialogType = option.Contents[0].Distractor is null ? DialogType.Close1 : DialogType.CloseNextWithDistractor;
-
-        session.Send(NpcTalkPacket.Respond(npc, NpcType.NormalTalk, dialogType, firstScriptId));
-
-        // If npc has buttonset roulette, send roulette id 13.
-        // TODO: Send the correct roulette id
-        if (scriptMetadata.Options.Any(x => x.ButtonSet == "roulette"))
-        {
-            session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "RouletteDialog", "13"));
+            npcTalk.TalkFunction(session, script.Contents[npcTalk.ContentIndex].FunctionId, "preTalkActions");
         }
     }
 
-    private static void HandleContinue(GameSession session, int index)
+    private static ResponseSelection GetResponseSelection(NpcKind npcKind, DialogType type, int contentIndex, NpcScript? npcScript)
+    {
+        if (npcScript is null)
+        {
+            return ResponseSelection.None;
+        }
+
+        if (npcScript.Contents[contentIndex]?.ButtonSet != 0)
+        {
+            return npcScript.Contents[contentIndex].ButtonSet;
+        }
+
+        if (type.HasFlag(DialogType.Options))
+        {
+            if (npcScript.Contents.Count > 0)
+            {
+                return ResponseSelection.SelectableTalk;
+            }
+
+            return ResponseSelection.None;
+        }
+
+        if (type.HasFlag(DialogType.UI) && npcScript.Type == ScriptType.Select)
+        {
+            return ResponseSelection.None;
+        }
+
+        if (npcScript.Contents[contentIndex].Distractor.Count > 0)
+        {
+            return ResponseSelection.SelectableDistractor;
+        }
+
+        if (npcScript.Contents.ElementAtOrDefault(contentIndex + 1) is not null)
+        {
+            return ResponseSelection.Next;
+        }
+
+        switch (npcScript.Type)
+        {
+            case ScriptType.Job:
+                switch (npcKind)
+                {
+                    case NpcKind.Travel:
+                        return ResponseSelection.TakeBoat;
+                    case NpcKind.BeautyDye:
+                    case NpcKind.BeautyHair:
+                    case NpcKind.BeautyFaceAndSkin:
+                    case NpcKind.BeautyFaceDecoration:
+                    case NpcKind.Mirror:
+                        return ResponseSelection.Beauty;
+                    case NpcKind.JobAdvancement:
+                        return ResponseSelection.JobAdvance;
+                    case NpcKind.Wheel:
+                        return ResponseSelection.Roulette;
+                }
+
+                break;
+            case ScriptType.Select:
+                switch (npcKind)
+                {
+                    case NpcKind.Storage:
+                    case NpcKind.FixedShop:
+                    case NpcKind.BalmyShop:
+                    case NpcKind.RotatingShop:
+                        return ResponseSelection.None;
+                }
+
+                break;
+        }
+
+        if (type == DialogType.Quest)
+        {
+            ScriptIdType questScriptIdType = (ScriptIdType) (npcScript.Id / 100);
+            return questScriptIdType switch
+            {
+                ScriptIdType.Start => ResponseSelection.QuestAccept,
+                ScriptIdType.Continue => ResponseSelection.QuestProgress,
+                ScriptIdType.End => ResponseSelection.QuestComplete,
+                _ => ResponseSelection.Close
+            };
+        }
+
+        return ResponseSelection.Close;
+    }
+
+    private static void HandleContinue(GameSession session, int selectedIndex)
     {
         NpcTalk npcTalk = session.Player.NpcTalk;
-        if (npcTalk.Npc.IsBeauty())
+        NpcScript? currentScript = npcTalk.GetCurrentScript();
+        NpcScript? nextScript = currentScript;
+        NpcKind kind = npcTalk.Npc.NpcMetadataBasic.Kind;
+        DialogType currentDialogType = npcTalk.DialogType;
+        npcTalk.DialogType = DialogType.None;
+        ResponseSelection responseSelection = ResponseSelection.None;
+        ScriptMetadata? metadata = ScriptMetadataStorage.GetNpcScriptMetadata(npcTalk.Npc.Id);
+
+        npcTalk.TalkFunction(session, currentScript?.Contents[npcTalk.ContentIndex].FunctionId ?? 0, "postTalkActions");
+
+        if (currentDialogType.HasFlag(DialogType.Options))
         {
-            HandleBeauty(session);
-            return;
+            // if npc has a quest
+            if (currentDialogType.HasFlag(DialogType.Quest))
+            {
+                if (selectedIndex <= npcTalk.Quests.Count - 1)
+                {
+                    npcTalk.QuestId = npcTalk.Quests[selectedIndex].Basic.Id;
+                    npcTalk.DialogType |= DialogType.Quest;
+                    nextScript = GetNextQuestScript(session, npcTalk);
+                    npcTalk.ScriptId = nextScript?.Id ?? 0;
+                    responseSelection = GetResponseSelection(kind, npcTalk.DialogType, npcTalk.ContentIndex, nextScript);
+                    session.Send(NpcTalkPacket.ContinueChat(npcTalk.ScriptId, npcTalk.DialogType, responseSelection, npcTalk.ContentIndex, npcTalk.QuestId));
+                    return;
+                }
+
+                npcTalk.ContentIndex = 0;
+                nextScript = GetFirstTalkScript(session, metadata);
+                npcTalk.DialogType = nextScript?.Type == ScriptType.Job ? DialogType.UI : DialogType.Talk;
+                npcTalk.ScriptId = nextScript?.Id ?? 0;
+                npcTalk.QuestId = 0;
+                responseSelection = GetResponseSelection(kind, npcTalk.DialogType, npcTalk.ContentIndex, nextScript);
+                session.Send(NpcTalkPacket.ContinueChat(npcTalk.ScriptId, npcTalk.DialogType, responseSelection, npcTalk.ContentIndex));
+                return;
+            }
+
+            // if npc had a shop option
+            if (currentDialogType.HasFlag(DialogType.UI))
+            {
+                if (selectedIndex == 0)
+                {
+                    // User selected to open UI
+                    npcTalk.DialogType = DialogType.UI;
+                    session.Send(NpcTalkPacket.ContinueChat(0, npcTalk.DialogType, responseSelection, npcTalk.ContentIndex));
+                    return;
+                }
+
+                npcTalk.ContentIndex = 0;
+                npcTalk.DialogType = DialogType.Talk;
+                nextScript = GetBasicTalkScript(session, metadata);
+                npcTalk.ScriptId = nextScript?.Id ?? 0;
+                responseSelection = GetResponseSelection(kind, npcTalk.DialogType, npcTalk.ContentIndex, nextScript);
+                session.Send(NpcTalkPacket.ContinueChat(npcTalk.ScriptId, npcTalk.DialogType, responseSelection, npcTalk.ContentIndex));
+                return;
+            }
         }
-
-        Script script = ScriptLoader.GetScript($"Npcs/{npcTalk.Npc.Id}", session);
-
-        // index is quest
-        if (index <= npcTalk.Quests.Count - 1 && npcTalk.ScriptId == 0)
+        else
         {
-            npcTalk.QuestId = npcTalk.Quests[index].Basic.Id;
-            npcTalk.IsQuest = true;
-        }
+            if (currentScript?.Contents[npcTalk.ContentIndex].Distractor.Count > 0)
+            {
+                if (currentDialogType.HasFlag(DialogType.Quest))
+                {
+                    metadata = ScriptMetadataStorage.GetQuestScriptMetadata(npcTalk.QuestId);
+                }
 
-        ScriptMetadata scriptMetadata = npcTalk.IsQuest ? ScriptMetadataStorage.GetQuestScriptMetadata(npcTalk.QuestId) : ScriptMetadataStorage.GetNpcScriptMetadata(npcTalk.Npc.Id);
-        ResponseType responseType = npcTalk.IsQuest ? ResponseType.Quest : ResponseType.Dialog;
+                // Handle GoTo
+                nextScript = GoToScript(session, selectedIndex, currentScript, npcTalk, metadata);
 
-        if (npcTalk.ScriptId != 0)
-        {
-            Option option = scriptMetadata.Options.First(x => x.Id == npcTalk.ScriptId);
+                if (nextScript?.Type == ScriptType.Select)
+                {
+                    session.Send(NpcTalkPacket.Close());
+                    return;
+                }
 
-            QuestManager.OnTalkNpc(session.Player, npcTalk.Npc.Id, npcTalk.ScriptId);
-
-            // If npc has no more options, close dialog
-            if (option.Contents.Count <= npcTalk.ContentIndex + 1 && option.Contents[npcTalk.ContentIndex].Distractor is null)
+                npcTalk.ScriptId = nextScript?.Id ?? 0;
+                npcTalk.ContentIndex = 0;
+            }
+            else if (currentScript?.Contents.ElementAtOrDefault(npcTalk.ContentIndex + 1) is null)
             {
                 session.Send(NpcTalkPacket.Close());
                 return;
             }
+            else
+            {
+                nextScript = currentScript;
+                npcTalk.ContentIndex++;
+            }
         }
 
-        int nextScriptId = GetNextScript(scriptMetadata, npcTalk, index, script, session.Player);
-
-        // If last script is different from next, reset content index, else increment content index
-        if (npcTalk.ScriptId != nextScriptId)
+        npcTalk.DialogType = GetDialogType(nextScript, npcTalk);
+        responseSelection = GetResponseSelection(kind, npcTalk.DialogType, npcTalk.ContentIndex, nextScript);
+        if (nextScript != null)
         {
-            npcTalk.ContentIndex = 0;
-        }
-        else
-        {
-            npcTalk.ContentIndex++;
+            npcTalk.TalkFunction(session, nextScript.Contents[npcTalk.ContentIndex].FunctionId, "preTalkActions");
         }
 
-        Option nextScript = scriptMetadata.Options.FirstOrDefault(x => x.Id == nextScriptId);
-        if (nextScript is null)
+        session.Send(NpcTalkPacket.ContinueChat(npcTalk.ScriptId, npcTalk.DialogType, responseSelection, npcTalk.ContentIndex, npcTalk.QuestId));
+    }
+
+    private static NpcScript? GoToScript(GameSession session, int selectedIndex, NpcScript currentScript, NpcTalk npcTalk, ScriptMetadata? metadata)
+    {
+        if (currentScript.Contents[npcTalk.ContentIndex].Distractor[selectedIndex].Goto.Count == 1 &&
+            currentScript.Contents[npcTalk.ContentIndex].Distractor[selectedIndex].GotoFail.Count == 0)
         {
-            session.Send(NpcTalkPacket.Close());
+            return metadata?.NpcScripts.FirstOrDefault(x => x.Id == currentScript.Contents[npcTalk.ContentIndex].Distractor[selectedIndex].Goto.First());
+        }
+
+        if (currentScript.Contents[npcTalk.ContentIndex].Distractor[selectedIndex].Goto.Count != 0)
+        {
+            Script? luaScript = ScriptLoader.GetScript($"Npcs/{session.Player.NpcTalk.Npc.Id}", session);
+            DynValue? result = luaScript?.RunFunction("handleGoto", currentScript.Contents[npcTalk.ContentIndex].Distractor[selectedIndex].Goto[0]);
+            if (result is not null && (int) result.Number != -1)
+            {
+                return metadata?.NpcScripts.FirstOrDefault(x => x.Id == (int) result.Number);
+            }
+        }
+
+        return metadata?.NpcScripts.FirstOrDefault(x => x.Id == currentScript.Contents[npcTalk.ContentIndex].Distractor[selectedIndex].Goto[0]);
+    }
+
+    private static DialogType GetDialogType(NpcScript? npcScript, NpcTalk npcTalk)
+    {
+        if (npcScript is null)
+        {
+            return DialogType.Talk;
+        }
+
+        if (npcScript.Type == ScriptType.Job)
+        {
+            return DialogType.UI;
+        }
+
+        if (npcTalk.QuestId != 0)
+        {
+            return DialogType.Quest;
+        }
+
+        return DialogType.Talk;
+    }
+
+    private static void HandleEnchant(GameSession session, PacketReader packet)
+    {
+        int npcId = packet.ReadInt();
+        int scriptId = packet.ReadInt();
+        NpcTalkEventType eventType = (NpcTalkEventType) packet.ReadShort();
+        // ReSharper disable once NotAccessedVariable -- TODO: Implement
+        long itemUid = 0;
+        if (eventType is NpcTalkEventType.Begin)
+        {
+            itemUid = packet.ReadLong();
+        }
+
+        ScriptMetadata? scriptMetadata = ScriptMetadataStorage.GetNpcScriptMetadata(npcId);
+        NpcScript? npcScript = scriptMetadata?.NpcScripts.FirstOrDefault(x => x.Id == scriptId);
+        if (npcScript is null)
+        {
             return;
         }
 
-        bool hasNextScript = nextScript.Contents[npcTalk.ContentIndex].Distractor is not null;
-        if (nextScript.Contents.Count > npcTalk.ContentIndex + 1)
+        ItemEnchant? itemEnchant = session.Player.ItemEnchant;
+        if (itemEnchant is null)
         {
-            hasNextScript = true;
+            return;
         }
 
-        npcTalk.ScriptId = nextScriptId;
+        Item? item = session.Player.Inventory.GetFromInventoryOrEquipped(itemEnchant.ItemUid);
+        if (item is null)
+        {
+            return;
+        }
 
-        DialogType dialogType = GetDialogType(scriptMetadata, npcTalk, hasNextScript);
+        Script? script = ScriptLoader.GetScript($"Npcs/{npcId}", session);
+        int eventId;
+        switch (eventType)
+        {
+            case NpcTalkEventType.Begin:
+                eventId = (int) (script?.RunFunction("getBeginEventId", item.Rarity, item.EnchantLevel)?.Number ?? 0);
+                break;
+            case NpcTalkEventType.InProgress:
+                eventId = (int) (script?.RunFunction("getProcessEventId", EnchantHelper.PlayerHasIngredients(itemEnchant, session.Player.Inventory),
+                                     EnchantHelper.PlayerHasRequiredCatalysts(itemEnchant),
+                                     itemEnchant.Rates.BaseSuccessRate + itemEnchant.Rates.CatalystTotalRate())?.Number ??
+                                 0);
+                break;
+            case NpcTalkEventType.Result:
+                eventId = (int) (script?.RunFunction("getResultEventId", item.EnchantLevel, itemEnchant.Success)?.Number ?? 0);
+                break;
+            default:
+                return;
+        }
 
-        session.Send(NpcTalkPacket.ContinueChat(nextScriptId, responseType, dialogType, npcTalk.ContentIndex, npcTalk.QuestId));
-        // It appears if content has buttonset roulette, it's send again on every continue chat, unsure why since it doesn't break anything
+        if (eventId == 0)
+        {
+            return;
+        }
+
+        EnchantHelper.HandleNpcTalkEventType(session, npcScript, eventId);
     }
 
     private static void HandleNextQuest(GameSession session, PacketReader packet)
@@ -237,158 +505,126 @@ public class NpcTalkHandler : GamePacketHandler<NpcTalkHandler>
         // Complete quest
         if (mode == 2)
         {
-            session.Player.QuestData.TryGetValue(questId, out QuestStatus questStatus);
+            session.Player.QuestData.TryGetValue(questId, out QuestStatus? questStatus);
             questStatus?.Condition.ForEach(x => x.Completed = true);
         }
         else
         {
-            session.Player.QuestData.TryGetValue(questId, out QuestStatus quest);
+            session.Player.QuestData.TryGetValue(questId, out QuestStatus? quest);
             session.Player.NpcTalk.Quests = quest is not null
-                ? new() { quest }
-                : new() { new(session.Player.CharacterId, questId) };
-        }
-
-        session.Player.NpcTalk.ScriptId = 0;
-        HandleContinue(session, 0);
-    }
-
-    private static void HandleBeauty(GameSession session)
-    {
-        MapPortal portal = MapEntityMetadataStorage.GetPortals(session.Player.MapId).FirstOrDefault(portal => portal.Id == 99); // unsure how the portalId is determined
-        if (portal is null)
-        {
-            return;
-        }
-
-        session.Send(NpcTalkPacket.Action(ActionType.Portal, "", "", portal.Id));
-        NpcMetadata npcTarget = NpcMetadataStorage.GetNpcMetadata(session.Player.NpcTalk.Npc.Id);
-        session.Player.ShopId = npcTarget.ShopId;
-
-        switch (npcTarget.ShopId)
-        {
-            case 500: // Dr Dixon
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "face")); // unsure how these strings are determined
-                break;
-            case 501: // Dr Zenko
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "skin"));
-                break;
-            case 504: // Rosetta
-            case 509: //Lolly
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "hair,style"));
-                break;
-            case 505: // Ren
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "makeup"));
-                break;
-            case 506: // Douglas
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "itemcolor"));
-                break;
-            case 507: // Mirror
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "mirror"));
-                break;
-            case 508: // Paulie
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "hair,random"));
-                break;
-            case 510: // Mino
-                session.Send(NpcTalkPacket.Action(ActionType.OpenWindow, "BeautyShopDialog", "hair,styleSave"));
-                break;
-        }
-
-        session.Send(UserMoveByPortalPacket.Move(session.Player.FieldPlayer, portal.Coord.ToFloat(), portal.Rotation.ToFloat()));
-    }
-
-    private static DialogType GetDialogType(ScriptMetadata scriptMetadata, NpcTalk npcTalk, bool hasNextScript)
-    {
-        Option option = scriptMetadata.Options.First(x => x.Id == npcTalk.ScriptId);
-        Content content = option.Contents[npcTalk.ContentIndex];
-
-        // If npc has buttonSet by xmls, use it
-        if (content.ButtonSet != DialogType.None)
-        {
-            return content.ButtonSet;
-        }
-
-        if (!hasNextScript)
-        {
-            // Get the correct dialog type for the last quest content
-            ScriptIdType type = (ScriptIdType) (npcTalk.ScriptId / 100);
-            if (npcTalk.IsQuest)
-            {
-                return type switch
+                ? new()
                 {
-                    ScriptIdType.Start => DialogType.AcceptDecline,
-                    ScriptIdType.End => DialogType.QuestReward,
-                    _ => DialogType.Close1
+                    quest
+                }
+                : new()
+                {
+                    new(session.Player.CharacterId, questId)
                 };
-            }
-
-            return DialogType.Close1;
         }
 
-        return content.Distractor is null ? DialogType.CloseNext : DialogType.CloseNextWithDistractor;
+        NpcTalk npcTalk = session.Player.NpcTalk;
+        npcTalk.QuestId = questId;
+        npcTalk.ScriptId = 0;
+        npcTalk.ContentIndex = 0;
+        DialogType dialogType = DialogType.Quest;
+        NpcScript? nextScript = GetNextQuestScript(session, npcTalk);
+        npcTalk.ScriptId = nextScript?.Id ?? 0;
+        npcTalk.DialogType = dialogType;
+        ResponseSelection responseSelection = GetResponseSelection(npcTalk.Npc.NpcMetadataBasic.Kind, npcTalk.DialogType, npcTalk.ContentIndex, nextScript);
+        session.Send(NpcTalkPacket.ContinueChat(npcTalk.ScriptId, npcTalk.DialogType, responseSelection, npcTalk.ContentIndex, npcTalk.QuestId));
     }
 
-    private static int GetNextScript(ScriptMetadata scriptMetadata, NpcTalk npcTalk, int index, Script script, Player player)
+    private static NpcScript? GetNextQuestScript(GameSession session, NpcTalk npcTalk, int index = 0)
     {
-        if (npcTalk.IsQuest && npcTalk.ScriptId == 0)
+        ScriptMetadata? scriptMetadata = ScriptMetadataStorage.GetQuestScriptMetadata(npcTalk.QuestId);
+        if (scriptMetadata is null)
         {
-            QuestStatus questStatus = npcTalk.Quests[index];
-            if (questStatus.State is not QuestState.Started)
-            {
-                // Talking to npc that start the quest and isn't started
-                return scriptMetadata.Options.FirstOrDefault(x => x.Id < 200 && x.JobId == (int) player.Job)?.Id ?? 100;
-            }
-
-            if (questStatus.StartNpcId == npcTalk.Npc.Id && questStatus.Condition.Count != questStatus.Condition.Count(x => x.Completed))
-            {
-                // Talking to npc that start the quest and condition is not completed
-                return scriptMetadata.Options.FirstOrDefault(x => x.Id is >= 200 and <= 299 && x.JobId == (int) player.Job)?.Id ?? 200;
-            }
-
-            // Talking to npc that end the quest
-            return scriptMetadata.Options.FirstOrDefault(x => x.Id >= 300 && x.JobId == (int) player.Job)?.Id ?? 300;
+            return null;
         }
 
-        if (npcTalk.ScriptId == 0)
+        if (npcTalk.ScriptId != 0)
         {
-            return GetFirstScriptId(script, scriptMetadata);
+            return null;
         }
 
-        Option currentOption = scriptMetadata.Options.First(x => x.Id == npcTalk.ScriptId);
-        Content content = currentOption.Contents[npcTalk.ContentIndex];
-        if (content.Distractor is null || currentOption.Contents.Count > 1 && currentOption.Contents.Count > npcTalk.ContentIndex + 1)
+        QuestStatus questStatus = npcTalk.Quests[index];
+        if (questStatus.State is not QuestState.Started)
         {
-            return npcTalk.ScriptId;
+            // Talking to npc that start the quest and isn't started
+            return scriptMetadata.NpcScripts.FirstOrDefault(x => x.Id < 200 && x.JobId == (int) session.Player.JobCode) ??
+                   scriptMetadata.NpcScripts.FirstOrDefault(x => x.Id == 100);
         }
 
-        // If content has any goto, use the lua scripts to check the requirements
-        if (content.Distractor[index].Goto.Count > 0 && script is not null)
+        if (questStatus.State is QuestState.Started && questStatus.StartNpcId == npcTalk.Npc.Id)
         {
-            DynValue result = script.RunFunction("handleGoto", content.Distractor[index].Goto[0]);
-            if (result is not null && (int) result.Number != -1)
+            // Talking to npc that start the quest and condition is not completed
+            if (questStatus.Condition.Count != questStatus.Condition.Count(x => x.Completed))
             {
-                return (int) result.Number;
+                return scriptMetadata.NpcScripts.FirstOrDefault(x => x.Id is >= 200 and <= 299 && x.JobId == (int) session.Player.JobCode) ??
+                       scriptMetadata.NpcScripts.FirstOrDefault(x => x.Id == 200);
             }
         }
 
-        // If there is no script just return the selected index and first goto option
-        return content.Distractor[index].Goto[0];
+        // Talking to npc that end the quest
+        return scriptMetadata.NpcScripts.FirstOrDefault(x => x.Id >= 300 && x.JobId == (int) session.Player.JobCode) ??
+               scriptMetadata.NpcScripts.FirstOrDefault(x => x.Id == 300);
     }
 
-    private static int GetFirstScriptId(Script script, ScriptMetadata scriptMetadata)
+    private static NpcScript? GetFirstQuestScript(GameSession session, NpcTalk npcTalk, List<QuestStatus> npcQuests)
     {
-        if (script is null)
+        if (npcQuests.Count <= 0)
         {
-            return scriptMetadata.Options.First(x => x.Type == ScriptType.Script).Id;
+            return null;
         }
 
-        // Usually hardcoded functions to get the first script id which
-        // otherwise wouldn't be possible only with the xml data
-        DynValue firstScriptResult = script.RunFunction("getFirstScriptId");
-        if (firstScriptResult is not null && (int) firstScriptResult.Number != -1)
+        npcTalk.QuestId = npcQuests.First().Id;
+        return GetNextQuestScript(session, npcTalk);
+    }
+
+    private static NpcScript? GetFirstTalkScript(GameSession session, ScriptMetadata? scriptMetadata)
+    {
+        if (scriptMetadata is null)
         {
-            return (int) firstScriptResult.Number;
+            return null;
         }
 
-        return scriptMetadata.Options.First(x => x.Type == ScriptType.Script).Id;
+        if (scriptMetadata.NpcScripts.Any(x => x.Type == ScriptType.Job))
+        {
+            Script? luaScript = ScriptLoader.GetScript($"Npcs/{scriptMetadata.Id}", session);
+            DynValue? scriptResult = luaScript?.RunFunction("meetsJobScriptRequirement");
+            if (scriptResult is { Boolean: true })
+            {
+                return scriptMetadata.NpcScripts.FirstOrDefault(x => x.Type == ScriptType.Job);
+            }
+        }
+
+        return GetBasicTalkScript(session, scriptMetadata);
+    }
+
+    private static NpcScript? GetBasicTalkScript(GameSession session, ScriptMetadata? scriptMetadata)
+    {
+        if (scriptMetadata is null)
+        {
+            return null;
+        }
+
+        int randomPickCount = scriptMetadata.NpcScripts.Count(x => x.RandomPick);
+        switch (randomPickCount)
+        {
+            case 0:
+                return null;
+            case 1:
+                return scriptMetadata.NpcScripts.FirstOrDefault(x => x.RandomPick);
+            default:
+                Script? luaScript = ScriptLoader.GetScript($"Npcs/{scriptMetadata.Id}", session);
+                DynValue? firstScriptResult = luaScript?.RunFunction("getFirstScriptId");
+                if (firstScriptResult != null && (int) firstScriptResult.Number != -1)
+                {
+                    return scriptMetadata.NpcScripts.First(x => x.Id == (int) firstScriptResult.Number);
+                }
+
+                Logger.Warning($"Unhandled NPC {scriptMetadata.Id} with multiple possible talk scripts");
+                return scriptMetadata.NpcScripts.FirstOrDefault(x => x.RandomPick);
+        }
     }
 }

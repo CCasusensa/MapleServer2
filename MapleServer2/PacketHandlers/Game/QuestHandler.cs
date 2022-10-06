@@ -15,7 +15,7 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
 {
     public override RecvOp OpCode => RecvOp.Quest;
 
-    private enum QuestMode : byte
+    private enum Mode : byte
     {
         AcceptQuest = 0x02,
         CompleteQuest = 0x04,
@@ -29,32 +29,32 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        QuestMode mode = (QuestMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case QuestMode.AcceptQuest:
+            case Mode.AcceptQuest:
                 HandleAcceptQuest(session, packet);
                 break;
-            case QuestMode.CompleteQuest:
+            case Mode.CompleteQuest:
                 HandleCompleteQuest(session, packet);
                 break;
-            case QuestMode.ExplorationQuests:
+            case Mode.ExplorationQuests:
                 HandleAddExplorationQuests(session, packet);
                 break;
-            case QuestMode.CompleteNavigator:
+            case Mode.CompleteNavigator:
                 HandleCompleteNavigator(session, packet);
                 break;
-            case QuestMode.ResumeDungeon:
+            case Mode.ResumeDungeon:
                 HandleResumeDungeon(session, packet);
                 break;
-            case QuestMode.DispatchMode:
+            case Mode.DispatchMode:
                 HandleDispatchMode(session, packet);
                 break;
-            case QuestMode.ToggleTracking:
+            case Mode.ToggleTracking:
                 HandleToggleTracking(session, packet);
                 break;
-            case QuestMode.SkyFortress:
+            case Mode.SkyFortress:
                 HandleSkyFortressTeleport(session);
                 break;
             default:
@@ -80,6 +80,7 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
 
         questStatus.State = QuestState.Started;
         questStatus.StartTimestamp = TimeInfo.Now();
+        questStatus.Accepted = true;
         DatabaseManager.Quests.Update(questStatus);
         session.Send(QuestPacket.AcceptQuest(questStatus));
         TrophyManager.OnAcceptQuest(session.Player, questId);
@@ -104,12 +105,9 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
 
         foreach (QuestRewardItem reward in questStatus.RewardItems)
         {
-            Item newItem = new(reward.Code)
-            {
-                Amount = reward.Count,
-                Rarity = reward.Rank
-            };
-            if (newItem.RecommendJobs.Contains(session.Player.Job) || newItem.RecommendJobs.Contains(0))
+            Item newItem = new(reward.Code, reward.Count, reward.Rank);
+            List<int> limitJobRequirements = ItemMetadataStorage.GetMetadata(reward.Code).Limit.JobRequirements;
+            if (limitJobRequirements.Contains((int) session.Player.JobCode) || limitJobRequirements.Contains(0))
             {
                 session.Player.Inventory.AddItem(session, newItem, true);
             }
@@ -143,11 +141,7 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
 
         foreach (QuestRewardItem rewardItem in questStatus.RewardItems)
         {
-            Item item = new(rewardItem.Code)
-            {
-                Amount = rewardItem.Count,
-                Rarity = rewardItem.Rank
-            };
+            Item item = new(rewardItem.Code, rewardItem.Count, rewardItem.Rank);
             session.Player.Inventory.AddItem(session, item, true);
         }
 
@@ -172,15 +166,17 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
 
             if (questStatus is null)
             {
-                questStatus = new(session.Player.CharacterId, questId, QuestState.Started, TimeInfo.Now());
+                questStatus = new(session.Player.CharacterId, questId, QuestState.Started, TimeInfo.Now(), accepted: true);
                 session.Player.QuestData.Add(questId, questStatus);
                 session.Send(QuestPacket.AcceptQuest(questStatus));
                 continue;
             }
 
-            session.Send(QuestPacket.AcceptQuest(questStatus));
             questStatus.State = QuestState.Started;
+            questStatus.StartTimestamp = TimeInfo.Now();
+            questStatus.Accepted = true;
             DatabaseManager.Quests.Update(questStatus);
+            session.Send(QuestPacket.AcceptQuest(questStatus));
         }
     }
 
@@ -221,7 +217,7 @@ public class QuestHandler : GamePacketHandler<QuestHandler>
             return;
         }
 
-        questStatus.Tracked = tracked;
+        questStatus.Accepted = tracked;
         DatabaseManager.Quests.Update(questStatus);
         session.Send(QuestPacket.ToggleTracking(questId, tracked));
     }

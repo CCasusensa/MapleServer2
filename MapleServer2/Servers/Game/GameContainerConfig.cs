@@ -2,7 +2,6 @@
 using Autofac;
 using MapleServer2.Network;
 using MapleServer2.PacketHandlers;
-using MapleServer2.Tools;
 
 namespace MapleServer2.Servers.Game;
 
@@ -19,9 +18,6 @@ public static class GameContainerConfig
             .SingleInstance();
         builder.RegisterType<GameSession>()
             .AsSelf();
-        builder.RegisterType<FieldManagerFactory>()
-            .AsSelf()
-            .SingleInstance();
 
         // Make all packet handlers available to PacketRouter
         builder.RegisterAssemblyTypes(Assembly.Load(nameof(MapleServer2)))

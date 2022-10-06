@@ -14,7 +14,7 @@ public class MasteryHandler : GamePacketHandler<MasteryHandler>
 {
     public override RecvOp OpCode => RecvOp.ConstructRecipe;
 
-    private enum MasteryMode : byte
+    private enum Mode : byte
     {
         RewardBox = 0x01,
         CraftItem = 0x02
@@ -31,13 +31,13 @@ public class MasteryHandler : GamePacketHandler<MasteryHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        MasteryMode mode = (MasteryMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
         switch (mode)
         {
-            case MasteryMode.RewardBox:
+            case Mode.RewardBox:
                 HandleRewardBox(session, packet);
                 break;
-            case MasteryMode.CraftItem:
+            case Mode.CraftItem:
                 HandleCraftItem(session, packet);
                 break;
             default:
@@ -153,11 +153,7 @@ public class MasteryHandler : GamePacketHandler<MasteryHandler>
         List<RecipeItem> resultItems = recipe.RewardItems;
         foreach (RecipeItem resultItem in resultItems)
         {
-            Item rewardItem = new(resultItem.ItemId)
-            {
-                Rarity = resultItem.Rarity,
-                Amount = resultItem.Amount
-            };
+            Item rewardItem = new(resultItem.ItemId, resultItem.Amount, resultItem.Rarity);
             session.Player.Inventory.AddItem(session, rewardItem, true);
             session.Send(MasteryPacket.GetCraftedItem((MasteryType) recipe.MasteryType, rewardItem));
         }

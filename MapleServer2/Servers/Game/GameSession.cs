@@ -21,12 +21,6 @@ public class GameSession : Session
     public Player Player;
 
     public FieldManager FieldManager { get; private set; }
-    private readonly FieldManagerFactory FieldManagerFactory;
-
-    public GameSession(FieldManagerFactory fieldManagerFactory)
-    {
-        FieldManagerFactory = fieldManagerFactory;
-    }
 
     public void SendNotice(string message)
     {
@@ -49,20 +43,6 @@ public class GameSession : Session
         // If moving maps, need to get the FieldManager for new map
         if (player.MapId != FieldManager.MapId || player.InstanceId != FieldManager.InstanceId)
         {
-            FieldManager.RemovePlayer(this); // Leave previous field
-
-            if (FieldManagerFactory.Release(FieldManager.MapId, FieldManager.InstanceId, player))
-            {
-                //If instance is destroyed, reset dungeonSession
-                DungeonSession dungeonSession = GameServer.DungeonManager.GetDungeonSessionByInstanceId(FieldManager.InstanceId);
-                //check if the destroyed map was a dungeon map
-                if (dungeonSession != null && FieldManager.InstanceId == dungeonSession.DungeonInstanceId
-                                           && dungeonSession.IsDungeonSessionMap(FieldManager.MapId))
-                {
-                    GameServer.DungeonManager.ResetDungeonSession(player, dungeonSession);
-                }
-            }
-
             // Initialize for new Map
             FieldManager = FieldManagerFactory.GetManager(player);
             player.FieldPlayer = FieldManager.RequestCharacter(player);
@@ -73,18 +53,17 @@ public class GameSession : Session
 
     protected override void EndSession(bool logoutNotice)
     {
-        if (Player is null || FieldManager is null || FieldManagerFactory is null)
+        if (Player is null || FieldManager is null)
         {
             return;
         }
 
-        FieldManagerFactory.Release(FieldManager.MapId, FieldManager.InstanceId, Player);
-
-        FieldManager.RemovePlayer(this);
+        FieldManager.RemovePlayer(Player);
         GameServer.PlayerManager.RemovePlayer(Player);
 
-        Player.OnlineCTS.Cancel();
+        Player.OnlineCTS?.Cancel();
         Player.OnlineTimeThread = null;
+        Player.TimeSyncTask = null;
 
         CoordF safeCoord = Player.SafeBlock;
         safeCoord.Z += Block.BLOCK_SIZE;

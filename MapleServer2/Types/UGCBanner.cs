@@ -4,11 +4,9 @@ namespace MapleServer2.Types;
 
 public class UGCBanner
 {
-    public long Id;
-    public int MapId;
-    public List<BannerSlot> Slots;
-
-    public UGCBanner() { }
+    public readonly long Id;
+    public readonly int MapId;
+    public readonly List<BannerSlot> Slots;
 
     public UGCBanner(long id, int mapId)
     {
@@ -25,7 +23,8 @@ public class BannerSlot
     public readonly int Hour;
     public readonly long BannerId;
     public bool Active;
-    public UGC UGC;
+    public UGC? UGC;
+    public bool Expired;
 
     public readonly DateTimeOffset ActivateTime;
 

@@ -13,7 +13,7 @@ public class BankInventory
     public int ExtraSize;
     public Currency Mesos;
 
-    public Item[] Items = new Item[36];
+    public Item?[] Items = new Item[36];
 
     public BankInventory()
     {
@@ -39,11 +39,6 @@ public class BankInventory
     public void Add(GameSession session, long uid, int amount, short slot)
     {
         Item item = session.Player.Inventory.GetByUid(uid);
-
-        if (ItemMetadataStorage.IsTradeDisabledWithinAccount(item.Id))
-        {
-            return;
-        }
 
         if (amount < item.Amount)
         {
@@ -107,6 +102,12 @@ public class BankInventory
 
         int outItemIndex = Array.FindIndex(Items, 0, Items.Length, x => x is not null && x.Uid == uid);
         outItem = Items[outItemIndex];
+
+        if (ItemMetadataStorage.IsTradeDisabledWithinAccount(outItem.Id) && outItem.IsBound() && !outItem.IsSelfBound(session.Player.CharacterId))
+        {
+            return false;
+        }
+
         if (amount >= outItem.Amount)
         {
             Items[outItemIndex] = null;
@@ -214,10 +215,11 @@ public class BankInventory
 
     public void LoadBank(GameSession session)
     {
+        session.Send(StorageInventoryPacket.Expand(ExtraSize));
         session.Send(StorageInventoryPacket.Update());
         session.Send(StorageInventoryPacket.Expand(ExtraSize));
-        session.Send(StorageInventoryPacket.ExpandAnim());
         session.Send(StorageInventoryPacket.UpdateMesos(Mesos.Amount));
+        session.Send(StorageInventoryPacket.ItemCount((short) Items.Length));
         LoadItems(session);
     }
 

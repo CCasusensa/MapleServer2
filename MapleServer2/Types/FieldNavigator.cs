@@ -29,7 +29,7 @@ public class FieldNavigator : IDisposable
     /// Creates a path from the agent position to the random position.
     /// </summary>
     /// <returns>List of CoordS or null if path is not possible</returns>
-    public List<CoordS> GenerateRandomPathAroundAgent(Agent agent, int radius)
+    public List<CoordS>? GenerateRandomPathAroundAgent(Agent agent, int radius)
     {
         Position randomPositionLocally = Mesh.generateRandomPositionLocally(agent.getPosition(), radius);
 
@@ -47,8 +47,13 @@ public class FieldNavigator : IDisposable
     /// Creates a path from the centerCoord to the random position.
     /// </summary>
     /// <returns>List of CoordS or null if path is not possible</returns>
-    public List<CoordS> GenerateRandomPathAroundCoord(Agent agent, CoordS centerCoord, int radius)
+    public List<CoordS>? GenerateRandomPathAroundCoord(Agent? agent, CoordS centerCoord, int radius)
     {
+        if (agent == null)
+        {
+            return null;
+        }
+
         Path path;
         try
         {
@@ -79,15 +84,19 @@ public class FieldNavigator : IDisposable
     /// Find the shortest path from the agent to the target position.
     /// </summary>
     /// <returns>List of CoordS or null if path is not possible</returns>
-    public List<CoordS> FindPath(Agent agent, CoordS endCoord)
+    public List<CoordS>? FindPath(Agent? agent, CoordS endCoord)
     {
         Path path;
         try
         {
-            if (!FindFirstPositionBelow(endCoord, out Position position))
+            if (!FindFirstPositionBelow(endCoord, out Position position) || agent is null)
             {
                 return null;
             }
+
+            Position findClosestUnobstructedPosition = agent.findClosestUnobstructedPosition(CollisionContext, 500);
+
+            agent.moveTo(findClosestUnobstructedPosition);
 
             path = agent.findShortestPathTo(CollisionContext, position);
         }
@@ -98,7 +107,7 @@ public class FieldNavigator : IDisposable
         catch (Exception e)
         {
             Logger.Error("Error in FindPath. Agent position: {0}. End coord: {1}. {2}",
-                agent.getPosition(), endCoord, e.Message);
+                agent?.getPosition(), endCoord, e.Message);
             return null;
         }
 
@@ -113,14 +122,14 @@ public class FieldNavigator : IDisposable
         int width = metadata.Radius; // Using radius for width
         int height = metadata.Height;
 
-        if (Shapes.TryGetValue((width, height), out Shape cacheShape))
+        if (Shapes.TryGetValue((width, height), out Shape? cacheShape))
         {
             return cacheShape;
         }
 
-        int halfWidth = width / 2;
-        int halfHeight = height / 2;
-        List<Point> rectArray = new()
+        int halfWidth = Math.Max(width / 2, 1);
+        int halfHeight = Math.Max(height / 2, 1);
+        List<Point> vertices = new()
         {
             new(-halfWidth, -halfHeight),
             new(-halfWidth, halfHeight),
@@ -128,7 +137,7 @@ public class FieldNavigator : IDisposable
             new(halfWidth, -halfHeight)
         };
 
-        Shape shape = MapleServer.PathEngine.newShape(rectArray);
+        Shape shape = MapleServer.PathEngine.newShape(vertices);
 
         Shapes.Add((width, height), shape);
 
@@ -141,7 +150,7 @@ public class FieldNavigator : IDisposable
     /// Creates an agent from the given sh2ape, also adds it to the mesh and to the collision context.
     /// </summary>
     /// <returns>Agent or null if position isn't valid</returns>
-    public Agent AddAgent(IFieldActor actor, Shape shape)
+    public Agent? AddAgent(IFieldActor actor, Shape? shape)
     {
         Position position = FindPositionFromCoordS(actor.Coord.ToShort());
         if (!PositionIsValid(position))
@@ -200,6 +209,29 @@ public class FieldNavigator : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Find the first valid position below the given coordS.
+    /// </summary>
+    public bool FindFirstCoordSBelow(CoordS coordF, out CoordS result)
+    {
+        result = default;
+        CoordS tempCoord = coordF;
+        // Check 3 times below the given coordS
+        for (int i = 0; i < 3; i++)
+        {
+            Position position = Mesh.positionNear3DPoint(tempCoord.X, tempCoord.Y, tempCoord.Z, horizontalRange: 15, verticalRange: 150);
+            if (position.Cell != -1)
+            {
+                result = GetCoordSFromPosition(position);
+                return true;
+            }
+
+            tempCoord.Z -= Block.BLOCK_SIZE;
+        }
+
+        return false;
+    }
+
     public CoordS? FindClosestUnobstructedCoordS(Shape shape, CoordS coordS, int radius)
     {
         Position position = FindPositionFromCoordS(coordS);
@@ -225,10 +257,10 @@ public class FieldNavigator : IDisposable
             return null;
         }
 
-        return CoordS.From(unobstructedPosition.X, unobstructedPosition.Y, Mesh.heightAtPosition(unobstructedPosition));
+        return GetCoordSFromPosition(unobstructedPosition);
     }
 
-    private List<CoordS> PathToCoordS(Path path)
+    private List<CoordS>? PathToCoordS(Path? path)
     {
         if (path is null)
         {
@@ -250,14 +282,14 @@ public class FieldNavigator : IDisposable
         return coordS;
     }
 
-    private CoordS GetCoordSFromPosition(Position position)
+    public CoordS GetCoordSFromPosition(Position position)
     {
         return CoordS.From(position.X, position.Y, Mesh.heightAtPosition(position));
     }
 
     public void Dispose()
     {
-        Mesh?.Dispose();
+        Mesh.Dispose();
         GC.SuppressFinalize(this);
     }
 

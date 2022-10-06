@@ -1,5 +1,4 @@
 ﻿using Maple2Storage.Enums;
-using Maple2Storage.Types;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Enums;
 
@@ -16,8 +15,6 @@ public class InteractObject
     public string NormalState;
     public string Reactable;
     public float Scale;
-    public CoordF Position;
-    public CoordF Rotation;
 
     public InteractObject(string id, int interactId, InteractObjectType type, InteractObjectState state)
     {
@@ -39,12 +36,10 @@ public class AdBalloon : InteractObject
     public readonly long CreationTimestamp;
     public readonly long ExpirationTimestamp; // TODO: Remove from field if expired
 
-    public AdBalloon(string id, int interactId, InteractObjectState state, InteractObjectType type, IFieldObject<Player> owner, InstallBillboard metadata,
+    public AdBalloon(string id, int interactId, InteractObjectState state, InteractObjectType type, Player owner, InstallBillboard metadata,
         string title, string description, bool publicHouse) : base(id, interactId, type, state)
     {
-        Owner = owner.Value;
-        Position = owner.Coord;
-        Rotation = owner.Rotation;
+        Owner = owner;
         Model = metadata.Model;
         Asset = metadata.Asset;
         NormalState = metadata.NormalState;

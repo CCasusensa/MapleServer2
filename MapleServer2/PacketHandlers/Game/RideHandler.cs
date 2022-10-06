@@ -1,8 +1,11 @@
 ﻿using Maple2Storage.Enums;
+using Maple2Storage.Types.Metadata;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Data.Static;
 using MapleServer2.Enums;
 using MapleServer2.Managers;
+using MapleServer2.Managers.Actors;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
 using MapleServer2.Types;
@@ -13,7 +16,7 @@ public class RideHandler : GamePacketHandler<RideHandler>
 {
     public override RecvOp OpCode => RecvOp.RequestRide;
 
-    private enum RideMode : byte
+    private enum Mode : byte
     {
         StartRide = 0x0,
         StopRide = 0x1,
@@ -24,23 +27,23 @@ public class RideHandler : GamePacketHandler<RideHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        RideMode mode = (RideMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case RideMode.StartRide:
+            case Mode.StartRide:
                 HandleStartRide(session, packet);
                 break;
-            case RideMode.StopRide:
+            case Mode.StopRide:
                 HandleStopRide(session, packet);
                 break;
-            case RideMode.ChangeRide:
+            case Mode.ChangeRide:
                 HandleChangeRide(session, packet);
                 break;
-            case RideMode.StartMultiPersonRide:
+            case Mode.StartMultiPersonRide:
                 HandleStartMultiPersonRide(session, packet);
                 break;
-            case RideMode.StopMultiPersonRide:
+            case Mode.StopMultiPersonRide:
                 HandleStopMultiPersonRide(session);
                 break;
             default:
@@ -57,6 +60,13 @@ public class RideHandler : GamePacketHandler<RideHandler>
         long mountUid = packet.ReadLong();
         // [46-0s] (UgcPacketHelper.Ugc()) but client doesn't set this data?
 
+        MapUi mapUi = MapMetadataStorage.GetMapUi(session.Player.MapId);
+        if (!mapUi.EnableMount)
+        {
+            session.Send(NoticePacket.Notice(SystemNotice.ErrCannotUseHere, NoticeType.Chat | NoticeType.FastText));
+            return;
+        }
+
         if (type == RideType.UseItem && !session.Player.Inventory.HasItem(mountUid))
         {
             return;
@@ -68,26 +78,23 @@ public class RideHandler : GamePacketHandler<RideHandler>
             return;
         }
 
-        IFieldObject<Mount> fieldMount =
-            session.FieldManager.RequestFieldObject(new Mount
-            {
-                Type = type,
-                Id = mountId,
-                Uid = mountUid,
-                Ugc = item.Ugc
-            });
+        IFieldObject<Mount> fieldMount = session.FieldManager.RequestFieldObject(new Mount
+        {
+            Type = type,
+            Id = mountId,
+            Uid = mountUid,
+            Ugc = item.Ugc
+        });
 
         fieldMount.Value.Players[0] = session.Player.FieldPlayer;
         session.Player.Mount = fieldMount;
-
-        PacketWriter startPacket = MountPacket.StartRide(session.Player.FieldPlayer);
 
         if (item.TransferFlag.HasFlag(ItemTransferFlag.Binds) && !item.IsBound())
         {
             item.BindItem(session.Player);
         }
 
-        session.FieldManager.BroadcastPacket(startPacket);
+        session.FieldManager.BroadcastPacket(MountPacket.StartRide(session.Player.FieldPlayer));
     }
 
     private static void HandleStopRide(GameSession session, PacketReader packet)
@@ -96,8 +103,7 @@ public class RideHandler : GamePacketHandler<RideHandler>
         bool forced = packet.ReadBool(); // Going into water without amphibious riding
 
         session.Player.Mount = null; // Remove mount from player
-        PacketWriter stopPacket = MountPacket.StopRide(session.Player.FieldPlayer, forced);
-        session.FieldManager.BroadcastPacket(stopPacket);
+        session.FieldManager.BroadcastPacket(MountPacket.StopRide(session.Player.FieldPlayer, forced));
     }
 
     private static void HandleChangeRide(GameSession session, PacketReader packet)
@@ -129,7 +135,7 @@ public class RideHandler : GamePacketHandler<RideHandler>
     {
         int otherPlayerObjectId = packet.ReadInt();
 
-        if (!session.FieldManager.State.Players.TryGetValue(otherPlayerObjectId, out IFieldActor<Player> otherPlayer) || otherPlayer.Value.Mount == null)
+        if (!session.FieldManager.State.Players.TryGetValue(otherPlayerObjectId, out Character otherPlayer) || otherPlayer.Value.Mount == null)
         {
             return;
         }
@@ -138,9 +144,7 @@ public class RideHandler : GamePacketHandler<RideHandler>
         bool isGuildMember = session.Player != null && otherPlayer.Value.Guild != null && session.Player.Guild.Id == otherPlayer.Value.Guild.Id;
         bool isPartyMember = session.Player.Party == otherPlayer.Value.Party;
 
-        if (!isFriend &&
-            !isGuildMember &&
-            !isPartyMember)
+        if (!isFriend && !isGuildMember && !isPartyMember)
         {
             return;
         }
@@ -160,7 +164,7 @@ public class RideHandler : GamePacketHandler<RideHandler>
         }
 
         session.FieldManager.BroadcastPacket(MountPacket.StopTwoPersonRide(otherPlayer.ObjectId, session.Player.FieldPlayer.ObjectId));
-        session.Send(UserMoveByPortalPacket.Move(session.Player.FieldPlayer, otherPlayer.Coord, otherPlayer.Rotation));
+        session.Player.Move(otherPlayer.Coord, otherPlayer.Rotation);
         session.Player.Mount = null;
         if (otherPlayer.Value.Mount != null)
         {

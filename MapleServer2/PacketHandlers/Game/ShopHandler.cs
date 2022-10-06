@@ -15,7 +15,7 @@ public class ShopHandler : GamePacketHandler<ShopHandler>
 {
     public override RecvOp OpCode => RecvOp.Shop;
 
-    private enum ShopMode : byte
+    private enum Mode : byte
     {
         Buy = 0x4,
         Sell = 0x5,
@@ -25,20 +25,20 @@ public class ShopHandler : GamePacketHandler<ShopHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        ShopMode mode = (ShopMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case ShopMode.Close:
+            case Mode.Close:
                 HandleClose(session);
                 break;
-            case ShopMode.Buy:
+            case Mode.Buy:
                 HandleBuy(session, packet);
                 break;
-            case ShopMode.Sell:
+            case Mode.Sell:
                 HandleSell(session, packet);
                 break;
-            case ShopMode.OpenViaItem:
+            case Mode.OpenViaItem:
                 HandleOpenViaItem(session, packet);
                 break;
             default:
@@ -47,7 +47,7 @@ public class ShopHandler : GamePacketHandler<ShopHandler>
         }
     }
 
-    public static void HandleOpen(GameSession session, IFieldObject<NpcMetadata> npcFieldObject)
+    public static void HandleOpen(GameSession session, IFieldObject<NpcMetadata> npcFieldObject, int npcId)
     {
         NpcMetadata metadata = npcFieldObject.Value;
 
@@ -58,13 +58,12 @@ public class ShopHandler : GamePacketHandler<ShopHandler>
             return;
         }
 
-        session.Send(ShopPacket.Open(shop));
+        session.Send(ShopPacket.Open(shop, npcId));
         foreach (ShopItem shopItem in shop.Items)
         {
             session.Send(ShopPacket.LoadProducts(shopItem));
         }
         session.Send(ShopPacket.Reload());
-        session.Send(NpcTalkPacket.Respond(npcFieldObject, NpcType.Default, DialogType.None, 0));
         session.Player.ShopId = shop.Id;
     }
 
@@ -137,11 +136,7 @@ public class ShopHandler : GamePacketHandler<ShopHandler>
         }
 
         // add item to inventory
-        Item item = new(shopItem.ItemId)
-        {
-            Amount = quantity * shopItem.Quantity,
-            Rarity = shopItem.ItemRank
-        };
+        Item item = new(shopItem.ItemId, quantity * shopItem.Quantity, shopItem.ItemRank);
         session.Player.Inventory.AddItem(session, item, true);
 
         // complete purchase
@@ -167,7 +162,7 @@ public class ShopHandler : GamePacketHandler<ShopHandler>
             return;
         }
 
-        session.Send(ShopPacket.Open(shop));
+        session.Send(ShopPacket.Open(shop, 0));
         foreach (ShopItem shopItem in shop.Items)
         {
             session.Send(ShopPacket.LoadProducts(shopItem));

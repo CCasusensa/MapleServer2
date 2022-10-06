@@ -9,7 +9,7 @@ public static class RandomStats
     public static void GetStats(Item item, out Dictionary<StatAttribute, ItemStat> randomStats)
     {
         randomStats = new();
-        int randomId = ItemMetadataStorage.GetOptionRandom(item.Id);
+        int randomId = ItemMetadataStorage.GetOptionMetadata(item.Id).Random;
         ItemOptionRandom randomOptions = ItemOptionRandomMetadataStorage.GetMetadata(randomId, item.Rarity);
         if (randomOptions == null)
         {
@@ -74,7 +74,7 @@ public static class RandomStats
     {
         int id = item.Id;
 
-        int randomId = ItemMetadataStorage.GetOptionRandom(id);
+        int randomId = ItemMetadataStorage.GetOptionMetadata(id).Random;
         ItemOptionRandom randomOptions = ItemOptionRandomMetadataStorage.GetMetadata(randomId, item.Rarity);
         if (randomOptions == null)
         {
@@ -141,10 +141,10 @@ public static class RandomStats
             {
                 continue;
             }
-            newBonus[stat.ItemAttribute] = new BasicStat(dictionary[stat.ItemAttribute][Roll(item.Level)]);
+            newBonus[stat.ItemAttribute] = new BasicStat(dictionary[stat.ItemAttribute][Roll(item.Id)]);
         }
 
-        foreach (SpecialStat stat in item.Stats.Randoms.OfType<SpecialStat>())
+        foreach (SpecialStat stat in item.Stats.Randoms.Values.OfType<SpecialStat>())
         {
             if (isSpecialStat && (short) stat.ItemAttribute == ignoreStat)
             {
@@ -157,7 +157,7 @@ public static class RandomStats
             {
                 continue;
             }
-            newBonus[stat.ItemAttribute] = new SpecialStat(dictionary[stat.ItemAttribute][Roll(item.Level)]);
+            newBonus[stat.ItemAttribute] = new SpecialStat(dictionary[stat.ItemAttribute][Roll(item.Id)]);
         }
 
         return newBonus;
@@ -165,18 +165,18 @@ public static class RandomStats
 
     private static Dictionary<StatAttribute, List<ParserStat>> GetRange(int itemId)
     {
-        ItemSlot slot = ItemMetadataStorage.GetSlot(itemId);
-        if (Item.IsAccessory(slot))
+        List<ItemSlot> slots = ItemMetadataStorage.GetItemSlots(itemId);
+        if (Item.IsAccessory(slots))
         {
             return ItemOptionRangeStorage.GetAccessoryRanges();
         }
 
-        if (Item.IsArmor(slot))
+        if (Item.IsArmor(slots))
         {
             return ItemOptionRangeStorage.GetArmorRanges();
         }
 
-        if (Item.IsWeapon(slot))
+        if (Item.IsWeapon(slots))
         {
             return ItemOptionRangeStorage.GetWeaponRanges();
         }
@@ -186,18 +186,18 @@ public static class RandomStats
 
     private static Dictionary<StatAttribute, List<ParserSpecialStat>> GetSpecialRange(int itemId)
     {
-        ItemSlot slot = ItemMetadataStorage.GetSlot(itemId);
-        if (Item.IsAccessory(slot))
+        List<ItemSlot> slots = ItemMetadataStorage.GetItemSlots(itemId);
+        if (Item.IsAccessory(slots))
         {
             return ItemOptionRangeStorage.GetAccessorySpecialRanges();
         }
 
-        if (Item.IsArmor(slot))
+        if (Item.IsArmor(slots))
         {
             return ItemOptionRangeStorage.GetArmorSpecialRanges();
         }
 
-        if (Item.IsWeapon(slot))
+        if (Item.IsWeapon(slots))
         {
             return ItemOptionRangeStorage.GetWeaponSpecialRanges();
         }
@@ -209,7 +209,7 @@ public static class RandomStats
     // Returns index 8~15 for equip level 70+
     private static int Roll(int itemId)
     {
-        float itemLevelFactor = ItemMetadataStorage.GetOptionLevelFactor(itemId);
+        float itemLevelFactor = ItemMetadataStorage.GetOptionMetadata(itemId).OptionLevelFactor;
         Random random = Random.Shared;
         if (itemLevelFactor >= 70)
         {

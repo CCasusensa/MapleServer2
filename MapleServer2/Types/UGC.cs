@@ -1,19 +1,21 @@
 ﻿using Maple2Storage.Enums;
+using MaplePacketLib2.Tools;
 using MapleServer2.Database;
 
 namespace MapleServer2.Types;
 
-public class UGC
+public class UGC : IPacketDeserializable, IPacketSerializable
 {
+    public static readonly UGC Default = new();
     public long Uid;
 
     public Guid Guid;
-    public string Name;
-    public string Url;
+    public string Name = "";
+    public string Url = "";
     public UGCType Type;
 
     public long CharacterId;
-    public string CharacterName;
+    public string CharacterName = "";
 
     public long AccountId;
 
@@ -37,5 +39,48 @@ public class UGC
         Type = type;
         GuildPosterId = guildPosterId;
         Uid = DatabaseManager.UGC.Insert(this);
+    }
+
+    public void UpdateItem(string name, long characterId, string characterName, long accountId, long salePrice, UGCType type)
+    {
+        Guid = Guid.NewGuid();
+        Name = name;
+        CharacterId = characterId;
+        CharacterName = characterName;
+        CreationTime = TimeInfo.Now();
+        AccountId = accountId;
+        SalePrice = salePrice;
+        Type = type;
+        DatabaseManager.UGC.Update(this);
+    }
+
+    public void ReadFrom(PacketReader packet)
+    {
+        Uid = packet.ReadLong();
+        Guid = Guid.Parse(packet.ReadUnicodeString());
+        Name = packet.ReadUnicodeString();
+        packet.ReadByte();
+        packet.ReadInt();
+        AccountId = packet.ReadLong();
+        CharacterId = packet.ReadLong();
+        CharacterName = packet.ReadUnicodeString();
+        CreationTime = packet.ReadLong();
+        Url = packet.ReadUnicodeString();
+        packet.ReadByte();
+    }
+
+    public void WriteTo(PacketWriter pWriter)
+    {
+        pWriter.WriteLong(Uid);
+        pWriter.WriteUnicodeString(Guid.ToString());
+        pWriter.WriteUnicodeString(Name);
+        pWriter.WriteByte(1);
+        pWriter.WriteInt(1); // sometimes 2
+        pWriter.WriteLong(AccountId);
+        pWriter.WriteLong(CharacterId);
+        pWriter.WriteUnicodeString(CharacterName);
+        pWriter.WriteLong(CreationTime);
+        pWriter.WriteUnicodeString(Url);
+        pWriter.WriteByte();
     }
 }

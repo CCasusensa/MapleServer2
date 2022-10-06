@@ -1,23 +1,20 @@
-﻿using Maple2Storage.Types;
-using Maple2Storage.Types.Metadata;
+﻿using Maple2Storage.Types.Metadata;
 
 namespace MapleServer2.Types;
 
 public class LiftableObject
 {
-    public string EntityId;
-    public MapLiftableObject Metadata;
-    public CoordF Position;
-    public CoordF Rotation;
+    public readonly string EntityId;
+    public readonly MapLiftableObject Metadata;
     public LiftableState State;
-    public bool Enabled;
+    public int ItemCount;
 
     public LiftableObject(string entityId, MapLiftableObject metadata)
     {
         EntityId = entityId;
         Metadata = metadata;
         State = LiftableState.Active;
-        Enabled = true;
+        ItemCount = metadata.ItemStackCount;
     }
 }
 

@@ -17,10 +17,10 @@ public class SkillTab
 
     public SkillTab() { }
 
-    public SkillTab(long characterId, Job job, JobCode jobCode, long id, string name)
+    public SkillTab(long characterId, JobCode jobCode, SubJobCode subJobCode, long id, string name)
     {
         Name = name;
-        ResetSkillTree(job, jobCode);
+        ResetSkillTree(jobCode, subJobCode);
         TabId = id;
         Uid = DatabaseManager.SkillTabs.Insert(this, characterId);
     }
@@ -30,7 +30,7 @@ public class SkillTab
         Name = name;
         TabId = tabId;
         Uid = uid;
-        SkillJob = GetSkillsMetadata((Job) jobId);
+        SkillJob = GetSkillsMetadata((JobCode) jobId);
         SkillLevels = skillLevels;
     }
 
@@ -48,49 +48,75 @@ public class SkillTab
         }
     }
 
-    public void ResetSkillTree(Job job, JobCode jobCode)
+    public void ResetSkillTree(JobCode jobCode, SubJobCode subJobCode)
     {
-        SkillJob = GetSkillsMetadata(job);
-        if (job is Job.GameMaster)
+        SkillJob = GetSkillsMetadata(jobCode);
+        if (jobCode is JobCode.GameMaster)
         {
             SkillLevels = SkillJob.Keys.ToDictionary(skillId => skillId, _ => (short) 1);
             return;
         }
 
         SkillLevels = SkillJob.Keys.ToDictionary(skillId => skillId, _ => (short) 0);
-        LearnDefaultSkills();
+        LearnDefaultSkills(jobCode, subJobCode);
+    }
 
-        void LearnDefaultSkills()
+    /// <summary>
+    /// Returns all skills by type.
+    /// </summary>
+    /// <param name="type"><see cref="SkillType"/></param>
+    /// <returns>List of skill id and skill level</returns>
+    public List<(int skillId, short skillLevel)> GetSkillsByType(SkillType type)
+    {
+        List<(int, short)> skills = new();
+        foreach ((int skillId, SkillMetadata metadata) in SkillJob.Where(x => x.Value.Type == type || x.Value.SubSkills.Length > 0))
         {
-            JobMetadata jobMetadata = JobMetadataStorage.GetJobMetadata(job);
-            if (jobMetadata is null)
+            short level = SkillLevels.GetValueOrDefault(skillId);
+
+            if (metadata.Type == type)
             {
-                return;
+                skills.Add((skillId, level));
             }
 
-            List<int> skillIds = new();
-            jobMetadata.LearnedSkills.ForEach(x => skillIds.AddRange(x.SkillIds));
-
-            foreach (int skillId in skillIds)
+            foreach (int subSkillId in metadata.SubSkills)
             {
-                JobSkillMetadata jobSkillMetadata = jobMetadata.Skills.First(x => x.SkillId == skillId);
-                if (jobSkillMetadata.SubJobCode != (int) jobCode && jobSkillMetadata.SubJobCode != 0)
-                {
-                    continue;
-                }
+                SkillMetadata subSkill = SkillMetadataStorage.GetSkill(subSkillId);
 
-                AddOrUpdate(skillId, 1, true);
+                if (subSkill != null && subSkill.Type == type)
+                {
+                    skills.Add((subSkillId, level));
+                }
             }
         }
+
+        return skills;
     }
 
-    public List<int> GetSkillsByType(SkillType type)
+    private static Dictionary<int, SkillMetadata> GetSkillsMetadata(JobCode jobCode)
     {
-        return SkillJob.Where(x => x.Value.Type == type).Select(x => x.Key).ToList();
+        return SkillMetadataStorage.GetJobSkills(jobCode).ToDictionary(x => x.SkillId, x => x);
     }
 
-    private static Dictionary<int, SkillMetadata> GetSkillsMetadata(Job job)
+    public void LearnDefaultSkills(JobCode jobCode, SubJobCode subJobCode)
     {
-        return SkillMetadataStorage.GetJobSkills(job).ToDictionary(x => x.SkillId, x => x);
+        JobMetadata jobMetadata = JobMetadataStorage.GetJobMetadata(jobCode);
+        if (jobMetadata is null)
+        {
+            return;
+        }
+
+        List<int> skillIds = new();
+        jobMetadata.LearnedSkills.ForEach(x => skillIds.AddRange(x.SkillIds));
+
+        foreach (int skillId in skillIds)
+        {
+            JobSkillMetadata jobSkillMetadata = jobMetadata.Skills.First(x => x.SkillId == skillId);
+            if (jobSkillMetadata.SubJobCode != (int) subJobCode && jobSkillMetadata.SubJobCode != 0)
+            {
+                continue;
+            }
+
+            AddOrUpdate(skillId, 1, true);
+        }
     }
 }

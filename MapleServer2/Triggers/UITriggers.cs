@@ -2,6 +2,7 @@
 using Maple2.Trigger.Enum;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.Managers;
 using MapleServer2.Packets;
@@ -19,8 +20,8 @@ public partial class TriggerContext
 
     public void WidgetAction(WidgetType type, string name, string args, int widgetArgNum)
     {
-        Widget widget = Field.GetWidget(type);
-        if (widget == null)
+        Widget? widget = Field.GetWidget(type);
+        if (widget is null)
         {
             return;
         }
@@ -42,20 +43,13 @@ public partial class TriggerContext
                         break;
                     case "PickQuiz":
                         // TODO: Use args to find a tier of a question
-                        widget.OXQuizQuestion = OXQuizMetadataStorage.GetQuestion();
+                        widget.OXQuizQuestion = DatabaseManager.OxQuizQuestion.GetRandomQuestion();
                         break;
                     case "ShowQuiz":
                         Field.BroadcastPacket(QuizEventPacket.Question(widget.OXQuizQuestion.Category, widget.OXQuizQuestion.QuestionText, int.Parse(args)));
                         break;
                     case "PreJudge":
-                        if (widget.OXQuizQuestion.Answer)
-                        {
-                            widget.State = "Correct";
-                        }
-                        else
-                        {
-                            widget.State = "Incorrect";
-                        }
+                        widget.State = widget.OXQuizQuestion.Answer ? "Correct" : "Incorrect";
 
                         break;
                     case "ShowAnswer":
@@ -82,21 +76,17 @@ public partial class TriggerContext
         Field.BroadcastPacket(TriggerPacket.Banner(03, entityId, textId));
     }
 
-    public void Notice(bool arg1, string arg2, bool arg3)
-    {
-    }
+    public void Notice(bool arg1, string arg2, bool arg3) { }
 
-    public void PlaySystemSoundByUserTag(int userTagId, string soundKey)
-    {
-    }
+    public void PlaySystemSoundByUserTag(int userTagId, string soundKey) { }
 
-    public void PlaySystemSoundInBox(int[] boxIds, string sound)
+    public void PlaySystemSoundInBox(int[]? boxIds, string sound)
     {
         if (boxIds != null)
         {
             foreach (int boxId in boxIds)
             {
-                MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
+                MapTriggerBox? box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
                 if (box is null)
                 {
                     return;
@@ -104,7 +94,7 @@ public partial class TriggerContext
 
                 foreach (IFieldObject<Player> player in Field.State.Players.Values)
                 {
-                    if (FieldManager.IsPlayerInBox(box, player))
+                    if (FieldManager.IsActorInBox(box, player))
                     {
                         player.Value.Session.Send(SystemSoundPacket.Play(sound));
                     }
@@ -117,17 +107,11 @@ public partial class TriggerContext
         Field.BroadcastPacket(SystemSoundPacket.Play(sound));
     }
 
-    public void ScoreBoardCreate(string type, int maxScore)
-    {
-    }
+    public void ScoreBoardCreate(string type, int maxScore) { }
 
-    public void ScoreBoardRemove()
-    {
-    }
+    public void ScoreBoardRemove() { }
 
-    public void ScoreBoardSetScore(bool score)
-    {
-    }
+    public void ScoreBoardSetScore(bool score) { }
 
     public void SetEventUI(byte typeId, string script, int duration, string box)
     {
@@ -168,7 +152,7 @@ public partial class TriggerContext
             return;
         }
 
-        MapTriggerBox triggerBox;
+        MapTriggerBox? triggerBox;
         int boxId;
         if (box.Contains('!'))
         {
@@ -182,7 +166,7 @@ public partial class TriggerContext
 
             foreach (IFieldObject<Player> player in Field.State.Players.Values)
             {
-                if (!FieldManager.IsPlayerInBox(triggerBox, player))
+                if (!FieldManager.IsActorInBox(triggerBox, player))
                 {
                     player.Value.Session.Send(MassiveEventPacket.TextBanner(type, script, duration));
                 }
@@ -200,25 +184,21 @@ public partial class TriggerContext
 
         foreach (IFieldObject<Player> player in Field.State.Players.Values)
         {
-            if (FieldManager.IsPlayerInBox(triggerBox, player))
+            if (FieldManager.IsActorInBox(triggerBox, player))
             {
                 player.Value.Session.Send(MassiveEventPacket.TextBanner(type, script, duration));
             }
         }
     }
 
-    public void SetVisibleUI(string uiName, bool visible)
-    {
-    }
+    public void SetVisibleUI(string uiName, bool visible) { }
 
     public void ShowCountUI(string text, byte stage, byte count, byte soundType)
     {
         Field.BroadcastPacket(MassiveEventPacket.Round(text, stage, count, soundType));
     }
 
-    public void ShowRoundUI(byte round, int duration)
-    {
-    }
+    public void ShowRoundUI(byte round, int duration) { }
 
     public void ShowGuideSummary(int entityId, int textId, int duration)
     {
@@ -227,6 +207,7 @@ public partial class TriggerContext
 
     public void SideNpcTalk(int npcId, string illust, int duration, string script, string voice, SideNpcTalkType type, string usm)
     {
+        Field.BroadcastPacket(TriggerPacket.SidePopUp(type, duration, illust, voice, script));
     }
 
     public void ShowCaption(CaptionType type, string title, string script, Align align, float offsetRateX, float offsetRateY, int duration, float scale)
@@ -236,9 +217,7 @@ public partial class TriggerContext
         Field.BroadcastPacket(CinematicPacket.Caption(type, title, script, captionAlign, offsetRateX, offsetRateY, duration, scale));
     }
 
-    public void ShowEventResult(EventResultType type, string text, int duration, int userTagId, int triggerBoxId, bool isOutSide)
-    {
-    }
+    public void ShowEventResult(EventResultType type, string text, int duration, int userTagId, int triggerBoxId, bool isOutSide) { }
 
     public void SetCinematicUI(byte type, string script, bool arg3)
     {
@@ -263,17 +242,11 @@ public partial class TriggerContext
         }
     }
 
-    public void SetCinematicIntro(string text)
-    {
-    }
+    public void SetCinematicIntro(string text) { }
 
-    public void CloseCinematic()
-    {
-    }
+    public void CloseCinematic() { }
 
-    public void RemoveCinematicTalk()
-    {
-    }
+    public void RemoveCinematicTalk() { }
 
     public void PlaySceneMovie(string fileName, int movieId, string skipType)
     {
@@ -287,7 +260,5 @@ public partial class TriggerContext
         Field.BroadcastPacket(CinematicPacket.SetSceneSkip(arg2));
     }
 
-    public void SetSkip(TriggerState state)
-    {
-    }
+    public void SetSkip(TriggerState state) { }
 }

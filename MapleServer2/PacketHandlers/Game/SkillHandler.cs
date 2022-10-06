@@ -14,7 +14,7 @@ public class SkillHandler : GamePacketHandler<SkillHandler>
 {
     public override RecvOp OpCode => RecvOp.Skill;
 
-    private enum SkillHandlerMode : byte
+    private enum Mode : byte
     {
         Cast = 0x0,
         Damage = 0x1,
@@ -25,22 +25,22 @@ public class SkillHandler : GamePacketHandler<SkillHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        SkillHandlerMode mode = (SkillHandlerMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
         switch (mode)
         {
-            case SkillHandlerMode.Cast:
+            case Mode.Cast:
                 HandleCast(session, packet);
                 break;
-            case SkillHandlerMode.Damage:
+            case Mode.Damage:
                 HandleDamageMode(session, packet);
                 break;
-            case SkillHandlerMode.Sync:
+            case Mode.Sync:
                 HandleSyncSkills(session, packet);
                 break;
-            case SkillHandlerMode.SyncTick:
+            case Mode.SyncTick:
                 HandleSyncTick(packet);
                 break;
-            case SkillHandlerMode.Cancel:
+            case Mode.Cancel:
                 HandleCancelSkill(session, packet);
                 break;
             default:
@@ -71,7 +71,7 @@ public class SkillHandler : GamePacketHandler<SkillHandler>
         }
 
         IFieldActor<Player> fieldPlayer = session.Player.FieldPlayer;
-        SkillCast skillCast = new(skillId, skillLevel, skillSN, serverTick, fieldPlayer.ObjectId, clientTick, attackPoint)
+        SkillCast skillCast = new(skillId, skillLevel, skillSN, serverTick, fieldPlayer, clientTick, attackPoint)
         {
             Position = position,
             Direction = direction,
@@ -211,7 +211,7 @@ public class SkillHandler : GamePacketHandler<SkillHandler>
         CoordF rotation = packet.Read<CoordF>();
         int attackPoint = packet.ReadByte();
         byte count = packet.ReadByte();
-        packet.ReadInt();
+        int unknownInt = packet.ReadInt();
 
         IFieldActor<Player> fieldPlayer = session.Player.FieldPlayer;
 
@@ -221,51 +221,73 @@ public class SkillHandler : GamePacketHandler<SkillHandler>
             return;
         }
 
-        // TODO: Verify if its the player or an ally
-        if (skillCast.IsRecovery())
-        {
-            Status status = new(skillCast, fieldPlayer.ObjectId, fieldPlayer.ObjectId, 1);
-            StatusHandler.Handle(session, status);
+        int tick = Environment.TickCount;
 
-            // TODO: Heal based on stats
-            fieldPlayer.Heal(session, status, 50);
-            return;
-        }
-
-        bool isCrit = DamageHandler.RollCrit(session.Player.Stats[StatAttribute.CritRate].Total);
-        List<(int targetId, byte damageType, double damage)> damages = new();
+        List<DamageHandler> damages = new();
         for (int i = 0; i < count; i++)
         {
             int entityId = packet.ReadInt();
             packet.ReadByte();
 
-            if (entityId == playerObjectId)
-            {
-                damages.Add(new(playerObjectId, 0, 0));
-                continue;
-            }
+            IFieldActor? target = session.FieldManager.State.Mobs.GetValueOrDefault(entityId);
+            target = target ?? session.FieldManager.State.Players.GetValueOrDefault(entityId);
 
-            IFieldActor<NpcMetadata> mob = session.FieldManager.State.Mobs.GetValueOrDefault(entityId);
-            if (mob == null)
-            {
-                continue;
-            }
-            skillCast.Target = mob;
-
-            DamageHandler damage = DamageHandler.CalculateDamage(skillCast, fieldPlayer, mob, isCrit);
-
-            mob.Damage(damage, session);
-
-            damages.Add(new(damage.Target.ObjectId, (byte) (isCrit ? 1 : 0), damage.Damage));
-
-            // TODO: Check if the skill is a debuff for an entity
-            if (!skillCast.IsDebuffElement() && !skillCast.IsDebuffToEntity() && !skillCast.IsDebuffElement())
+            if (target is null)
             {
                 continue;
             }
 
-            Status status = new(skillCast, mob.ObjectId, fieldPlayer.ObjectId, 1);
-            StatusHandler.Handle(session, status);
+            skillCast.Target = target;
+            skillCast.AttackPoint = (byte) attackPoint;
+
+            foreach (SkillMotion motion in skillCast.GetSkillMotions())
+            {
+                SkillAttack attack = motion.SkillAttacks?[attackPoint];
+
+                skillCast.SkillAttack = attack;
+
+                if (entityId == playerObjectId && attack.RangeProperty.ApplyTarget != ApplyTarget.Ally)
+                {
+                    continue;
+                }
+
+                ConditionSkillTarget castInfo = new(fieldPlayer, target, fieldPlayer);
+                bool hitCrit = false;
+                bool hitMissed = false;
+
+                if (skillCast.GetDamageRate() != 0)
+                {
+                    DamageHandler damage = DamageHandler.CalculateDamage(skillCast, fieldPlayer, target);
+
+                    target.Damage(damage, session);
+
+                    damages.Add(damage);
+
+                    hitCrit = damage.HitType == Enums.HitType.Critical;
+                    hitMissed = damage.HitType == Enums.HitType.Miss;
+                }
+
+                fieldPlayer.SkillTriggerHandler.FireTriggerSkills(attack.SkillConditions, skillCast, castInfo);
+
+                Task.Run(async () =>
+                {
+                    await Task.Delay(10);
+
+                    if (hitCrit)
+                    {
+                        fieldPlayer.SkillTriggerHandler.FireEvents(castInfo, EffectEvent.OnOwnerAttackCrit, skillCast.SkillId);
+                    }
+
+                    if (hitMissed)
+                    {
+                        fieldPlayer.SkillTriggerHandler.FireEvents(castInfo, EffectEvent.OnAttackMiss, skillCast.SkillId);
+                        target.SkillTriggerHandler.FireEvents(new(target, fieldPlayer, target), EffectEvent.OnEvade, skillCast.SkillId);
+                    }
+
+                    fieldPlayer.SkillTriggerHandler.FireEvents(castInfo, EffectEvent.OnOwnerAttackHit, skillCast.SkillId);
+                    target.SkillTriggerHandler.FireEvents(new(target, fieldPlayer, target, fieldPlayer), EffectEvent.OnAttacked, skillCast.SkillId);
+                });
+            }
         }
 
         session.FieldManager.BroadcastPacket(SkillDamagePacket.Damage(skillCast, attackCounter, position, rotation, damages));
@@ -308,13 +330,24 @@ public class SkillHandler : GamePacketHandler<SkillHandler>
             return;
         }
 
-        SkillCast skillCast = new(skillCondition.SkillId, skillCondition.SkillLevel, GuidGenerator.Long(), session.ServerTick, parentSkill)
+        CoordF splashRotation = skillCondition.UseDirection ? parentSkill.Rotation : default;
+        CoordF direction = skillCondition.UseDirection ? parentSkill.Direction : default;
+        short lookDirection = skillCondition.UseDirection ? parentSkill.LookDirection : (short) 0;
+
+        for (int i = 0; i < skillCondition.SkillId.Length; ++i)
         {
-            SkillAttack = skillAttack,
-            Duration = skillCondition.FireCount * 1000,
-            Interval = skillCondition.Interval
-        };
-        RegionSkillHandler.HandleEffect(session.FieldManager, skillCast, attackIndex);
+            SkillCast skillCast = new(skillCondition.SkillId[i], skillCondition.SkillLevel[i], GuidGenerator.Long(), session.ServerTick, parentSkill)
+            {
+                SkillAttack = skillAttack,
+                Duration = skillCondition.FireCount * skillCondition.Interval + skillCondition.RemoveDelay,
+                Interval = skillCondition.Interval,
+                Rotation = splashRotation,
+                Direction = direction,
+                LookDirection = lookDirection,
+            };
+
+            RegionSkillHandler.HandleEffect(session.FieldManager, skillCast);
+        }
     }
 
     #endregion

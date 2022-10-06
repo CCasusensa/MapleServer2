@@ -15,17 +15,17 @@ public class FunctionCubeHandler : GamePacketHandler<FunctionCubeHandler>
 {
     public override RecvOp OpCode => RecvOp.FunctionCube;
 
-    private enum FunctionCubeMode : byte
+    private enum Mode : byte
     {
         Use = 0x04
     }
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        FunctionCubeMode mode = (FunctionCubeMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
         switch (mode)
         {
-            case FunctionCubeMode.Use:
+            case Mode.Use:
                 HandleUseCube(session, packet);
                 break;
             default:
@@ -56,7 +56,7 @@ public class FunctionCubeHandler : GamePacketHandler<FunctionCubeHandler>
             return;
         }
 
-        int objectId = ItemMetadataStorage.GetObjectId(fieldCube.Value.Item.Id);
+        int objectId = ItemMetadataStorage.GetInstallMetadata(fieldCube.Value.Item.Id).ObjectId;
         TrophyManager.OnObjectInteract(session.Player, objectId);
 
         switch (fieldCube.Value.Item.HousingCategory)

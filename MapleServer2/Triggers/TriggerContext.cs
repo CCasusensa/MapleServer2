@@ -1,7 +1,9 @@
 ﻿using Maple2.Trigger;
+using Maple2Storage.Enums;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 using MapleServer2.Managers;
+using MapleServer2.Managers.Actors;
 using MapleServer2.Types;
 using Serilog;
 
@@ -10,7 +12,7 @@ namespace MapleServer2.Triggers;
 public partial class TriggerContext : ITriggerContext
 {
     public int NextTick;
-    public TriggerState SkipSceneState;
+    public TriggerState? SkipSceneState;
 
     private readonly FieldManager Field;
     private readonly ILogger Logger;
@@ -102,16 +104,16 @@ public partial class TriggerContext : ITriggerContext
             return Field.State.Players.Values.Count;
         }
 
-        MapTriggerBox box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
+        MapTriggerBox? box = MapEntityMetadataStorage.GetTriggerBox(Field.MapId, boxId);
         if (box is null)
         {
             return 0;
         }
 
         int userCount = 0;
-        foreach (IFieldActor<Player> player in Field.State.Players.Values)
+        foreach (Character player in Field.State.Players.Values)
         {
-            if (FieldManager.IsPlayerInBox(box, player))
+            if (FieldManager.IsActorInBox(box, player))
             {
                 userCount++;
             }
@@ -122,8 +124,22 @@ public partial class TriggerContext : ITriggerContext
 
     public int GetUserValue(string key)
     {
-        IFieldObject<Player> player = Field.State.Players.Values.FirstOrDefault(x => x.Value.Triggers.Any(y => y.Key == key));
-        if (player == null)
+        // TODO: Fix when Mob AI infra is ready.
+        // This is a hack. This probably is handled from mob AI.
+        if (key == "battleStop")
+        {
+            foreach (KeyValuePair<int, Npc> mob in Field.State.Mobs)
+            {
+                // check if mob is 50% hp or less
+                if (mob.Value.Stats[StatAttribute.Hp].Total <= mob.Value.Stats[StatAttribute.Hp].Base / 2)
+                {
+                    return 1;
+                }
+            }
+        }
+
+        IFieldObject<Player>? player = Field.State.Players.Values.FirstOrDefault(x => x.Value.Triggers.Any(y => y.Key == key));
+        if (player is null)
         {
             return 0;
         }

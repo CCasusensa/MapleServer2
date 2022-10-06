@@ -1,6 +1,7 @@
 ﻿using Maple2Storage.Enums;
 using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
+using MapleServer2.Database;
 using MapleServer2.Enums;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
@@ -10,50 +11,64 @@ namespace MapleServer2.PacketHandlers.Game.Helpers;
 
 public static class ItemBoxHelper
 {
-    public static List<Item> GetItemsFromDropGroup(DropGroupContent dropContent, Gender playerGender, Job job)
+    public static List<Item> GetItemsFromDropGroup(DropGroupContent dropContent, Player player, Item sourceItem)
     {
         List<Item> items = new();
         Random rng = Random.Shared;
         int amount = rng.Next((int) dropContent.MinAmount, (int) dropContent.MaxAmount);
+
         foreach (int id in dropContent.ItemIds)
         {
-            if (dropContent.SmartGender)
+            if (dropContent.SmartDropRate == 100)
             {
-                Gender itemGender = ItemMetadataStorage.GetGender(id);
-                if (itemGender != playerGender && itemGender is not Gender.Neutral)
+                List<JobCode> recommendJobs = ItemMetadataStorage.GetRecommendJobs(id);
+                if (!recommendJobs.Contains(player.JobCode) && !recommendJobs.Contains(JobCode.None))
                 {
                     continue;
                 }
             }
 
-            List<Job> recommendJobs = ItemMetadataStorage.GetRecommendJobs(id);
-            if (recommendJobs.Contains(job) || recommendJobs.Contains(Job.None))
+            if (dropContent.SmartGender)
             {
-                Item newItem = new(id)
+                Gender itemGender = ItemMetadataStorage.GetLimitMetadata(id).Gender;
+                if (itemGender != player.Gender && itemGender is not Gender.Neutral)
                 {
-                    EnchantLevel = dropContent.EnchantLevel,
-                    Amount = amount,
-                    Rarity = dropContent.Rarity
-                };
-                newItem.Stats = new(newItem);
-                items.Add(newItem);
+                    continue;
+                }
             }
+
+
+            int rarity = dropContent.Rarity;
+            int constant = ItemMetadataStorage.GetOptionMetadata(sourceItem.Id).Constant;
+            if (rarity == 0 && constant is > 0 and < 7)
+            {
+                rarity = constant;
+            }
+
+            Item newItem = new(id, amount, rarity, saveToDatabase: false)
+            {
+                EnchantLevel = dropContent.EnchantLevel
+            };
+            newItem.Stats = new(newItem);
+            items.Add(newItem);
         }
+
         return items;
     }
 
-    public static void GiveItemFromSelectBox(GameSession session, Item sourceItem, int index)
+    public static bool GiveItemFromSelectBox(GameSession session, Item sourceItem, int index, out OpenBoxResult result)
     {
+        result = OpenBoxResult.Success;
+
         SelectItemBox box = sourceItem.Function.SelectItemBox;
         ItemDropMetadata metadata = ItemDropMetadataStorage.GetItemDropMetadata(box.BoxId);
         if (metadata == null)
         {
-            session.Send(NoticePacket.Notice("No items found", NoticeType.Chat));
-            return;
+            result = OpenBoxResult.UnableToOpen;
+            return false;
         }
 
         IInventory inventory = session.Player.Inventory;
-        inventory.ConsumeItem(session, sourceItem.Uid, 1);
 
         // Select boxes disregards group ID. Adding these all to a filtered list
         List<DropGroupContent> dropContentsList = new();
@@ -63,56 +78,130 @@ public static class ItemBoxHelper
             {
                 if (dropGroupContent.SmartDropRate == 100)
                 {
-                    List<Job> recommendJobs = ItemMetadataStorage.GetRecommendJobs(dropGroupContent.ItemIds.First());
-                    if (recommendJobs.Contains(session.Player.Job) || recommendJobs.Contains(Job.None))
+                    List<JobCode> recommendJobs = ItemMetadataStorage.GetRecommendJobs(dropGroupContent.ItemIds.First());
+                    if (recommendJobs.Contains(session.Player.JobCode) || recommendJobs.Contains(JobCode.None))
                     {
                         dropContentsList.Add(dropGroupContent);
                     }
+
                     continue;
                 }
+
                 dropContentsList.Add(dropGroupContent);
             }
         }
 
         DropGroupContent dropContents = dropContentsList[index];
-
-        Random rng = Random.Shared;
-        int amount = rng.Next((int) dropContents.MinAmount, (int) dropContents.MaxAmount);
+        int amount = Random.Shared.Next((int) dropContents.MinAmount, (int) dropContents.MaxAmount);
         foreach (int id in dropContents.ItemIds)
         {
-            Item newItem = new(id)
+            if (inventory.CanHold(id, amount))
             {
-                EnchantLevel = dropContents.EnchantLevel,
-                Amount = amount,
-                Rarity = dropContents.Rarity
+                continue;
+            }
+
+            result = OpenBoxResult.InventoryFull;
+            return false;
+        }
+
+        inventory.ConsumeItem(session, sourceItem.Uid, 1);
+
+        foreach (int id in dropContents.ItemIds)
+        {
+            Item newItem = new(id, amount, dropContents.Rarity)
+            {
+                EnchantLevel = dropContents.EnchantLevel
             };
             newItem.Stats = new(newItem);
-            inventory.AddItem(session, newItem, true);
+            if (inventory.CanHold(newItem))
+            {
+                inventory.AddItem(session, newItem, true);
+                continue;
+            }
+
+            result = OpenBoxResult.InventoryFull;
+            MailHelper.InventoryWasFull(newItem, session.Player.CharacterId);
         }
+
+        return true;
     }
 
-    public static void GiveItemFromOpenBox(GameSession session, Item item)
+    public static bool GiveItemFromOpenBox(GameSession session, Item item, out OpenBoxResult boxResult)
     {
+        boxResult = OpenBoxResult.Success;
+
         OpenItemBox box = item.Function.OpenItemBox;
         ItemDropMetadata metadata = ItemDropMetadataStorage.GetItemDropMetadata(box.BoxId);
         if (metadata == null)
         {
             session.Send(NoticePacket.Notice("No items found", NoticeType.Chat));
-            return;
+            boxResult = OpenBoxResult.UnableToOpen;
+            return false;
         }
 
         if (box.AmountRequired > item.Amount)
         {
-            return;
+            boxResult = OpenBoxResult.UnableToOpen;
+            return false;
         }
 
         IInventory inventory = session.Player.Inventory;
+        List<Item> rewards = new();
+
+        // Receive one item from each drop group
+        if (box.ReceiveOneItem)
+        {
+            foreach (DropGroup group in metadata.DropGroups)
+            {
+                bool receivedItem = false;
+
+                // Randomize the contents
+                IOrderedEnumerable<DropGroupContent> dropContent = group.Contents.OrderBy(_ => Random.Shared.Next());
+                foreach (DropGroupContent content in dropContent)
+                {
+                    // If player has already received an item from this group, skip other contents
+                    if (box.ReceiveOneItem && receivedItem)
+                    {
+                        continue;
+                    }
+
+                    List<Item> items = GetItemsFromDropGroup(content, session.Player, item);
+                    foreach (Item newItem in items)
+                    {
+                        receivedItem = true;
+                        rewards.Add(newItem);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // receive all items from each drop group
+            foreach (DropGroup group in metadata.DropGroups)
+            {
+                foreach (DropGroupContent dropContent in group.Contents)
+                {
+                    List<Item> items = GetItemsFromDropGroup(dropContent, session.Player, item);
+                    rewards.AddRange(items);
+                }
+            }
+        }
+
+        // Check if any inventory of the rewards is full
+        if (rewards.Any(reward => inventory.GetFreeSlots(reward.InventoryTab) <= 0))
+        {
+            boxResult = OpenBoxResult.InventoryFull;
+            return false;
+        }
+
+        // Remove the box and required items
         if (box.RequiredItemId > 0)
         {
             Item requiredItem = inventory.GetByUid(box.RequiredItemId);
-            if (requiredItem == null)
+            if (requiredItem is null)
             {
-                return;
+                boxResult = OpenBoxResult.UnableToOpen;
+                return false;
             }
 
             inventory.ConsumeItem(session, requiredItem.Uid, 1);
@@ -120,38 +209,21 @@ public static class ItemBoxHelper
 
         inventory.ConsumeItem(session, item.Uid, box.AmountRequired);
 
-        Random rng = Random.Shared;
-
-        // Receive one item from each drop group
-        if (box.ReceiveOneItem)
+        // give the rewards
+        foreach (Item reward in rewards)
         {
-            foreach (DropGroup group in metadata.DropGroups)
+            reward.Uid = DatabaseManager.Items.Insert(reward);
+
+            if (inventory.CanHold(reward))
             {
-                //randomize the contents
-                List<DropGroupContent> contentList = group.Contents.OrderBy(x => rng.Next()).ToList();
-                foreach (DropGroupContent dropContent in contentList)
-                {
-                    List<Item> items = GetItemsFromDropGroup(dropContent, session.Player.Gender, session.Player.Job);
-                    foreach (Item newItem in items)
-                    {
-                        inventory.AddItem(session, newItem, true);
-                    }
-                }
+                inventory.AddItem(session, reward, true);
+                continue;
             }
-            return;
+
+            boxResult = OpenBoxResult.InventoryFull;
+            MailHelper.InventoryWasFull(reward, session.Player.CharacterId);
         }
 
-        // receive all items from each drop group
-        foreach (DropGroup group in metadata.DropGroups)
-        {
-            foreach (DropGroupContent dropContent in group.Contents)
-            {
-                List<Item> items = GetItemsFromDropGroup(dropContent, session.Player.Gender, session.Player.Job);
-                foreach (Item newItem in items)
-                {
-                    inventory.AddItem(session, newItem, true);
-                }
-            }
-        }
+        return true;
     }
 }

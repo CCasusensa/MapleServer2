@@ -13,7 +13,7 @@ public class InstrumentHandler : GamePacketHandler<InstrumentHandler>
 {
     public override RecvOp OpCode => RecvOp.PlayInstrument;
 
-    private enum InstrumentMode : byte
+    private enum Mode : byte
     {
         StartImprovise = 0x0,
         PlayNote = 0x1,
@@ -29,38 +29,38 @@ public class InstrumentHandler : GamePacketHandler<InstrumentHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        InstrumentMode mode = (InstrumentMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case InstrumentMode.StartImprovise:
+            case Mode.StartImprovise:
                 HandleStartImprovise(session, packet);
                 break;
-            case InstrumentMode.PlayNote:
+            case Mode.PlayNote:
                 HandlePlayNote(session, packet);
                 break;
-            case InstrumentMode.StopImprovise:
+            case Mode.StopImprovise:
                 HandleStopImprovise(session);
                 break;
-            case InstrumentMode.PlayScore:
+            case Mode.PlayScore:
                 HandlePlayScore(session, packet);
                 break;
-            case InstrumentMode.StopScore:
+            case Mode.StopScore:
                 HandleStopScore(session);
                 break;
-            case InstrumentMode.StartEnsemble:
+            case Mode.StartEnsemble:
                 HandleStartEnsemble(session, packet);
                 break;
-            case InstrumentMode.LeaveEnsemble:
+            case Mode.LeaveEnsemble:
                 HandleLeaveEnsemble(session);
                 break;
-            case InstrumentMode.Compose:
+            case Mode.Compose:
                 HandleCompose(session, packet);
                 break;
-            case InstrumentMode.Fireworks:
+            case Mode.Fireworks:
                 HandleFireworks(session);
                 break;
-            case InstrumentMode.AudienceEmote:
+            case Mode.AudienceEmote:
                 HandleAudienceEmote(packet);
                 break;
             default:
@@ -152,9 +152,18 @@ public class InstrumentHandler : GamePacketHandler<InstrumentHandler>
 
     private static void HandleStopScore(GameSession session)
     {
-        int masteryExpGain = (session.ServerTick - session.Player.Instrument.Value.InstrumentTick) / 1000;
-        // TODO: Find any exp cap
+        // get Mastery exp
+        ItemMusicMetadata metadata = ItemMetadataStorage.GetMetadata(session.Player.Instrument.Value.Score.Id)?.Music;
+        int masteryExpGain = Math.Min(((session.ServerTick - session.Player.Instrument.Value.InstrumentTick) * metadata.MasteryValue) / 1000, metadata.MasteryValueMax);
         session.Player.Levels.GainMasteryExp(MasteryType.Performance, masteryExpGain);
+
+        // get prestige exp
+        int prestigeExpGain = (session.ServerTick - session.Player.Instrument.Value.InstrumentTick) / 1000 * 250;
+        session.Player.Levels.GainPrestigeExp(prestigeExpGain);
+
+        //TODO: get exp for normal level
+
+        // remove instrument from field
         session.FieldManager.BroadcastPacket(InstrumentPacket.StopScore(session.Player.Instrument));
         session.FieldManager.RemoveInstrument(session.Player.Instrument);
         session.Player.Instrument = null;

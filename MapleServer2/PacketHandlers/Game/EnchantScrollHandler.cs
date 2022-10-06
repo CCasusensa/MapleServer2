@@ -16,7 +16,7 @@ public class EnchantScrollHandler : GamePacketHandler<EnchantScrollHandler>
 {
     public override RecvOp OpCode => RecvOp.EnchantScroll;
 
-    private enum EnchantScrollMode : byte
+    private enum Mode : byte
     {
         AddItem = 0x1,
         UseScroll = 0x2,
@@ -37,7 +37,7 @@ public class EnchantScrollHandler : GamePacketHandler<EnchantScrollHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        EnchantScrollMode mode = (EnchantScrollMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         long scrollUid = packet.ReadLong();
         long equipUid = packet.ReadLong();
@@ -87,10 +87,10 @@ public class EnchantScrollHandler : GamePacketHandler<EnchantScrollHandler>
 
         switch (mode)
         {
-            case EnchantScrollMode.AddItem:
+            case Mode.AddItem:
                 session.Send(EnchantScrollPacket.AddItem(equipUid, enchantStats));
                 break;
-            case EnchantScrollMode.UseScroll:
+            case Mode.UseScroll:
                 HandleUseScroll(session, equip, scroll, enchantStats, metadata.EnchantLevels[enchantLevelIndex], metadata.Id);
                 break;
             default:
@@ -105,16 +105,16 @@ public class EnchantScrollHandler : GamePacketHandler<EnchantScrollHandler>
         float successRate = (float) script.RunFunction("getSuccessRate", scrollId).Number;
 
         int randomValue = Random.Shared.Next(0, 10000 + 1);
-        bool scrollSuccess = successRate >= randomValue;
+        bool scrollSuccess = successRate * 10000 >= randomValue;
+
+        session.Player.Inventory.ConsumeItem(session, scroll.Uid, 1);
 
         if (scrollSuccess)
         {
             equip.EnchantLevel = enchantLevel;
             equip.EnchantExp = 0;
             equip.Stats.Enchants = enchantStats;
+            session.Send(EnchantScrollPacket.UseScroll((short) EnchantScrollError.None, equip));
         }
-
-        session.Player.Inventory.ConsumeItem(session, scroll.Uid, 1);
-        session.Send(EnchantScrollPacket.UseScroll((short) EnchantScrollError.None, equip));
     }
 }

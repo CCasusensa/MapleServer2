@@ -46,7 +46,7 @@ public class DatabaseItem : DatabaseTable
             inventory_id = item.InventoryId == 0 ? null : (int?) item.InventoryId,
             is_equipped = item.IsEquipped,
             is_locked = item.IsLocked,
-            is_template = item.IsTemplate,
+            owner_account_id = item.OwnerAccountId == 0 ? null : (int?) item.OwnerAccountId,
             owner_character_id = item.OwnerCharacterId == 0 ? null : (int?) item.OwnerCharacterId,
             owner_character_name = item.OwnerCharacterName,
             paired_character_id = item.PairedCharacterId,
@@ -63,11 +63,13 @@ public class DatabaseItem : DatabaseTable
             transparency_badge_bools = JsonConvert.SerializeObject(item.TransparencyBadgeBools),
             unlock_time = item.UnlockTime,
             category = item.Category,
-            ugc_uid = item.Ugc == null ? null : (int?) item.Ugc.Uid
+            ugc_uid = item.Ugc is null ? null : (int?) item.Ugc.Uid,
+            pet_uid = item.PetInfo is null ? null : (int?) item.PetInfo.Uid,
+            gem_sockets = JsonConvert.SerializeObject(item.GemSockets, Settings),
         });
     }
 
-    public Item FindByUid(long uid)
+    public Item? FindByUid(long uid)
     {
         dynamic result = QueryFactory.Query(TableName).Where("uid", uid).FirstOrDefault();
 
@@ -79,7 +81,7 @@ public class DatabaseItem : DatabaseTable
         return ReadItem(result);
     }
 
-    public Item FindByUgcUid(long ugcUid)
+    public Item? FindByUgcUid(long ugcUid)
     {
         dynamic result = QueryFactory.Query(TableName).Where("ugc_uid", ugcUid).FirstOrDefault();
 
@@ -170,7 +172,7 @@ public class DatabaseItem : DatabaseTable
             inventory_id = item.InventoryId == 0 ? null : (int?) item.InventoryId,
             is_equipped = item.IsEquipped,
             is_locked = item.IsLocked,
-            is_template = item.IsTemplate,
+            owner_account_id = item.OwnerAccountId == 0 ? null : (int?) item.OwnerAccountId,
             owner_character_id = item.OwnerCharacterId == 0 ? null : (int?) item.OwnerCharacterId,
             owner_character_name = item.OwnerCharacterName,
             paired_character_id = item.PairedCharacterId,
@@ -185,8 +187,15 @@ public class DatabaseItem : DatabaseTable
             transfer_flag = item.TransferFlag,
             transparency_badge_bools = JsonConvert.SerializeObject(item.TransparencyBadgeBools),
             unlock_time = item.UnlockTime,
-            ugc_uid = item.Ugc == null ? null : (int?) item.Ugc.Uid
+            ugc_uid = item.Ugc == null ? null : (int?) item.Ugc.Uid,
+            pet_uid = item.PetInfo == null ? null : (int?) item.PetInfo.Uid,
+            gem_sockets = JsonConvert.SerializeObject(item.GemSockets, Settings)
         });
+
+        if (item.PetInfo is not null)
+        {
+            DatabaseManager.Pets.Update(item.PetInfo);
+        }
     }
 
     public bool Delete(long uid)
@@ -222,7 +231,7 @@ public class DatabaseItem : DatabaseTable
             Id = data.id,
             IsEquipped = data.is_equipped,
             IsLocked = data.is_locked,
-            IsTemplate = data.is_template,
+            OwnerAccountId = data.owner_account_id ?? 0,
             OwnerCharacterId = data.owner_character_id ?? 0,
             OwnerCharacterName = data.owner_character_name ?? "",
             PairedCharacterId = data.paired_character_id,
@@ -243,7 +252,9 @@ public class DatabaseItem : DatabaseTable
             Category = data.category,
             MailId = data.mail_id ?? 0,
             HomeId = data.home_id ?? 0,
-            Ugc = data.ugc_uid == null ? null : DatabaseManager.UGC.FindByUid(data.ugc_uid)
+            Ugc = data.ugc_uid is null ? null : DatabaseManager.UGC.FindByUid(data.ugc_uid),
+            PetInfo = data.pet_uid is null ? null : DatabaseManager.Pets.Get(data.pet_uid),
+            GemSockets = data.gem_sockets is null ? new GemSockets() : JsonConvert.DeserializeObject<GemSockets>(data.gem_sockets, Settings)
         };
     }
 }

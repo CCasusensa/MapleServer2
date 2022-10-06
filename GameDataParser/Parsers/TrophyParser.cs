@@ -1,5 +1,6 @@
 ﻿using System.Xml;
 using GameDataParser.Files;
+using GameDataParser.Files.MetadataExporter;
 using Maple2.File.IO.Crypto.Common;
 using Maple2Storage.Enums;
 using Maple2Storage.Types;
@@ -69,6 +70,8 @@ internal class TrophyParser : Exporter<List<TrophyMetadata>>
                     RewardValue = int.Parse(reward.Attributes["value"].Value),
                     RewardRank = int.Parse(reward.Attributes["rank"].Value)
                 };
+
+                int.TryParse(reward.Attributes["subJobLevel"]?.Value, out newGrade.RewardSubJobLevel);
 
                 newTrophy.Grades.Add(newGrade);
             }

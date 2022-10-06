@@ -1,13 +1,14 @@
 ﻿using Maple2Storage.Types;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Enums;
 using MapleServer2.Types;
 
 namespace MapleServer2.Packets;
 
 public static class SkillDamagePacket
 {
-    private enum SkillDamageMode : byte
+    private enum Mode : byte
     {
         SyncDamage = 0x0,
         Damage = 0x1,
@@ -24,7 +25,7 @@ public static class SkillDamagePacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.SyncDamage);
+        pWriter.Write(Mode.SyncDamage);
         pWriter.WriteLong(skillCast.SkillSn);
         pWriter.WriteInt(player.ObjectId);
         pWriter.WriteInt(skillCast.SkillId);
@@ -48,16 +49,15 @@ public static class SkillDamagePacket
         return pWriter;
     }
 
-    public static PacketWriter Damage(SkillCast skillCast, int attackCount, CoordF position, CoordF rotation,
-        List<(int targetId, byte damageType, double damage)> damages)
+    public static PacketWriter Damage(SkillCast skillCast, int attackCount, CoordF position, CoordF rotation, List<DamageHandler> damages)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.Damage);
+        pWriter.Write(Mode.Damage);
         pWriter.WriteLong(skillCast.SkillSn);
         pWriter.WriteInt(attackCount);
-        pWriter.WriteInt(skillCast.CasterObjectId);
-        pWriter.WriteInt(skillCast.CasterObjectId);
+        pWriter.WriteInt(skillCast.Caster.ObjectId);
+        pWriter.WriteInt(skillCast.Caster.ObjectId);
         pWriter.WriteInt(skillCast.SkillId);
         pWriter.WriteShort(skillCast.SkillLevel);
         // This values appears on some SkillsId, and others like BossSkill, sometimes is 0
@@ -67,11 +67,11 @@ public static class SkillDamagePacket
         pWriter.Write(rotation.ToShort());
         // TODO: Check if is a player or mob
         pWriter.WriteByte((byte) damages.Count);
-        foreach ((int targetId, byte damageType, double damage) in damages)
+        foreach (DamageHandler handler in damages)
         {
-            pWriter.WriteInt(targetId);
+            pWriter.WriteInt(handler.Target.ObjectId);
 
-            bool flag = damage > 0;
+            bool flag = handler.Damage > 0;
 
             pWriter.WriteBool(flag);
             if (!flag)
@@ -79,22 +79,22 @@ public static class SkillDamagePacket
                 continue;
             }
 
-            pWriter.WriteByte(damageType); // 0 = normal, 1 = critical, 2 = miss
-            pWriter.WriteLong(-1 * (long) damage);
+            pWriter.Write(handler.HitType);
+            pWriter.WriteLong(-1 * (long) handler.Damage);
         }
 
         return pWriter;
     }
 
-    public static PacketWriter DotDamage(int ownerId, int targetId, int tick, DamageType damageType, int damage)
+    public static PacketWriter DotDamage(int ownerId, int targetId, int tick, HitType hitType, int damage)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.DotDamage);
+        pWriter.Write(Mode.DotDamage);
         pWriter.WriteInt(ownerId);
         pWriter.WriteInt(targetId);
         pWriter.WriteInt(tick);
-        pWriter.Write(damageType);
+        pWriter.Write(hitType);
         pWriter.WriteInt(damage);
 
         return pWriter;
@@ -104,10 +104,25 @@ public static class SkillDamagePacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.Heal);
+        pWriter.Write(Mode.Heal);
         pWriter.WriteInt(status.Source);
         pWriter.WriteInt(status.Target);
         pWriter.WriteInt(status.UniqueId);
+        pWriter.WriteInt(healAmount);
+        pWriter.WriteLong();
+        pWriter.WriteByte(1);
+
+        return pWriter;
+    }
+
+    public static PacketWriter Heal(AdditionalEffect effect, int healAmount)
+    {
+        PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
+
+        pWriter.Write(Mode.Heal);
+        pWriter.WriteInt(effect.Caster.ObjectId);
+        pWriter.WriteInt(effect.Parent.ObjectId);
+        pWriter.WriteInt(effect.BuffId);
         pWriter.WriteInt(healAmount);
         pWriter.WriteLong();
         pWriter.WriteByte(1);
@@ -119,9 +134,9 @@ public static class SkillDamagePacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.RegionDamage);
+        pWriter.Write(Mode.RegionDamage);
         pWriter.WriteLong(); // always 0??
-        pWriter.WriteInt(skillCast.CasterObjectId);
+        pWriter.WriteInt(skillCast.Caster?.ObjectId ?? 0);
         pWriter.WriteInt(skillCast.SkillObjectId);
         pWriter.WriteByte();
 
@@ -139,7 +154,7 @@ public static class SkillDamagePacket
 
             pWriter.Write(damageHandler.Target.Coord.ToShort());
             pWriter.Write(damageHandler.Target.Velocity);
-            pWriter.WriteByte(); // 0 = normal, 1 = critical, 2 = miss
+            pWriter.Write(damageHandler.HitType);
             pWriter.WriteLong((long) (-1 * damageHandler.Damage));
         }
 
@@ -151,7 +166,7 @@ public static class SkillDamagePacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.RegionDamage);
+        pWriter.Write(Mode.RegionDamage);
         pWriter.WriteLong(skillCast.SkillSn);
         pWriter.WriteInt(skillCast.SkillId);
         pWriter.WriteShort(skillCast.SkillLevel);
@@ -176,7 +191,7 @@ public static class SkillDamagePacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillDamage);
 
-        pWriter.Write(SkillDamageMode.UnkMode7);
+        pWriter.Write(Mode.UnkMode7);
         pWriter.WriteInt(unkInt);
         pWriter.WriteInt(count);
         for (int i = 0; i < count; i++)
@@ -191,7 +206,7 @@ public static class SkillDamagePacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.SkillUse);
 
-        pWriter.Write(SkillDamageMode.UnkMode8);
+        pWriter.Write(Mode.UnkMode8);
         pWriter.WriteLong(unkLong);
         pWriter.WriteBool(unkBool);
         if (unkBool)

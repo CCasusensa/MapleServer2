@@ -12,7 +12,6 @@ public class DatabaseUGC : DatabaseTable
     {
         return QueryFactory.Query(TableName).InsertGetId<long>(new
         {
-            uid = ugc.Uid,
             guid = ugc.Guid.ToString(),
             name = ugc.Name,
             url = ugc.Url,
@@ -30,16 +29,19 @@ public class DatabaseUGC : DatabaseTable
     {
         QueryFactory.Query(TableName).Where("uid", ugc.Uid).Update(new
         {
+            guid = ugc.Guid,
             name = ugc.Name,
             url = ugc.Url,
             character_id = ugc.CharacterId,
             character_name = ugc.CharacterName,
             account_id = ugc.AccountId,
+            sale_price = ugc.SalePrice,
+            type = ugc.Type,
             creation_time = ugc.CreationTime
         });
     }
 
-    public UGC FindByUid(long uid)
+    public UGC? FindByUid(long uid)
     {
         dynamic result = QueryFactory.Query(TableName).Where("uid", uid).FirstOrDefault();
         if (result == null)

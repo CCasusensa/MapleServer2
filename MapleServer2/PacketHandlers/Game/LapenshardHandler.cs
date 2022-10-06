@@ -12,7 +12,7 @@ public class LapenshardHandler : GamePacketHandler<LapenshardHandler>
 {
     public override RecvOp OpCode => RecvOp.ItemLapenshard;
 
-    private enum LapenshardMode : byte
+    private enum Mode : byte
     {
         Equip = 0x1,
         Unequip = 0x2,
@@ -30,28 +30,48 @@ public class LapenshardHandler : GamePacketHandler<LapenshardHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        LapenshardMode mode = (LapenshardMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
         switch (mode)
         {
-            case LapenshardMode.Equip:
+            case Mode.Equip:
                 HandleEquip(session, packet);
                 break;
-            case LapenshardMode.Unequip:
+            case Mode.Unequip:
                 HandleUnequip(session, packet);
                 break;
-            case LapenshardMode.AddFusion:
+            case Mode.AddFusion:
                 HandleAddFusion(session, packet);
                 break;
-            case LapenshardMode.AddCatalyst:
+            case Mode.AddCatalyst:
                 HandleAddCatalyst(session, packet);
                 break;
-            case LapenshardMode.Fusion:
+            case Mode.Fusion:
                 HandleFusion(session, packet);
                 break;
             default:
                 LogUnknownMode(mode);
                 break;
         }
+    }
+
+    public static void AddEffects(Player player, Item lapenshard)
+    {
+        if (lapenshard.AdditionalEffects.Id == null)
+        {
+            return;
+        }
+
+        player.AddEffects(lapenshard.AdditionalEffects);
+    }
+
+    public static void RemoveEffects(Player player, Item lapenshard)
+    {
+        if (lapenshard.AdditionalEffects.Id == null)
+        {
+            return;
+        }
+
+        player.RemoveEffects(lapenshard.AdditionalEffects);
     }
 
     private static void HandleEquip(GameSession session, PacketReader packet)
@@ -70,7 +90,7 @@ public class LapenshardHandler : GamePacketHandler<LapenshardHandler>
             return;
         }
 
-        if (session.Player.Inventory.LapenshardStorage[slotId] is not null)
+        if (session.Player.Inventory.LapenshardStorage[slotId - 1] is not null)
         {
             return;
         }
@@ -82,9 +102,10 @@ public class LapenshardHandler : GamePacketHandler<LapenshardHandler>
             Slot = (short) slotId
         };
 
-        newLapenshard.Uid = DatabaseManager.Items.Insert(newLapenshard);
+        AddEffects(session.Player, newLapenshard);
 
-        session.Player.Inventory.LapenshardStorage[slotId] = newLapenshard;
+        newLapenshard.Uid = DatabaseManager.Items.Insert(newLapenshard);
+        session.Player.Inventory.LapenshardStorage[slotId - 1] = newLapenshard;
         session.Player.Inventory.ConsumeItem(session, item.Uid, 1);
         session.Send(LapenshardPacket.Equip(slotId, item.Id));
     }
@@ -93,13 +114,15 @@ public class LapenshardHandler : GamePacketHandler<LapenshardHandler>
     {
         int slotId = packet.ReadInt();
 
-        Item lapenshard = session.Player.Inventory.LapenshardStorage[slotId];
+        Item lapenshard = session.Player.Inventory.LapenshardStorage[slotId - 1];
         if (lapenshard is null)
         {
             return;
         }
 
-        session.Player.Inventory.LapenshardStorage[slotId] = null;
+        RemoveEffects(session.Player, lapenshard);
+
+        session.Player.Inventory.LapenshardStorage[slotId - 1] = null;
         lapenshard.Slot = -1;
         lapenshard.IsEquipped = false;
         session.Player.Inventory.AddItem(session, lapenshard, true);
@@ -229,7 +252,7 @@ public class LapenshardHandler : GamePacketHandler<LapenshardHandler>
         }
 
         session.Player.Inventory.ConsumeItem(session, itemUid, 1);
-        session.Player.Inventory.AddItem(session, new(itemId + 1) { Rarity = 3 }, true);
+        session.Player.Inventory.AddItem(session, new(itemId + 1, rarity: 3), true);
         session.Send(LapenshardPacket.Upgrade(itemId, true));
     }
 }

@@ -1,13 +1,13 @@
-﻿using Maple2Storage.Types.Metadata;
-using MaplePacketLib2.Tools;
+﻿using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
+using MapleServer2.Database.Types;
 using MapleServer2.Types;
 
 namespace MapleServer2.Packets;
 
 public static class BeautyPacket
 {
-    private enum BeautyPacketMode : byte
+    private enum Mode : byte
     {
         LoadBeautyShop = 0x0,
         LoadDyeShop = 0x1,
@@ -24,10 +24,10 @@ public static class BeautyPacket
         ChangeToSavedHair = 0x15
     }
 
-    public static PacketWriter LoadBeautyShop(BeautyMetadata beautyShop)
+    public static PacketWriter LoadBeautyShop(BeautyShop beautyShop)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadBeautyShop);
+        pWriter.Write(Mode.LoadBeautyShop);
         WriteBeautyShop(pWriter, beautyShop);
         pWriter.WriteByte();
         pWriter.WriteByte();
@@ -35,41 +35,41 @@ public static class BeautyPacket
         return pWriter;
     }
 
-    public static PacketWriter LoadBeautyShop(BeautyMetadata beautyShop, List<BeautyItem> items)
+    public static PacketWriter LoadBeautyShop(BeautyShop beautyShop, List<BeautyShopItem> items)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadBeautyShop);
+        pWriter.Write(Mode.LoadBeautyShop);
         WriteBeautyShop(pWriter, beautyShop);
         pWriter.WriteByte(30);
         pWriter.WriteByte(6);
         pWriter.WriteShort((short) items.Count);
-        foreach (BeautyItem item in items)
+        foreach (BeautyShopItem item in items)
         {
             pWriter.WriteInt(item.ItemId);
             pWriter.Write(item.Flag);
             pWriter.WriteShort(item.RequiredLevel);
             pWriter.WriteInt(item.RequiredAchievementId);
             pWriter.WriteByte(item.RequiredAchievementGrade);
-            pWriter.Write(item.TokenType);
+            pWriter.Write(item.CurrencyType);
             pWriter.WriteInt(item.RequiredItemId);
-            pWriter.WriteInt(item.TokenCost);
+            pWriter.WriteInt(item.CurrencyCost);
             pWriter.WriteString();
         }
         return pWriter;
     }
 
-    public static PacketWriter LoadDyeShop(BeautyMetadata beautyShop)
+    public static PacketWriter LoadDyeShop(BeautyShop beautyShop)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadDyeShop);
+        pWriter.Write(Mode.LoadDyeShop);
         WriteBeautyShop(pWriter, beautyShop);
         return pWriter;
     }
 
-    public static PacketWriter LoadSaveShop(BeautyMetadata beautyShop)
+    public static PacketWriter LoadSaveShop(BeautyShop beautyShop)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadSaveShop);
+        pWriter.Write(Mode.LoadSaveShop);
         WriteBeautyShop(pWriter, beautyShop);
         pWriter.WriteByte(30);
         pWriter.WriteByte(6);
@@ -80,7 +80,7 @@ public static class BeautyPacket
     public static PacketWriter UseVoucher(int voucherId, int quantity)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.UseVoucher);
+        pWriter.Write(Mode.UseVoucher);
         pWriter.WriteInt(voucherId);
         pWriter.WriteInt(quantity);
         return pWriter;
@@ -89,7 +89,7 @@ public static class BeautyPacket
     public static PacketWriter RandomHairOption(Item previousHair, Item newHair)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.RandomHairOption);
+        pWriter.Write(Mode.RandomHairOption);
         pWriter.WriteInt(previousHair.Id);
         pWriter.WriteInt(newHair.Id);
         return pWriter;
@@ -98,7 +98,7 @@ public static class BeautyPacket
     public static PacketWriter ChooseRandomHair(int voucherId = 0)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.ChooseRandomHair);
+        pWriter.Write(Mode.ChooseRandomHair);
         pWriter.WriteInt(voucherId);
         pWriter.WriteByte();
         return pWriter;
@@ -107,14 +107,14 @@ public static class BeautyPacket
     public static PacketWriter InitializeSaves()
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.InitializeSaves);
+        pWriter.Write(Mode.InitializeSaves);
         return pWriter;
     }
 
     public static PacketWriter LoadSavedHairCount(short hairCount)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadSavedHairCount);
+        pWriter.Write(Mode.LoadSavedHairCount);
         pWriter.WriteShort(hairCount);
         return pWriter;
     }
@@ -122,7 +122,7 @@ public static class BeautyPacket
     public static PacketWriter LoadSavedHairs(List<Item> savedHairs)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadSavedHairs);
+        pWriter.Write(Mode.LoadSavedHairs);
         pWriter.WriteShort((short) savedHairs.Count);
         foreach (Item hair in savedHairs)
         {
@@ -145,7 +145,7 @@ public static class BeautyPacket
     public static PacketWriter SaveHair(Item playerHair, Item hairCopy)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.SaveHair);
+        pWriter.Write(Mode.SaveHair);
         pWriter.WriteLong(playerHair.Uid);
         pWriter.WriteLong(hairCopy.Uid);
         pWriter.WriteByte();
@@ -156,7 +156,7 @@ public static class BeautyPacket
     public static PacketWriter DeleteSavedHair(long itemUid)
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.DeleteSavedHair);
+        pWriter.Write(Mode.DeleteSavedHair);
         pWriter.WriteLong(itemUid);
         return pWriter;
     }
@@ -164,7 +164,7 @@ public static class BeautyPacket
     public static PacketWriter LoadSaveWindow()
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.LoadSaveWindow);
+        pWriter.Write(Mode.LoadSaveWindow);
         pWriter.WriteByte();
         pWriter.WriteShort();
         return pWriter;
@@ -173,27 +173,27 @@ public static class BeautyPacket
     public static PacketWriter ChangetoSavedHair()
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Beauty);
-        pWriter.Write(BeautyPacketMode.ChangeToSavedHair);
+        pWriter.Write(Mode.ChangeToSavedHair);
         return pWriter;
     }
 
-    public static void WriteBeautyShop(PacketWriter pWriter, BeautyMetadata beautyShop)
+    public static void WriteBeautyShop(PacketWriter pWriter, BeautyShop beautyShop)
     {
         pWriter.Write(beautyShop.BeautyCategory);
-        pWriter.WriteInt(beautyShop.ShopId);
+        pWriter.WriteInt(beautyShop.Id);
         pWriter.Write(beautyShop.BeautyType);
         pWriter.WriteInt(beautyShop.VoucherId);
         pWriter.WriteByte();
         pWriter.WriteInt();
         pWriter.WriteInt(beautyShop.UniqueId);
         pWriter.WriteByte();
-        pWriter.WriteByte(4);
+        pWriter.Write(beautyShop.CurrencyType);
         pWriter.WriteInt();
         pWriter.WriteInt(beautyShop.SpecialCost);
         pWriter.WriteString();
-        pWriter.Write(beautyShop.TokenType);
+        pWriter.Write(beautyShop.CurrencyType);
         pWriter.WriteInt(beautyShop.RequiredItemId);
-        pWriter.WriteInt(beautyShop.TokenCost);
+        pWriter.WriteInt(beautyShop.CurrencyCost);
         pWriter.WriteString();
     }
 }

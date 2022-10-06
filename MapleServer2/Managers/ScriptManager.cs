@@ -30,8 +30,9 @@ public class ScriptManager
         private Account Account => Player.Account;
 
         // Attributes need to be public so LUA scripts can access it.
-        public int JobId => (int) Player.Job;
+        public int JobId => (int) Player.JobCode;
         public int MapId => Player.MapId;
+        public int Level => Player.Levels.Level;
         public long MesoAmount => Wallet.Meso.Amount;
         public long RueAmount => Wallet.Rue.Amount;
         public long TrevaAmount => Wallet.Treva.Amount;
@@ -60,19 +61,41 @@ public class ScriptManager
 
         public bool HasQuestStarted(int questId)
         {
-            return Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) && questStatus.State == QuestState.Started;
+            return Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) && questStatus.State is QuestState.Started;
         }
 
-        public bool HasQuestStarted(List<int> questIds)
+        public bool HasQuestCompleted(int questId)
+        {
+            return Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) && questStatus.State is QuestState.Completed;
+        }
+
+        public bool HasAnyQuestStarted(List<int> questIds)
         {
             foreach (int questId in questIds)
             {
-                return Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) && questStatus.State == QuestState.Started;
+                if (Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) && questStatus.State is QuestState.Started)
+                {
+                    return true;
+                }
             }
 
             return false;
         }
 
+        public bool HasAnyQuestCompleted(List<int> questIds)
+        {
+            foreach (int questId in questIds)
+            {
+                if (Player.QuestData.TryGetValue(questId, out QuestStatus questStatus) && questStatus.State is QuestState.Completed)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool HasSufficientMesos(long amount) => Wallet.Meso.Amount >= amount;
         public bool ModifyMeso(long amount) => Wallet.Meso.Modify(amount);
         public bool ModifyRue(long amount) => Wallet.Rue.Modify(amount);
         public bool ModifyTreva(long amount) => Wallet.Treva.Modify(amount);

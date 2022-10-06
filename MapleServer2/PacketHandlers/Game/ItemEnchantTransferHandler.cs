@@ -12,15 +12,6 @@ public class ItemEnchantTransferHandler : GamePacketHandler<ItemEnchantTransferH
 {
     public override RecvOp OpCode => RecvOp.ItemEnchantTransform;
 
-    private enum ItemEnchantTransferMode : byte
-    {
-        Convert = 0x1,
-        UseSticker = 0x3,
-        GroupChatSticker = 0x4,
-        Favorite = 0x5,
-        Unfavorite = 0x6
-    }
-
     public override void Handle(GameSession session, PacketReader packet)
     {
         long itemUid = packet.ReadLong();
@@ -41,11 +32,7 @@ public class ItemEnchantTransferHandler : GamePacketHandler<ItemEnchantTransferH
         item.EnchantLevel = 0;
         item.Stats.Enchants = new();
 
-        Item scroll = new(metadata.OutputItemId)
-        {
-            Rarity = metadata.OutputRarity,
-            Amount = metadata.OutputAmount
-        };
+        Item scroll = new(metadata.OutputItemId, metadata.OutputAmount, metadata.OutputRarity);
 
         session.Player.Inventory.AddItem(session, scroll, true);
         session.Send(ItemInventoryPacket.UpdateItem(item));

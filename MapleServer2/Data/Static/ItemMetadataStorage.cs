@@ -25,54 +25,50 @@ public static class ItemMetadataStorage
 
     public static bool IsValid(int itemId) => ItemMetadatas.ContainsKey(itemId);
 
-    public static ItemMetadata GetMetadata(int itemId) => ItemMetadatas.GetValueOrDefault(itemId);
+    public static ItemMetadata? GetMetadata(int itemId) => ItemMetadatas.GetValueOrDefault(itemId);
 
-    public static string GetName(int itemId) => GetMetadata(itemId).Name;
+    public static string? GetName(int itemId) => GetMetadata(itemId)?.Name;
 
-    public static ItemSlot GetSlot(int itemId) => GetMetadata(itemId).Slot;
+    public static List<ItemSlot>? GetItemSlots(int itemId) => GetMetadata(itemId)?.Slots;
 
-    public static GemSlot GetGem(int itemId) => GetMetadata(itemId).Gem;
+    public static GemSlot? GetGem(int itemId) => GetMetadata(itemId)?.Gem.Gem;
 
-    public static MedalSlot GetMedalSlot(int itemId) => GetMetadata(itemId).Medal;
+    public static MedalSlot? GetMedalSlot(int itemId) => GetMetadata(itemId)?.Medal;
 
-    public static InventoryTab GetTab(int itemId) => GetMetadata(itemId).Tab;
+    public static InventoryTab? GetTab(int itemId) => GetMetadata(itemId)?.Tab;
 
-    public static int GetRarity(int itemId) => GetMetadata(itemId).Rarity;
+    public static int GetRarity(int itemId) => GetMetadata(itemId)?.Rarity ?? 1;
 
-    public static int GetStackLimit(int itemId) => GetMetadata(itemId).StackLimit;
+    public static ItemPropertyMetadata? GetPropertyMetadata(int itemId) => GetMetadata(itemId)?.Property;
 
-    public static bool GetEnableBreak(int itemId) => GetMetadata(itemId).EnableBreak;
+    public static ItemLimitMetadata? GetLimitMetadata(int itemId) => GetMetadata(itemId)?.Limit;
 
-    public static bool GetIsTwoHand(int itemId) => GetMetadata(itemId).IsTwoHand;
+    public static ItemInstallMetadata? GetInstallMetadata(int itemId) => GetMetadata(itemId)?.Install;
 
-    public static bool GetIsDress(int itemId) => GetMetadata(itemId).IsDress;
+    public static ItemMusicMetadata? GetMusicMetadata(int itemId) => GetMetadata(itemId)?.Music;
 
-    public static bool GetIsTemplate(int itemId) => GetMetadata(itemId).IsTemplate;
+    public static ItemHousingMetadata? GetHousingMetadata(int itemId) => GetMetadata(itemId)?.Housing;
 
-    public static bool GetIsCustomScore(int itemId) => GetMetadata(itemId).IsCustomScore;
+    public static ItemFunctionMetadata? GetFunctionMetadata(int itemId) => GetMetadata(itemId)?.Function;
 
-    public static Gender GetGender(int itemId) => GetMetadata(itemId).Gender;
+    public static ItemOptionMetadata? GetOptionMetadata(int itemId) => GetMetadata(itemId)?.Option;
 
-    public static int GetPlayCount(int itemId) => GetMetadata(itemId).PlayCount;
+    public static ItemSkillMetadata? GetSkillMetadata(int itemId) => GetMetadata(itemId)?.Skill;
 
-    public static string GetFileName(int itemId) => GetMetadata(itemId).FileName;
+    public static ItemAdditionalEffectMetadata? GetAdditionalEffects(int itemId) => GetMetadata(itemId)?.AdditionalEffect;
 
-    public static int GetSkillID(int itemId) => GetMetadata(itemId).SkillID;
+    public static bool GetIsUGC(int itemId) => !string.IsNullOrEmpty(GetMetadata(itemId)?.UGC.Mesh);
 
-    public static int GetShopID(int itemId) => GetMetadata(itemId).ShopID;
+    public static int? GetShopID(int itemId) => GetMetadata(itemId)?.Shop.ShopId;
 
-    public static bool IsSellablle(int itemId) => GetMetadata(itemId).Sellable;
-
-    public static bool IsTradeDisabledWithinAccount(int itemId) => GetMetadata(itemId).DisableTradeWithinAccount;
-
-    public static TransferType GetTransferType(int itemId) => GetMetadata(itemId).TransferType;
+    public static bool IsTradeDisabledWithinAccount(int itemId) => GetMetadata(itemId)?.Property.DisableTradeWithinAccount ?? false;
 
     public static ItemTransferFlag GetTransferFlag(int itemId, int rarity)
     {
-        TransferType transferType = GetTransferType(itemId);
+        TransferType? transferType = GetLimitMetadata(itemId)?.TransferType;
         ItemTransferFlag transferFlag = ItemTransferFlag.Untradeable;
-        int tradeLimitByRarity = GetMetadata(itemId).TradeLimitByRarity;
-        int tradeCount = GetTradeableCount(itemId);
+        int? tradeLimitByRarity = GetMetadata(itemId)?.Limit.TradeLimitByRarity;
+        int? tradeCount = GetPropertyMetadata(itemId)?.TradeableCount;
         bool tradeable = tradeCount > 0 || transferType == TransferType.Tradeable;
 
         switch (transferType)
@@ -127,25 +123,32 @@ public static class ItemMetadataStorage
         return transferFlag;
     }
 
-    public static int GetTradeableCount(int itemId) => GetMetadata(itemId).TradeableCount;
+    public static bool? IsFusionable(int itemId) => GetMetadata(itemId)?.Fusion.Fusionable;
 
-    public static int GetRepackageCount(int itemId) => GetMetadata(itemId).RepackageCount;
-
-    public static int GetRepackageConsumeCount(int itemId) => GetMetadata(itemId).RepackageItemConsumeCount;
-
-    public static string GetCategory(int itemId) => GetMetadata(itemId).Category;
-
-    public static List<Job> GetRecommendJobs(int itemId)
+    public static List<JobCode> GetRecommendJobs(int itemId)
     {
-        static Job Converter(int integer) => (Job) integer;
+        static JobCode Converter(int integer) => (JobCode) integer;
 
-        return GetMetadata(itemId).RecommendJobs.ConvertAll(Converter);
+        return GetMetadata(itemId)?.Limit.JobRecommendations?.ConvertAll(Converter) ?? new List<JobCode>
+        {
+            JobCode.None
+        };
+    }
+
+    public static List<JobCode> GetRequiredJobs(int itemId)
+    {
+        static JobCode Converter(int integer) => (JobCode) integer;
+
+        return GetMetadata(itemId)?.Limit.JobRequirements?.ConvertAll(Converter) ?? new List<JobCode>
+        {
+            JobCode.None
+        };
     }
 
     public static long GetSellPrice(int itemId)
     {
         // get random selling price from price points
-        List<long> pricePoints = GetMetadata(itemId)?.SellPrice;
+        List<long>? pricePoints = GetMetadata(itemId)?.Property.Sell.SellPrice;
         if (pricePoints == null || !pricePoints.Any())
         {
             return 0;
@@ -159,7 +162,7 @@ public static class ItemMetadataStorage
     public static long GetCustomSellPrice(int itemId)
     {
         // get random selling price from price points
-        List<long> pricePoints = GetMetadata(itemId)?.SellPriceCustom;
+        List<long>? pricePoints = GetMetadata(itemId)?.Property.Sell.SellPriceCustom;
         if (pricePoints == null || !pricePoints.Any())
         {
             return 0;
@@ -170,38 +173,26 @@ public static class ItemMetadataStorage
         return pricePoints.ElementAt(rand);
     }
 
-    public static ItemFunction GetFunction(int itemId) => GetMetadata(itemId).FunctionData;
+    public static string? GetTag(int itemId) => GetMetadata(itemId)?.Basic.Tag;
 
-    public static string GetTag(int itemId) => GetMetadata(itemId).Tag;
-
-    public static int GetOptionStatic(int itemId) => GetMetadata(itemId).OptionStatic;
-
-    public static int GetOptionRandom(int itemId) => GetMetadata(itemId).OptionRandom;
-
-    public static int GetOptionConstant(int itemId) => GetMetadata(itemId).OptionConstant;
-
-    public static float GetOptionLevelFactor(int itemId) => GetMetadata(itemId)?.OptionLevelFactor ?? 0;
-
-    public static int GetOptionId(int itemId) => GetMetadata(itemId).OptionId;
-
-    public static int GetPetId(int itemId) => GetMetadata(itemId).PetId;
-
-    public static bool IsEnchantDisabled(int itemId) => GetMetadata(itemId).DisableEnchant;
-
-    public static int GetSocketDataId(int itemId) => GetMetadata(itemId).SocketDataId;
+    public static int? GetPetId(int itemId) => GetMetadata(itemId)?.Pet.PetId;
 
     public static EquipColor GetEquipColor(int itemId)
     {
-        ItemMetadata itemMetadata = GetMetadata(itemId);
-        int colorPalette = itemMetadata.ColorPalette;
-        int colorIndex = itemMetadata.ColorIndex;
+        ItemMetadata? itemMetadata = GetMetadata(itemId);
+        int colorPalette = itemMetadata?.Customize.ColorPalette ?? 0;
+        int colorIndex = itemMetadata?.Customize.ColorIndex ?? 0;
 
         if (colorPalette == 0) // item has no color
         {
             return EquipColor.Custom(MixedColor.Custom(Color.Argb(0, 0, 0, 0), Color.Argb(0, 0, 0, 0), Color.Argb(0, 0, 0, 0)), colorIndex, colorPalette);
         }
 
-        ColorPaletteMetadata palette = ColorPaletteMetadataStorage.GetMetadata(colorPalette);
+        ColorPaletteMetadata? palette = ColorPaletteMetadataStorage.GetMetadata(colorPalette);
+        if (palette is null)
+        {
+            return EquipColor.Custom(MixedColor.Custom(Color.Argb(0, 0, 0, 0), Color.Argb(0, 0, 0, 0), Color.Argb(0, 0, 0, 0)), colorIndex, colorPalette);
+        }
 
         if (colorPalette > 0 && colorIndex == -1) // random color from color palette
         {
@@ -215,40 +206,32 @@ public static class ItemMetadataStorage
         return EquipColor.Argb(palette.DefaultColors[colorIndex], colorIndex, colorPalette);
     }
 
-    public static List<ItemBreakReward> GetBreakRewards(int itemId) => GetMetadata(itemId).BreakRewards;
-
-    public static int GetLevel(int itemId) => GetMetadata(itemId).Level;
-
-    public static bool GetIsCubeSolid(int itemId) => GetMetadata(itemId).IsCubeSolid;
-
-    public static ItemHousingCategory GetHousingCategory(int itemId) => GetMetadata(itemId).HousingCategory;
-
-    public static int GetObjectId(int itemId) => GetMetadata(itemId).ObjectId;
-
-    public static string GetBlackMarketCategory(int itemId) => GetMetadata(itemId).BlackMarketCategory;
-
-    public static int GetGearScoreFactor(int itemId) => GetMetadata(itemId).GearScoreFactor;
+    public static List<ItemBreakReward>? GetBreakRewards(int itemId) => GetMetadata(itemId)?.BreakRewards;
 
     public static long GetExpiration(int itemId)
     {
-        ItemMetadata metadata = GetMetadata(itemId);
+        ItemLifeMetadata? life = GetMetadata(itemId)?.Life;
+        if (life is null)
+        {
+            return 0;
+        }
 
         long expirationTimestamp = 0;
 
-        if (metadata.ExpirationTime != new DateTime(1, 1, 1, 0, 0, 0))
+        if (life.ExpirationTime != new DateTime(1, 1, 1, 0, 0, 0))
         {
-            expirationTimestamp = ((DateTimeOffset) metadata.ExpirationTime.ToUniversalTime().Date).ToUnixTimeSeconds();
+            expirationTimestamp = ((DateTimeOffset) life.ExpirationTime.ToUniversalTime().Date).ToUnixTimeSeconds();
         }
-        else if (metadata.DurationPeriod > 0)
+        else if (life.DurationPeriod > 0)
         {
-            expirationTimestamp = TimeInfo.Now() + metadata.DurationPeriod;
+            expirationTimestamp = TimeInfo.Now() + life.DurationPeriod;
         }
-        else if (metadata.ExpirationType != ItemExpirationType.None)
+        else if (life.ExpirationType != ItemExpirationType.None)
         {
-            expirationTimestamp = metadata.ExpirationType switch
+            expirationTimestamp = life.ExpirationType switch
             {
-                ItemExpirationType.Months => metadata.ExpirationTypeDuration * TimeInfo.SecondsInMonth + TimeInfo.Now(),
-                ItemExpirationType.Weeks => metadata.ExpirationTypeDuration * TimeInfo.SecondsInWeek + TimeInfo.Now(),
+                ItemExpirationType.Months => life.ExpirationTypeDuration * TimeInfo.SecondsInMonth + TimeInfo.Now(),
+                ItemExpirationType.Weeks => life.ExpirationTypeDuration * TimeInfo.SecondsInWeek + TimeInfo.Now(),
                 _ => expirationTimestamp
             };
         }

@@ -30,6 +30,10 @@ public class SkillMetadata
     public readonly bool IsSpRecovery;
     [XmlElement(Order = 12)]
     public short MaxLevel;
+    [XmlElement(Order = 13)]
+    public SkillRangeType RangeType;
+    [XmlElement(Order = 14)]
+    public int[] GroupIDs;
 
     public SkillMetadata() { }
 
@@ -40,7 +44,7 @@ public class SkillMetadata
     }
 
     public SkillMetadata(int id, List<SkillLevel> skillLevels, string state, byte damageType, SkillType type, SkillSubType subType, byte element,
-        byte superArmor, bool isSpRecovery)
+        byte superArmor, bool isSpRecovery, SkillRangeType rangeType, int[] groupIds)
     {
         SkillId = id;
         SkillLevels = skillLevels;
@@ -51,6 +55,8 @@ public class SkillMetadata
         Element = element;
         SuperArmor = superArmor;
         IsSpRecovery = isSpRecovery;
+        RangeType = rangeType;
+        GroupIDs = groupIds;
     }
 
     public override string ToString()
@@ -76,17 +82,26 @@ public class SkillLevel
     public SkillAdditionalData SkillAdditionalData;
     [XmlElement(Order = 7)]
     public readonly SkillUpgrade SkillUpgrade;
+    [XmlElement(Order = 8)]
+    public readonly float CooldownTime;
+    [XmlElement(Order = 9)]
+    public readonly List<SkillCondition> ConditionSkills;
+    [XmlElement(Order = 10)]
+    public readonly SkillBeginCondition BeginCondition;
 
     public SkillLevel() { }
 
-    public SkillLevel(int level, int spirit, int stamina, string feature, List<SkillMotion> skillMotions, SkillUpgrade skillUpgrade)
+    public SkillLevel(int level, int spirit, int stamina, string feature, List<SkillCondition> conditionSkills, List<SkillMotion> skillMotions, SkillUpgrade skillUpgrade, float cooldownTime, SkillBeginCondition beginCondition)
     {
         Level = level;
         Spirit = spirit;
         Stamina = stamina;
         Feature = feature;
+        ConditionSkills = conditionSkills;
         SkillMotions = skillMotions;
         SkillUpgrade = skillUpgrade;
+        CooldownTime = cooldownTime;
+        BeginCondition = beginCondition;
     }
 
     public override string ToString()
@@ -138,12 +153,16 @@ public class SkillAttack
     public readonly List<SkillCondition> SkillConditions;
     [XmlElement(Order = 7)]
     public readonly DamageProperty DamageProperty;
+    [XmlElement(Order = 8)]
+    public readonly int[] CompulsionType;
+    [XmlElement(Order = 9)]
+    public readonly SkillDirection Direction;
 
     public SkillAttack() { }
 
     public SkillAttack(byte attackPoint, short targetCount, long magicPathId, long cubeMagicPathId, RangeProperty rangeProperty,
         List<SkillCondition> skillConditions,
-        DamageProperty damageProperty)
+        DamageProperty damageProperty, int[] compulsionType, SkillDirection direction)
     {
         AttackPoint = attackPoint;
         TargetCount = targetCount;
@@ -152,6 +171,8 @@ public class SkillAttack
         RangeProperty = rangeProperty;
         SkillConditions = skillConditions;
         DamageProperty = damageProperty;
+        CompulsionType = compulsionType;
+        Direction = direction;
     }
 
     public override string ToString()
@@ -167,14 +188,17 @@ public class DamageProperty
     public readonly float DamageRate;
     [XmlElement(Order = 2)]
     public readonly float HitSpeedRate;
+    [XmlElement(Order = 3)]
+    public readonly int Count;
     // TODO: Parse push attributes.
 
     public DamageProperty() { }
 
-    public DamageProperty(float damageRate, float hitSpeedRate)
+    public DamageProperty(float damageRate, float hitSpeedRate, int count)
     {
         DamageRate = damageRate;
         HitSpeedRate = hitSpeedRate;
+        Count = count;
     }
 }
 
@@ -244,31 +268,55 @@ public class SkillAdditionalData
 public class SkillCondition
 {
     [XmlElement(Order = 1)]
-    public readonly int SkillId;
+    public readonly int[] SkillId;
     [XmlElement(Order = 2)]
-    public readonly short SkillLevel;
+    public readonly short[] SkillLevel;
     [XmlElement(Order = 3)]
     public readonly bool IsSplash;
     [XmlElement(Order = 4)]
-    public readonly byte Target;
+    public readonly SkillTarget Target;
     [XmlElement(Order = 5)]
-    public readonly byte Owner;
+    public readonly SkillOwner Owner;
     [XmlElement(Order = 6)]
     public readonly short FireCount;
     [XmlElement(Order = 7)]
     public readonly int Interval;
     [XmlElement(Order = 8)]
     public readonly bool ImmediateActive;
+    [XmlElement(Order = 9)]
+    public uint Delay;
+    [XmlElement(Order = 10)]
+    public int RemoveDelay;
+    [XmlElement(Order = 11)]
+    public SkillBeginCondition BeginCondition;
+    [XmlElement(Order = 12)]
+    public bool UseDirection;
+    [XmlElement(Order = 13)]
+    public bool RandomCast;
+    [XmlElement(Order = 14)]
+    public int[] LinkSkillId;
+    [XmlElement(Order = 15)]
+    public int OverlapCount;
+    [XmlElement(Order = 16)]
+    public bool NonTargetActive;
+    [XmlElement(Order = 17)]
+    public bool OnlySensingActive;
+    [XmlElement(Order = 18)]
+    public bool DependOnCasterState;
+    [XmlElement(Order = 19)]
+    public bool ActiveByIntervalTick;
+    [XmlElement(Order = 20)]
+    public bool DependOnDamageCount;
 
     public SkillCondition() { }
 
-    public SkillCondition(int skillId, short skillLevel, bool isSplash, byte target, byte owner, short fireCount, int interval, bool immediateActive)
+    public SkillCondition(int[] skillId, short[] skillLevel, bool isSplash, byte target, byte owner, short fireCount, int interval, bool immediateActive)
     {
         SkillId = skillId;
         SkillLevel = skillLevel;
         IsSplash = isSplash;
-        Target = target;
-        Owner = owner;
+        Target = (SkillTarget) target;
+        Owner = (SkillOwner) owner;
         FireCount = fireCount;
         Interval = interval;
         ImmediateActive = immediateActive;
@@ -278,6 +326,185 @@ public class SkillCondition
     {
         return $"Id: {SkillId}, Level:{SkillLevel}, Splash:{IsSplash}, Target:{Target}, Owner:{Owner}";
     }
+}
+
+[XmlType]
+public class SkillBeginCondition
+{
+    [XmlElement(Order = 1)]
+    public BeginConditionSubject Owner;
+
+    [XmlElement(Order = 2)]
+    public float Probability;
+
+    [XmlElement(Order = 3)]
+    public BeginConditionSubject Target;
+
+    [XmlElement(Order = 4)]
+    public BeginConditionSubject Caster;
+
+    [XmlElement(Order = 5)]
+    public float InvokeEffectFactor;
+
+    [XmlElement(Order = 6)]
+    public float CooldownTime;
+
+    [XmlElement(Order = 7)]
+    public float DefaultRechargingCooldownTime;
+
+    [XmlElement(Order = 8)]
+    public bool AllowDeadState;
+
+    [XmlElement(Order = 9)]
+    public float RequireDurationWithoutMove;
+
+    [XmlElement(Order = 10)]
+    public bool UseTargetCountFactor;
+
+    [XmlElement(Order = 11)]
+    public StatCondition? Stat;
+
+    [XmlElement(Order = 12)]
+    public List<RequireSkillCodeCondition> RequireSkillCodes;
+
+    [XmlElement(Order = 13)]
+    public List<RequireMapCodeCondition> RequireMapCodes;
+
+    [XmlElement(Order = 14)]
+    public List<RequireMapCategoryCodeCondition> RequireMapCategoryCodes;
+
+    [XmlElement(Order = 15)]
+    public List<RequireDungeonRoomCondition> RequireDungeonRooms;
+
+    [XmlElement(Order = 16)]
+    public List<JobCondition> Jobs;
+
+    [XmlElement(Order = 17)]
+    public List<RequireContinentCondition> MapContinents;
+}
+
+[XmlType]
+public class BeginConditionSubject
+{
+    [XmlElement(Order = 1)]
+    public int[] EventSkillIDs;
+
+    [XmlElement(Order = 2)]
+    public int[] EventEffectIDs;
+
+    [XmlElement(Order = 3)]
+    public int RequireBuffId;
+
+    [XmlElement(Order = 4)]
+    public int RequireBuffCount;
+
+    [XmlElement(Order = 5)]
+    public int HasNotBuffId;
+
+    [XmlElement(Order = 6)]
+    public EffectEvent EventCondition;
+
+    [XmlElement(Order = 7)]
+    public int IgnoreOwnerEvent;
+    // 0: require specific ids with the event
+    // 1: dont require specific ids with the event
+    // ID: ignore specific event ids
+
+    [XmlElement(Order = 8)]
+    public int TargetCheckRange;
+
+    [XmlElement(Order = 9)]
+    public int TargetCheckMinRange;
+
+    [XmlElement(Order = 10)]
+    public int TargetInRangeCount;
+
+    [XmlElement(Order = 11)]
+    public TargetAllieganceType TargetFriendly;
+
+    [XmlElement(Order = 12)]
+    public ConditionOperator TargetCountSign;
+
+    [XmlElement(Order = 13)]
+    public CompareStatCondition? CompareStat;
+
+    [XmlElement(Order = 14)]
+    public ConditionOperator RequireBuffCountCompare;
+
+    [XmlElement(Order = 15)]
+    public int RequireBuffLevel;
+}
+
+[XmlType]
+public class CompareStatCondition
+{
+    [XmlElement(Order = 1)]
+    public int Hp;
+
+    [XmlElement(Order = 2)]
+    public ConditionOperator Func;
+}
+
+[XmlType]
+public class StatCondition
+{
+    [XmlElement(Order = 1)]
+    public int Hp;
+
+    [XmlElement(Order = 2)]
+    public int Sp;
+}
+
+[XmlType]
+public class RequireSkillCodeCondition
+{
+    [XmlElement(Order = 1)]
+    public int[] Code;
+}
+
+[XmlType]
+public class RequireMapCodeCondition
+{
+    [XmlElement(Order = 1)]
+    public int[] Code;
+}
+
+[XmlType]
+public class RequireMapCategoryCodeCondition
+{
+    [XmlElement(Order = 1)]
+    public int[] Code;
+}
+
+[XmlType]
+public class RequireDungeonRoomCondition
+{
+    [XmlElement(Order = 1)]
+    public DungeonRoomGroupType[] Code;
+}
+
+[XmlType]
+public class JobCondition
+{
+    [XmlElement(Order = 1)]
+    public int[] Code;
+}
+
+[XmlType]
+public class RequireContinentCondition
+{
+    [XmlElement(Order = 1)]
+    public ContinentCode Code;
+}
+
+[XmlType]
+public class WeaponCondition
+{
+    [XmlElement(Order = 1)]
+    public ItemPresetType LeftHand;
+
+    [XmlElement(Order = 2)]
+    public ItemPresetType RightHand;
 }
 
 [XmlType]
@@ -293,15 +520,18 @@ public class RangeProperty
     public readonly CoordF RangeAdd;
     [XmlElement(Order = 5)]
     public readonly CoordF RangeOffset;
+    [XmlElement(Order = 6)]
+    public readonly ApplyTarget ApplyTarget;
 
     public RangeProperty() { }
 
-    public RangeProperty(bool includeCaster, string rangeType, int distance, CoordF rangeAdd, CoordF rangeOffset)
+    public RangeProperty(bool includeCaster, string rangeType, int distance, CoordF rangeAdd, CoordF rangeOffset, ApplyTarget applyTarget)
     {
         IncludeCaster = includeCaster;
         RangeType = rangeType;
         Distance = distance;
         RangeAdd = rangeAdd;
         RangeOffset = rangeOffset;
+        ApplyTarget = applyTarget;
     }
 }

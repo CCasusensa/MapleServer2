@@ -26,7 +26,7 @@ public class DatabaseCharacter : DatabaseTable
             channel_id = player.ChannelId,
             instance_id = player.InstanceId,
             is_migrating = player.IsMigrating,
-            job = (int) player.Job,
+            job = (int) player.JobCode,
             levels_id = player.Levels.Id,
             map_id = player.MapId,
             title_id = player.TitleId,
@@ -59,7 +59,8 @@ public class DatabaseCharacter : DatabaseTable
             unlocked_maps = JsonConvert.SerializeObject(player.UnlockedMaps),
             unlocked_taxis = JsonConvert.SerializeObject(player.UnlockedTaxis),
             visiting_home_id = player.VisitingHomeId,
-            gathering_count = JsonConvert.SerializeObject(player.GatheringCount)
+            gathering_count = JsonConvert.SerializeObject(player.GatheringCount),
+            active_pet_item_uid = player.ActivePet?.Uid ?? 0
         });
     }
 
@@ -95,6 +96,7 @@ public class DatabaseCharacter : DatabaseTable
         List<Medal> medals = DatabaseManager.MushkingRoyaleMedals.FindAllByAccountId(data.account_id);
         Dictionary<int, Trophy> trophies = DatabaseManager.Trophies.FindAllByCharacterId(data.character_id);
         List<ClubMember> clubMemberships = DatabaseManager.ClubMembers.FindAllClubIdsByCharacterId(data.character_id);
+        List<Wardrobe> wardrobes = DatabaseManager.Wardrobes.FindAllByCharacterId(data.character_id);
         foreach (KeyValuePair<int, Trophy> trophy in DatabaseManager.Trophies.FindAllByAccountId(data.account_id))
         {
             trophies.Add(trophy.Key, trophy.Value);
@@ -102,6 +104,9 @@ public class DatabaseCharacter : DatabaseTable
 
         Dictionary<int, QuestStatus> questList = DatabaseManager.Quests.FindAllByCharacterId(data.character_id);
         AuthData authData = new(data.token_a, data.token_b, data.account_id, data.online_character_id ?? 0);
+
+        Item pet = DatabaseManager.Items.FindByUid(data.active_pet_item_uid);
+        pet?.SetMetadataValues();
 
         return new()
         {
@@ -117,7 +122,7 @@ public class DatabaseCharacter : DatabaseTable
             ChannelId = data.channel_id,
             InstanceId = data.instance_id,
             IsMigrating = data.is_migrating,
-            Job = (Job) data.job,
+            JobCode = (JobCode) data.job,
             Levels = new(data.level, data.exp, data.rest_exp, data.prestige_level, data.prestige_exp,
                 JsonConvert.DeserializeObject<List<MasteryExp>>(data.mastery_exp), session, data.levels_id),
             MapId = data.map_id,
@@ -134,6 +139,7 @@ public class DatabaseCharacter : DatabaseTable
             Macros = macros,
             Wallet = new Wallet(data.meso, data.valor_token, data.treva, data.rue, data.havi_fruit, session, data.wallet_id),
             Inventory = inventory,
+            Wardrobes = wardrobes,
             ChatSticker = JsonConvert.DeserializeObject<List<ChatSticker>>(data.chat_sticker),
             SavedCoord = JsonConvert.DeserializeObject<CoordF>(data.coord),
             Emotes = JsonConvert.DeserializeObject<List<int>>(data.emotes),
@@ -156,7 +162,8 @@ public class DatabaseCharacter : DatabaseTable
             SkillTabs = skillTabs,
             TrophyData = trophies,
             QuestData = questList,
-            GatheringCount = JsonConvert.DeserializeObject<List<GatheringCount>>(data.gathering_count)
+            GatheringCount = JsonConvert.DeserializeObject<List<GatheringCount>>(data.gathering_count),
+            ActivePet = pet
         };
     }
 
@@ -239,7 +246,7 @@ public class DatabaseCharacter : DatabaseTable
                 Name = data.name,
                 Gender = (Gender) data.gender,
                 Awakened = data.awakened,
-                Job = (Job) data.job,
+                JobCode = (JobCode) data.job,
                 Levels = new Levels(data.level, data.exp, data.rest_exp, data.prestige_level,
                     data.prestige_exp, JsonConvert.DeserializeObject<List<MasteryExp>>(data.mastery_exp), null, data.levels_id),
                 MapId = data.map_id,
@@ -267,7 +274,7 @@ public class DatabaseCharacter : DatabaseTable
             channel_id = player.ChannelId,
             instance_id = player.InstanceId,
             is_migrating = player.IsMigrating,
-            job = (int) player.Job,
+            job = (int) player.JobCode,
             map_id = player.MapId,
             title_id = player.TitleId,
             insignia_id = player.InsigniaId,
@@ -296,7 +303,8 @@ public class DatabaseCharacter : DatabaseTable
             unlocked_maps = JsonConvert.SerializeObject(player.UnlockedMaps),
             unlocked_taxis = JsonConvert.SerializeObject(player.UnlockedTaxis),
             visiting_home_id = player.VisitingHomeId,
-            gathering_count = JsonConvert.SerializeObject(player.GatheringCount)
+            gathering_count = JsonConvert.SerializeObject(player.GatheringCount),
+            active_pet_item_uid = player.ActivePet?.Uid ?? 0
         });
         DatabaseManager.Accounts.Update(player.Account);
 
@@ -352,14 +360,14 @@ public class DatabaseCharacter : DatabaseTable
         return QueryFactory.Query(TableName).Where("name", name).AsCount().FirstOrDefault().count == 1;
     }
 
-    private static Player ReadPartialPlayer(dynamic data)
+    private static Player? ReadPartialPlayer(dynamic? data)
     {
         if (data is null)
         {
             return null;
         }
 
-        Home home = null;
+        Home? home = null;
         if (data.homeid is not null)
         {
             home = new()
@@ -386,7 +394,7 @@ public class DatabaseCharacter : DatabaseTable
             Name = data.name,
             Gender = (Gender) data.gender,
             Awakened = data.awakened,
-            Job = (Job) data.job,
+            JobCode = (JobCode) data.job,
             Levels = new Levels(data.level, data.exp, data.rest_exp, data.prestige_level,
                 data.prestige_exp, JsonConvert.DeserializeObject<List<MasteryExp>>(data.mastery_exp), null, data.levels_id),
             MapId = data.map_id,

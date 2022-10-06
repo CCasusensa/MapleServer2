@@ -10,17 +10,17 @@ public class FieldWarHandler : GamePacketHandler<FieldWarHandler>
 {
     public override RecvOp OpCode => RecvOp.FieldWar;
 
-    private enum FieldWarMode : byte
+    private enum Mode : byte
     {
         LegionEnter = 0x01
     }
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        FieldWarMode function = (FieldWarMode) packet.ReadByte();
+        Mode function = (Mode) packet.ReadByte();
         switch (function)
         {
-            case FieldWarMode.LegionEnter:
+            case Mode.LegionEnter:
                 HandleLegionEnter(session);
                 break;
         }
@@ -28,18 +28,24 @@ public class FieldWarHandler : GamePacketHandler<FieldWarHandler>
 
     private static void HandleLegionEnter(GameSession session)
     {
-        FieldWar currentFieldWar = GameServer.FieldWarManager.CurrentFieldWar;
+        FieldWar? currentFieldWar = GameServer.FieldWarManager.CurrentFieldWar;
 
         if (currentFieldWar is null)
         {
             return;
         }
+
         if (currentFieldWar.EntryClosureTime < DateTimeOffset.UtcNow)
         {
             return;
         }
 
-        int mapId = FieldWarMetadataStorage.MapId(currentFieldWar.Id);
-        session.Player.Warp(mapId);
+        int? mapId = FieldWarMetadataStorage.MapId(currentFieldWar.Id);
+        if (mapId is null)
+        {
+            return;
+        }
+
+        session.Player.Warp((int) mapId);
     }
 }

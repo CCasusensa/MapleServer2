@@ -9,7 +9,7 @@ public partial class TriggerContext
 {
     public void SetActor(int actorId, bool isVisible, string stateName, bool arg4, bool arg5)
     {
-        if (!Field.State.TriggerActors.TryGetValue(actorId, out TriggerActor stateTriggerActor))
+        if (!Field.State.TriggerActors.TryGetValue(actorId, out TriggerActor? stateTriggerActor))
         {
             Logger.Warning("SetActor: Actor not found: {0}", actorId);
             return;
@@ -20,9 +20,7 @@ public partial class TriggerContext
         Field.BroadcastPacket(TriggerPacket.UpdateTrigger(stateTriggerActor));
     }
 
-    public void SetAgent(int[] arg1, bool arg2)
-    {
-    }
+    public void SetAgent(int[] arg1, bool arg2) { }
 
     public void SetCube(int[] triggerIds, bool isVisible, byte randomCount)
     {
@@ -37,9 +35,16 @@ public partial class TriggerContext
     {
         foreach (int triggerId in triggerIds)
         {
-            if (Field.State.TriggerEffects.TryGetValue(triggerId, out TriggerEffect triggerEffect))
+            if (!Field.State.TriggerEffects.TryGetValue(triggerId, out TriggerEffect? triggerEffect))
             {
-                triggerEffect.IsVisible = isVisible;
+                continue;
+            }
+
+            bool oldValue = triggerEffect.IsVisible;
+            triggerEffect.IsVisible = isVisible;
+
+            if (oldValue != isVisible) // If the value changed, broadcast the packet.
+            {
                 Field.BroadcastPacket(TriggerPacket.UpdateTrigger(triggerEffect));
             }
         }
@@ -50,20 +55,20 @@ public partial class TriggerContext
         InteractObjectState objectState = (InteractObjectState) state;
         foreach (int interactObjectId in interactObjectIds)
         {
-            InteractObject interactObject = Field.State.InteractObjects.Values.FirstOrDefault(x => x.InteractId == interactObjectId);
-            if (interactObject == null)
+            IFieldObject<InteractObject>? interactObject = Field.State.InteractObjects.Values.FirstOrDefault(x => x.Value.InteractId == interactObjectId);
+            if (interactObject is null)
             {
                 continue;
             }
 
-            interactObject.State = objectState;
-            Field.BroadcastPacket(InteractObjectPacket.Set(interactObject));
+            interactObject.Value.State = objectState;
+            Field.BroadcastPacket(InteractObjectPacket.Set(interactObject.Value));
         }
     }
 
     public void SetLadder(int ladderId, bool isVisible, bool animationEffect, byte animationDelay)
     {
-        if (!Field.State.TriggerLadders.TryGetValue(ladderId, out TriggerLadder ladder))
+        if (!Field.State.TriggerLadders.TryGetValue(ladderId, out TriggerLadder? ladder))
         {
             return;
         }
@@ -74,28 +79,32 @@ public partial class TriggerContext
         Field.BroadcastPacket(TriggerPacket.UpdateTrigger(ladder));
     }
 
-    public void SetMesh(int[] meshIds, bool isVisible, int arg3, int arg4, float arg5)
+    public void SetMesh(int[] meshIds, bool isVisible, int arg3, int delay, float arg5)
     {
-        foreach (int triggerMeshId in meshIds)
+        Task.Run(async () =>
         {
-            if (Field.State.TriggerMeshes.TryGetValue(triggerMeshId, out TriggerMesh triggerMesh))
+            foreach (int triggerMeshId in meshIds)
             {
+                if (!Field.State.TriggerMeshes.TryGetValue(triggerMeshId, out TriggerMesh? triggerMesh))
+                {
+                    continue;
+                }
+
                 triggerMesh.IsVisible = isVisible;
                 Field.BroadcastPacket(TriggerPacket.UpdateTrigger(triggerMesh));
+                await Task.Delay(delay);
             }
-        }
+        });
     }
 
-    public void SetMeshAnimation(int[] arg1, bool arg2, byte arg3, byte arg4)
-    {
-    }
+    public void SetMeshAnimation(int[] arg1, bool arg2, byte arg3, byte arg4) { }
 
     public void SetBreakable(int[] triggerIds, bool isEnabled)
     {
         foreach (int triggerId in triggerIds)
         {
-            BreakableNifObject breakable = Field.State.BreakableNifs.Values.FirstOrDefault(x => x.TriggerId == triggerId);
-            if (breakable == null)
+            BreakableNifObject? breakable = Field.State.BreakableNifs.Values.FirstOrDefault(x => x.TriggerId == triggerId);
+            if (breakable is null)
             {
                 continue;
             }
@@ -112,8 +121,8 @@ public partial class TriggerContext
             return;
         }
 
-        IFieldObject<Portal> portal = Field.State.Portals.Values.FirstOrDefault(p => p.Value.Id == portalId);
-        if (portal == null)
+        IFieldObject<Portal>? portal = Field.State.Portals.Values.FirstOrDefault(p => p.Value.Id == portalId);
+        if (portal is null)
         {
             return;
         }
@@ -125,7 +134,7 @@ public partial class TriggerContext
     public void SetRandomMesh(int[] meshIds, bool isVisible, byte meshCount, int arg4, int delayTime)
     {
         Random random = Random.Shared;
-        int[] pickedMeshIds = meshIds.OrderBy(x => random.Next()).Take(meshCount).ToArray();
+        int[] pickedMeshIds = meshIds.OrderBy(_ => random.Next()).Take(meshCount).ToArray();
         Task.Run(async () =>
         {
             foreach (int triggerMeshId in pickedMeshIds)
@@ -147,6 +156,11 @@ public partial class TriggerContext
 
     public void SetSkill(int[] triggerIds, bool arg2)
     {
+        if (arg2 is false) // Not sure what this means
+        {
+            return;
+        }
+
         foreach (int triggerId in triggerIds)
         {
             IFieldObject<TriggerSkill> triggerSkill = Field.State.GetTriggerSkill(triggerId);
@@ -156,10 +170,9 @@ public partial class TriggerContext
                 SkillCast skillCast = new(triggerSkill.Value.SkillId, triggerSkill.Value.SkillLevel, GuidGenerator.Long(), Environment.TickCount)
                 {
                     SkillObjectId = triggerSkill.ObjectId,
-                    CasterObjectId = triggerSkill.ObjectId,
                     Position = triggerSkill.Coord
                 };
-                RegionSkillHandler.HandleEffect(Field, skillCast, 0);
+                RegionSkillHandler.HandleEffect(Field, skillCast);
             }
         }
     }
@@ -170,15 +183,9 @@ public partial class TriggerContext
         Field.BroadcastPacket(TriggerPacket.UpdateTrigger(Field.State.TriggerSounds[soundId]));
     }
 
-    public void SetVisibleBreakableObject(int[] arg1, bool arg2)
-    {
-    }
+    public void SetVisibleBreakableObject(int[] arg1, bool arg2) { }
 
-    public void CreateItem(int[] arg1, int arg2, int arg3, int arg5)
-    {
-    }
+    public void CreateItem(int[] arg1, int arg2, int arg3, int arg5) { }
 
-    public void SpawnItemRange(int[] rangeId, byte randomPickCount)
-    {
-    }
+    public void SpawnItemRange(int[] rangeId, byte randomPickCount) { }
 }

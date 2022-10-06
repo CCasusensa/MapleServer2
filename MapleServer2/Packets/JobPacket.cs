@@ -7,7 +7,7 @@ namespace MapleServer2.Packets;
 
 public static class JobPacket
 {
-    private enum JobMode : byte
+    private enum Mode : byte
     {
         Update = 0x01,
         Unk = 0x02,
@@ -19,7 +19,7 @@ public static class JobPacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Job);
         pWriter.WriteInt(fieldPlayer.ObjectId);
-        pWriter.Write(JobMode.Update);
+        pWriter.Write(Mode.Update);
         pWriter.WriteJobInfo(fieldPlayer.Value, newSkillIds);
 
         return pWriter;
@@ -29,7 +29,7 @@ public static class JobPacket
     {
         PacketWriter pWriter = PacketWriter.Of(SendOp.Job);
         pWriter.WriteInt(fieldPlayer.ObjectId);
-        pWriter.Write(JobMode.Unk);
+        pWriter.Write(Mode.Unk);
         pWriter.WriteJobInfo(fieldPlayer.Value);
 
         return pWriter;
@@ -40,7 +40,7 @@ public static class JobPacket
         PacketWriter pWriter = PacketWriter.Of(SendOp.Job);
 
         pWriter.WriteInt(fieldPlayer.ObjectId);
-        pWriter.Write(JobMode.Close);
+        pWriter.Write(Mode.Close);
         pWriter.WriteJobInfo(fieldPlayer.Value);
 
         return pWriter;
@@ -51,7 +51,7 @@ public static class JobPacket
         PacketWriter pWriter = PacketWriter.Of(SendOp.Job);
 
         pWriter.WriteInt(fieldPlayer.ObjectId);
-        pWriter.Write(JobMode.Save);
+        pWriter.Write(Mode.Save);
         pWriter.WriteJobInfo(fieldPlayer.Value, newSkillIds);
 
         return pWriter;
@@ -59,9 +59,17 @@ public static class JobPacket
 
     public static void WriteJobInfo(this PacketWriter pWriter, Player player, HashSet<int> newSkillIds = null)
     {
+        SkillTab newTab = new(player.CharacterId, player.JobCode, player.SubJobCode, player.ActiveSkillTabId, "skills");
+
+        // fail safe in case something like /setjob set an invalid job. the skill tab can be deleted if a bad job id is set
+        if (player.SkillTabs.Count == 0)
+        {
+            player.SkillTabs.Add(newTab);
+        }
+
         SkillTab skillTab = player.SkillTabs.First(x => x.TabId == player.ActiveSkillTabId);
 
-        pWriter.Write(player.JobCode);
+        pWriter.Write(player.SubJobCode);
         bool flag = true;
         pWriter.WriteBool(flag);
         if (!flag)
@@ -69,7 +77,7 @@ public static class JobPacket
             return;
         }
 
-        pWriter.Write(player.Job);
+        pWriter.Write(player.JobCode);
         pWriter.WriteSkills(skillTab, SkillType.Active, newSkillIds);
         pWriter.WriteSkills(skillTab, SkillType.Passive, newSkillIds);
         pWriter.WriteByte(); // More skills?
@@ -78,17 +86,15 @@ public static class JobPacket
 
     public static void WriteSkills(this PacketWriter pWriter, SkillTab skillTab, SkillType type, HashSet<int> newSkillsId = null)
     {
-        List<int> skills = skillTab.GetSkillsByType(type);
+        List<(int skillId, short skillLevel)> skills = skillTab.GetSkillsByType(type);
         pWriter.WriteByte((byte) skills.Count);
 
-        foreach (int skillId in skills)
+        foreach ((int skillId, short skillLevel) in skills)
         {
-            short skillLevel = skillTab.SkillLevels[skillId];
-
             pWriter.WriteBool(newSkillsId?.Contains(skillId) ?? false);
             pWriter.WriteBool(skillLevel > 0); // Is it learned?
             pWriter.WriteInt(skillId);
-            pWriter.WriteInt(Math.Clamp(skillLevel, skillTab.SkillJob[skillId].SkillLevels.Select(x => x.Level).FirstOrDefault(), int.MaxValue));
+            pWriter.WriteInt(Math.Max((int) skillLevel, 1));
             pWriter.WriteByte();
         }
     }
@@ -98,10 +104,10 @@ public static class JobPacket
         Player player = fieldPlayer.Value;
         SkillTab skillTab = player.SkillTabs.First(x => x.TabId == player.ActiveSkillTabId);
 
-        List<int> passiveSkillList = skillTab.GetSkillsByType(SkillType.Passive);
+        List<(int skillId, short skillLevel)> passiveSkillList = skillTab.GetSkillsByType(SkillType.Passive);
         pWriter.WriteShort((short) passiveSkillList.Count);
 
-        foreach (int skillId in passiveSkillList)
+        foreach ((int skillId, short skillLevel) in passiveSkillList)
         {
             pWriter.WriteInt(fieldPlayer.ObjectId);
             pWriter.WriteInt(); // unk int
@@ -109,7 +115,7 @@ public static class JobPacket
             pWriter.WriteInt(); // unk int 2
             pWriter.WriteInt(); // same as the unk int 2
             pWriter.WriteInt(skillId);
-            pWriter.WriteShort(skillTab.SkillLevels[skillId]);
+            pWriter.WriteShort(skillLevel);
             pWriter.WriteInt(1); // unk int = 1
             pWriter.WriteByte(1); // unk byte = 1
             pWriter.WriteLong();

@@ -5,6 +5,7 @@ using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
 using MapleServer2.Database;
+using MapleServer2.Database.Types;
 using MapleServer2.Enums;
 using MapleServer2.PacketHandlers.Game.Helpers;
 using MapleServer2.Packets;
@@ -17,7 +18,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
 {
     public override RecvOp OpCode => RecvOp.Beauty;
 
-    private enum BeautyMode : byte
+    private enum Mode : byte
     {
         LoadShop = 0x0,
         NewBeauty = 0x3,
@@ -35,44 +36,44 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
 
     public override void Handle(GameSession session, PacketReader packet)
     {
-        BeautyMode mode = (BeautyMode) packet.ReadByte();
+        Mode mode = (Mode) packet.ReadByte();
 
         switch (mode)
         {
-            case BeautyMode.LoadShop:
+            case Mode.LoadShop:
                 HandleLoadShop(session, packet);
                 break;
-            case BeautyMode.NewBeauty:
+            case Mode.NewBeauty:
                 HandleNewBeauty(session, packet);
                 break;
-            case BeautyMode.ModifyExistingBeauty:
+            case Mode.ModifyExistingBeauty:
                 HandleModifyExistingBeauty(session, packet);
                 break;
-            case BeautyMode.ModifySkin:
+            case Mode.ModifySkin:
                 HandleModifySkin(session, packet);
                 break;
-            case BeautyMode.RandomHair:
+            case Mode.RandomHair:
                 HandleRandomHair(session, packet);
                 break;
-            case BeautyMode.ChooseRandomHair:
+            case Mode.ChooseRandomHair:
                 HandleChooseRandomHair(session, packet);
                 break;
-            case BeautyMode.SaveHair:
+            case Mode.SaveHair:
                 HandleSaveHair(session, packet);
                 break;
-            case BeautyMode.Teleport:
+            case Mode.Teleport:
                 HandleTeleport(session, packet);
                 break;
-            case BeautyMode.DeleteSavedHair:
+            case Mode.DeleteSavedHair:
                 HandleDeleteSavedHair(session, packet);
                 break;
-            case BeautyMode.ChangeToSavedHair:
+            case Mode.ChangeToSavedHair:
                 HandleChangeToSavedHair(session, packet);
                 break;
-            case BeautyMode.DyeItem:
+            case Mode.DyeItem:
                 HandleDyeItem(session, packet);
                 break;
-            case BeautyMode.BeautyVoucher:
+            case Mode.BeautyVoucher:
                 HandleBeautyVoucher(session, packet);
                 break;
             default:
@@ -92,11 +93,13 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
             return;
         }
 
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(beautyNpc.ShopId);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(beautyNpc.ShopId);
         if (beautyShop == null)
         {
             return;
         }
+
+        session.Player.ShopId = beautyNpc.ShopId;
 
         if (beautyShop.BeautyCategory == BeautyCategory.Dye)
         {
@@ -125,7 +128,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
             return;
         }
 
-        List<BeautyItem> beautyItems = BeautyMetadataStorage.GetGenderItems(beautyShop.ShopId, session.Player.Gender);
+        List<BeautyShopItem> beautyItems = DatabaseManager.BeautyShopItems.FindAllByShopIdAndGender(beautyShop.Id, session.Player.Gender);
 
         session.Send(BeautyPacket.LoadBeautyShop(beautyShop, beautyItems));
     }
@@ -140,12 +143,15 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
         Item beautyItem = new(beautyItemId)
         {
             Color = equipColor,
-            IsTemplate = false,
             IsEquipped = true,
             OwnerCharacterId = session.Player.CharacterId,
             OwnerCharacterName = session.Player.Name
         };
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(session.Player.ShopId);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(session.Player.ShopId);
+        if (beautyShop is null)
+        {
+            return;
+        }
 
         if (useVoucher)
         {
@@ -182,7 +188,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
             return;
         }
 
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(session.Player.ShopId);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(session.Player.ShopId);
         if (beautyShop is null)
         {
             return;
@@ -203,7 +209,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
         SkinColor skinColor = packet.Read<SkinColor>();
         bool useVoucher = packet.ReadBool();
 
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(501);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(session.Player.ShopId);
 
         if (!HandleShopPay(session, beautyShop, useVoucher))
         {
@@ -219,8 +225,8 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
         int shopId = packet.ReadInt();
         bool useVoucher = packet.ReadBool();
 
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(shopId);
-        List<BeautyItem> beautyItems = BeautyMetadataStorage.GetGenderItems(beautyShop.ShopId, session.Player.Gender);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(shopId);
+        List<BeautyShopItem> beautyItems = DatabaseManager.BeautyShopItems.FindAllByShopIdAndGender(beautyShop.Id, session.Player.Gender);
 
         if (!HandleShopPay(session, beautyShop, useVoucher))
         {
@@ -230,7 +236,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
         // Grab random hair
         Random random = Random.Shared;
         int indexHair = random.Next(beautyItems.Count);
-        BeautyItem chosenHair = beautyItems[indexHair];
+        BeautyShopItem chosenHair = beautyItems[indexHair];
 
         BeautyHelper.ChangeHair(session, chosenHair.ItemId, out Item previousHair, out Item newHair);
 
@@ -258,7 +264,8 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
 
             session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(session.Player.FieldPlayer, player.HairInventory.RandomHair, ItemSlot.HR));
 
-            Item voucher = new(20300246); // Chic Salon Voucher
+            int voucherId = DatabaseManager.BeautyShops.GetSpecialVoucher();
+            Item voucher = new(voucherId);
             player.Inventory.AddItem(session, voucher, true);
 
             session.Send(BeautyPacket.ChooseRandomHair(voucher.Id));
@@ -319,6 +326,12 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
                 return;
         }
 
+        if ((int) mapId == session.Player.MapId)
+        {
+            session.Send(NoticePacket.Notice(SystemNotice.BeautyGotoMapInvalidSamefield, NoticeType.Chat | NoticeType.FastText));
+            return;
+        }
+
         session.Player.Warp(mapId, instanceId: session.Player.CharacterId);
     }
 
@@ -346,7 +359,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
             return;
         }
 
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(510);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(session.Player.ShopId);
 
         if (!PayWithShopTokenCost(session, beautyShop))
         {
@@ -368,7 +381,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
 
     private static void HandleDyeItem(GameSession session, PacketReader packet)
     {
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(506);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(session.Player.ShopId);
 
         byte itemCount = packet.ReadByte();
 
@@ -425,22 +438,29 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
             return;
         }
 
-        BeautyMetadata beautyShop = BeautyMetadataStorage.GetShopById(voucher.Function.Id);
+        BeautyShop beautyShop = DatabaseManager.BeautyShops.FindById(voucher.Function.Id);
         if (beautyShop == null)
         {
             return;
         }
 
-        List<BeautyItem> beautyItems = BeautyMetadataStorage.GetGenderItems(beautyShop.ShopId, player.Gender);
+        List<BeautyShopItem> beautyItems = DatabaseManager.BeautyShopItems.FindAllByShopIdAndGender(beautyShop.Id, player.Gender);
 
-        player.ShopId = beautyShop.ShopId;
+        player.ShopId = beautyShop.Id;
         session.Send(BeautyPacket.LoadBeautyShop(beautyShop, beautyItems));
         player.Inventory.ConsumeItem(session, voucher.Uid, 1);
     }
 
     private static void ModifyBeauty(GameSession session, PacketReader packet, Item beautyItem)
     {
-        ItemSlot itemSlot = ItemMetadataStorage.GetSlot(beautyItem.Id);
+        List<ItemSlot> itemSlots = ItemMetadataStorage.GetItemSlots(beautyItem.Id);
+        if (itemSlots.Count > 1)
+        {
+            // beauty items shouldn't have more than one slot
+            return;
+        }
+        ItemSlot itemSlot = itemSlots.First();
+
         Dictionary<ItemSlot, Item> cosmetics = session.Player.Inventory.Cosmetics;
 
         if (cosmetics.TryGetValue(itemSlot, out Item removeItem))
@@ -489,12 +509,12 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
         }
     }
 
-    private static bool HandleShopPay(GameSession session, BeautyMetadata shop, bool useVoucher)
+    private static bool HandleShopPay(GameSession session, BeautyShop shop, bool useVoucher)
     {
         return useVoucher ? PayWithVoucher(session, shop) : PayWithShopTokenCost(session, shop);
     }
 
-    private static bool PayWithVoucher(GameSession session, BeautyMetadata shop)
+    private static bool PayWithVoucher(GameSession session, BeautyShop shop)
     {
         string voucherTag = ""; // using an Item's tag to search for any applicable voucher
         switch (shop.BeautyType)
@@ -521,6 +541,7 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
                 voucherTag = "beauty_itemcolor";
                 break;
             default:
+                Logger.Warning($"Unknown Beauty Shop: {shop.BeautyType}");
                 session.Send(NoticePacket.Notice("Unknown Beauty Shop", NoticeType.FastText));
                 return false;
         }
@@ -537,22 +558,22 @@ public class BeautyHandler : GamePacketHandler<BeautyHandler>
         return true;
     }
 
-    private static bool PayWithShopTokenCost(GameSession session, BeautyMetadata beautyShop)
+    private static bool PayWithShopTokenCost(GameSession session, BeautyShop beautyShop)
     {
-        int cost = beautyShop.TokenCost;
+        int cost = beautyShop.CurrencyCost;
         if (beautyShop.SpecialCost != 0)
         {
             cost = beautyShop.SpecialCost;
         }
 
-        return Pay(session, beautyShop.TokenType, cost, beautyShop.RequiredItemId);
+        return Pay(session, beautyShop.CurrencyType, cost, beautyShop.RequiredItemId);
     }
 
-    private static bool PayWithShopItemTokenCost(GameSession session, int beautyItemId, BeautyMetadata beautyShop)
+    private static bool PayWithShopItemTokenCost(GameSession session, int beautyItemId, BeautyShop beautyShop)
     {
-        BeautyItem item = beautyShop.Items.FirstOrDefault(x => x.ItemId == beautyItemId);
+        BeautyShopItem item = beautyShop.Items.FirstOrDefault(x => x.ItemId == beautyItemId);
 
-        return Pay(session, item.TokenType, item.TokenCost, item.RequiredItemId);
+        return item != null && Pay(session, item.CurrencyType, item.CurrencyCost, item.RequiredItemId);
     }
 
     private static bool Pay(GameSession session, ShopCurrencyType type, int tokenCost, int requiredItemId)

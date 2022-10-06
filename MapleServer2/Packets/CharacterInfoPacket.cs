@@ -4,7 +4,7 @@ using MapleServer2.Types;
 
 namespace MapleServer2.Packets;
 
-public class CharacterInfoPacket
+public static class CharacterInfoPacket
 {
     public static PacketWriter WriteCharacterInfo(long characterId, Player player)
     {
@@ -24,8 +24,8 @@ public class CharacterInfoPacket
         characterBuffer.WriteLong(player.CharacterId);
         characterBuffer.WriteUnicodeString(player.Name);
         characterBuffer.WriteShort(player.Levels.Level);
-        characterBuffer.Write(player.Job);
         characterBuffer.Write(player.JobCode);
+        characterBuffer.Write(player.SubJobCode);
         characterBuffer.WriteInt((int) player.Gender);
         characterBuffer.WriteInt(player.Levels.PrestigeLevel);
         characterBuffer.WriteByte();

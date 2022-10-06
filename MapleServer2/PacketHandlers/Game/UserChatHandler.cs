@@ -27,7 +27,7 @@ public class UserChatHandler : GamePacketHandler<UserChatHandler>
         if (message.Length > 0 && message[..1].Equals("/"))
         {
             string[] args = message[1..].Split(" ");
-            if (!GameServer.CommandManager.HandleCommand(new GameCommandTrigger(args, session)))
+            if (!GameServer.CommandManager.HandleCommand(new GameCommandTrigger(args, session, type)))
             {
                 session.SendNotice($"No command were found with alias: {args[0]}");
             }
@@ -114,15 +114,15 @@ public class UserChatHandler : GamePacketHandler<UserChatHandler>
 
     private static void HandleSuperChat(GameSession session, string message, ChatType type, PacketWriter itemLinkPacket)
     {
-        if (session.Player.SuperChat == 0)
+        if (session.Player.SuperChatId == 0)
         {
             return;
         }
 
-        Item superChatItem = session.Player.Inventory.GetAllByFunctionId(session.Player.SuperChat).FirstOrDefault();
+        Item superChatItem = session.Player.Inventory.GetAllByFunctionId(session.Player.SuperChatId).FirstOrDefault();
         if (superChatItem is null)
         {
-            session.Player.SuperChat = 0;
+            session.Player.SuperChatId = 0;
             session.Send(SuperChatPacket.Deselect(session.Player.FieldPlayer));
             session.Send(ChatPacket.Error(session.Player, SystemNotice.ErrorInsufficientSuperChatThemes, ChatType.NoticeAlert));
             return;
@@ -136,7 +136,7 @@ public class UserChatHandler : GamePacketHandler<UserChatHandler>
         MapleServer.BroadcastPacketAll(ChatPacket.Send(session.Player, message, type));
         session.Player.Inventory.ConsumeItem(session, superChatItem.Uid, 1);
         session.Send(SuperChatPacket.Deselect(session.Player.FieldPlayer));
-        session.Player.SuperChat = 0;
+        session.Player.SuperChatId = 0;
     }
 
     private static void HandleWorldChat(GameSession session, string message, ChatType type, PacketWriter itemLinkPacket)
@@ -309,7 +309,7 @@ public class UserChatHandler : GamePacketHandler<UserChatHandler>
             {
                 if (ItemMetadataStorage.IsValid((int) itemUid))
                 {
-                    item = new((int) itemUid, false)
+                    item = new((int) itemUid, saveToDatabase: false)
                     {
                         Uid = itemUid
                     };

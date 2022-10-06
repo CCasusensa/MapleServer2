@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using Maple2.Trigger.Enum;
+using MapleServer2.Packets;
 
 namespace MapleServer2.Triggers;
 
@@ -7,6 +8,7 @@ public partial class TriggerContext
 {
     public void ChangeBackground(string dds)
     {
+        Field.BroadcastPacket(ChangeBackgroundPacket.ChangeBackground(dds));
     }
 
     public void EnableLocalCamera(bool isEnable)
@@ -47,6 +49,13 @@ public partial class TriggerContext
 
     public void VisibleMyPc(bool isVisible)
     {
+        if (isVisible)
+        {
+            Field.BroadcastPacket(FieldPropertyPacket.SetCharacterVisible());
+            return;
+        }
+
+        Field.BroadcastPacket(FieldPropertyPacket.SetCharacterInvisible());
     }
 
     public void Weather(WeatherType type)
