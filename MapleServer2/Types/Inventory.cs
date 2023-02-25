@@ -22,7 +22,7 @@ public sealed class Inventory : IInventory
     private readonly Dictionary<long, Item> Items;
     public Dictionary<ItemSlot, Item> Equips { get; }
     public Dictionary<ItemSlot, Item> Cosmetics { get; }
-    public Item[] Badges { get; }
+    public Item?[] Badges { get; }
     public Item[] LapenshardStorage { get; }
     public List<SetBonus> SetBonuses { get; }
 
@@ -139,33 +139,139 @@ public sealed class Inventory : IInventory
 
     #region Public Methods
 
-    public void RecomputeSetBonuses(GameSession session)
+    public void ForEachItem(Action<Item> callback)
     {
-        foreach (SetBonus setBonus in SetBonuses)
-        {
-            foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
-            {
-                for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
-                {
-                    int id = bonus.AdditionalEffectIds[i];
-
-                    if (id != 0)
-                    {
-                        session.Player.FieldPlayer?.AdditionalEffects.GetEffect(id)?.Stop(session.Player.FieldPlayer);
-                    }
-                }
-            }
-        }
-
         foreach ((ItemSlot slot, Item item) in Cosmetics)
         {
-            ItemEquipped(session, item);
+            callback(item);
         }
 
         foreach ((ItemSlot slot, Item item) in Equips)
         {
-            ItemEquipped(session, item);
+            callback(item);
         }
+    }
+
+    public void RecomputeSetBonuses(GameSession? session)
+    {
+        if (session is null)
+        {
+            return;
+        }
+
+        List<int> itemCounts = new(SetBonuses.Count);
+
+        foreach (SetBonus setBonus in SetBonuses)
+        {
+            itemCounts.Add(0);
+        }
+
+        ForEachItem((item) =>
+        {
+            SetItemInfoMetadata? info = SetItemInfoMetadataStorage.GetMetadataFromItem(item.Id);
+
+            if (info is null)
+            {
+                return;
+            }
+
+            int index = SetBonuses.FindIndex((setBonus) => setBonus.SetInfo == info);
+
+            if (index == -1)
+            {
+                index = SetBonuses.Count;
+
+                SetBonuses.Add(new(info));
+                itemCounts.Add(0);
+            }
+
+            itemCounts[index]++;
+        });
+
+        int removeCount = 0;
+        bool changedEffects = false;
+        bool recompute = false;
+
+        for (int index = 0; index < SetBonuses.Count; ++index)
+        {
+            int itemCount = itemCounts[index];
+
+            if (itemCount == 0)
+            {
+                removeCount++;
+
+                continue;
+            }
+
+            SetBonus setBonus = SetBonuses[index];
+
+            SetBonuses[index - removeCount] = setBonus;
+
+            if (setBonus.EquipCount == itemCount)
+            {
+                continue;
+            }
+
+            if (setBonus.EquipCount < itemCount)
+            {
+                foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
+                {
+                    if (bonus.Count > setBonus.EquipCount && bonus.Count <= itemCount)
+                    {
+                        AddBonusEffect(session, bonus, ref changedEffects, ref recompute);
+                    }
+                }
+
+                setBonus.EquipCount = itemCount;
+
+                continue;
+            }
+
+            foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
+            {
+                if (bonus.Count > itemCount && bonus.Count <= setBonus.EquipCount)
+                {
+                    RemoveBonusEffect(session, bonus, ref changedEffects, ref recompute);
+                }
+            }
+
+            setBonus.EquipCount = itemCount;
+        }
+
+        SetBonuses.RemoveRange(SetBonuses.Count - removeCount, removeCount);
+
+        if (recompute && !changedEffects)
+        {
+            session.Player.FieldPlayer?.ComputeStats();
+        }
+    }
+
+    public void AddBonusEffect(GameSession session, SetBonusMetadata bonus, ref bool addedEffect, ref bool recompute)
+    {
+        for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
+        {
+            int id = bonus.AdditionalEffectIds[i];
+            int level = bonus.AdditionalEffectLevels[i];
+
+            if (id != 0)
+            {
+                session.Player.FieldPlayer?.TaskScheduler.QueueBufferedTask(() => session.Player.FieldPlayer?.AdditionalEffects.AddEffect(new(id, level)));
+            }
+        }
+
+        addedEffect |= bonus.AdditionalEffectIds.Length > 0;
+        recompute |= bonus.AdditionalEffectIds.Length == 0;
+    }
+
+    public void RemoveBonusEffect(GameSession session, SetBonusMetadata bonus, ref bool removedEffect, ref bool recompute)
+    {
+        for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
+        {
+            session.Player.FieldPlayer?.AdditionalEffects.GetEffect(bonus.AdditionalEffectIds[i])?.Stop(session.Player.FieldPlayer);
+        }
+
+        removedEffect |= bonus.AdditionalEffectIds.Length > 0;
+        recompute |= bonus.AdditionalEffectIds.Length == 0;
     }
 
     public void IncrementSetBonus(GameSession session, SetBonus setBonus)
@@ -182,19 +288,7 @@ public sealed class Inventory : IInventory
                 continue;
             }
 
-            for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
-            {
-                int id = bonus.AdditionalEffectIds[i];
-                int level = bonus.AdditionalEffectLevels[i];
-
-                if (id != 0)
-                {
-                    session.Player.FieldPlayer?.AdditionalEffects.AddEffect(new(id, level));
-                }
-            }
-
-            addedEffect |= bonus.AdditionalEffectIds.Length > 0;
-            recompute |= bonus.AdditionalEffectIds.Length == 0;
+            AddBonusEffect(session, bonus, ref addedEffect, ref recompute);
         }
 
         if (recompute && !addedEffect)
@@ -205,6 +299,19 @@ public sealed class Inventory : IInventory
 
     public void ItemEquipped(GameSession session, Item item)
     {
+        if (item.AdditionalEffects != null)
+        {
+            session.Player.AddEffects(item.AdditionalEffects);
+
+            foreach (GemSocket socket in item.GemSockets.Sockets)
+            {
+                if (socket.Gemstone != null)
+                {
+                    session.Player.AddEffects(socket.Gemstone.AdditionalEffects);
+                }
+            }
+        }
+
         foreach (SetBonus setBonus in SetBonuses)
         {
             if (!setBonus.HasItem(item))
@@ -229,58 +336,85 @@ public sealed class Inventory : IInventory
         IncrementSetBonus(session, newBonus);
     }
 
+    public void RefreshRequippedItemEffects(GameSession session)
+    {
+        foreach ((ItemSlot slot, Item item) in Equips)
+        {
+            if (item.AdditionalEffects != null)
+            {
+                session.Player.AddEffects(item.AdditionalEffects);
+
+                foreach (GemSocket socket in item.GemSockets.Sockets)
+                {
+                    if (socket.Gemstone != null)
+                    {
+                        session.Player.AddEffects(socket.Gemstone.AdditionalEffects);
+                    }
+                }
+            }
+        }
+    }
+
     public void ItemUnequipped(GameSession session, Item item)
     {
-        SetBonus? removeBonus = null;
+        int removeCount = 0;
 
-        foreach (SetBonus setBonus in SetBonuses)
+        for (int index = 0; index < SetBonuses.Count; ++index)
         {
+            SetBonus setBonus = SetBonuses[index];
+
             if (!setBonus.HasItem(item))
             {
+                SetBonuses[index - removeCount] = setBonus;
+
                 continue;
             }
 
-            removeBonus = setBonus;
+            setBonus.EquipCount--;
 
-            break;
-        }
-
-        if (removeBonus is null)
-        {
-            return;
-        }
-
-        removeBonus.EquipCount--;
-
-        if (removeBonus.EquipCount == 0)
-        {
-            SetBonuses.Remove(removeBonus);
-        }
-
-        bool removedEffect = false;
-        bool recompute = false;
-
-        foreach (SetBonusMetadata bonus in removeBonus.Bonuses.Parts)
-        {
-            if (bonus.Count != removeBonus.EquipCount - 1)
+            if (setBonus.EquipCount == 0)
             {
-                continue;
+                ++removeCount;
+            }
+            else
+            {
+                SetBonuses[index - removeCount] = setBonus;
             }
 
-            for (int i = 0; i < bonus.AdditionalEffectIds.Length; ++i)
+            bool removedEffect = false;
+            bool recompute = false;
+
+            foreach (SetBonusMetadata bonus in setBonus.Bonuses.Parts)
             {
-                session.Player.FieldPlayer?.AdditionalEffects.GetEffect(bonus.AdditionalEffectIds[i])?.Stop(session.Player.FieldPlayer);
+                if (bonus.Count != setBonus.EquipCount + 1)
+                {
+                    continue;
+                }
+
+                RemoveBonusEffect(session, bonus, ref removedEffect, ref recompute);
+
+                break;
             }
 
-            removedEffect |= bonus.AdditionalEffectIds.Length > 0;
-            recompute |= bonus.AdditionalEffectIds.Length == 0;
-
-            break;
+            if (recompute && !removedEffect)
+            {
+                session.Player.FieldPlayer?.ComputeStats();
+            }
         }
 
-        if (recompute && !removedEffect)
+        SetBonuses.RemoveRange(SetBonuses.Count - removeCount, removeCount);
+
+        if (item.AdditionalEffects != null)
         {
-            session.Player.FieldPlayer?.ComputeStats();
+            session.Player.RemoveEffects(item.AdditionalEffects);
+
+            foreach (GemSocket socket in item.GemSockets.Sockets)
+            {
+                if (socket.Gemstone != null)
+                {
+                    session.Player.RemoveEffects(socket.Gemstone.AdditionalEffects);
+                }
+            }
         }
     }
 
@@ -614,20 +748,8 @@ public sealed class Inventory : IInventory
         newEquip.ItemSlot = equipSlot;
         equippedInventory[equipSlot] = newEquip;
         session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(player.FieldPlayer, newEquip, equipSlot));
+        ItemEquipped(session, newEquip);
         player.FieldPlayer?.ComputeStats();
-
-        if (newEquip.AdditionalEffects != null)
-        {
-            player.AddEffects(newEquip.AdditionalEffects);
-
-            foreach (GemSocket socket in newEquip.GemSockets.Sockets)
-            {
-                if (socket.Gemstone != null)
-                {
-                    player.AddEffects(socket.Gemstone.AdditionalEffects);
-                }
-            }
-        }
 
         return true;
     }
@@ -654,20 +776,8 @@ public sealed class Inventory : IInventory
             prevItem.IsEquipped = false;
             player.Inventory.AddItem(session, prevItem, false);
             session.FieldManager.BroadcastPacket(EquipmentPacket.UnequipItem(player.FieldPlayer, prevItem));
+
             player.FieldPlayer?.ComputeStats();
-
-            if (item.AdditionalEffects != null)
-            {
-                player.RemoveEffects(item.AdditionalEffects);
-
-                foreach (GemSocket socket in item.GemSockets.Sockets)
-                {
-                    if (socket.Gemstone != null)
-                    {
-                        player.RemoveEffects(socket.Gemstone.AdditionalEffects);
-                    }
-                }
-            }
 
             return true;
         }
@@ -944,10 +1054,10 @@ public sealed class Inventory : IInventory
     }
 
     // Returns false if item doesn't exist or removing more than available
-    private int Remove(long uid, out Item removedItem, int amount = -1)
+    private int Remove(long uid, out Item? removedItem, int amount = -1)
     {
         // Removing more than available
-        if (!Items.TryGetValue(uid, out Item item) || item.Amount < amount)
+        if (!Items.TryGetValue(uid, out Item? item) || item.Amount < amount)
         {
             removedItem = null;
             return -1;
@@ -977,7 +1087,7 @@ public sealed class Inventory : IInventory
         GetSlots(item.InventoryTab)[item.Slot] = item.Uid;
     }
 
-    private bool RemoveInternal(long uid, out Item item)
+    private bool RemoveInternal(long uid, out Item? item)
     {
         return Items.Remove(uid, out item) && GetSlots(item.InventoryTab).Remove(item.Slot);
     }
@@ -1028,15 +1138,9 @@ public sealed class Inventory : IInventory
             return;
         }
 
-        Home home = GameServer.HomeManager.GetHomeById(session.Player.Account.Home.Id);
+        Home? home = GameServer.HomeManager.GetHomeById(session.Player.Account.Home.Id);
         if (home == null)
         {
-            return;
-        }
-
-        if (item.Ugc?.Type is UGCType.Furniture)
-        {
-            _ = home.AddWarehouseUgcItem(session, item);
             return;
         }
 

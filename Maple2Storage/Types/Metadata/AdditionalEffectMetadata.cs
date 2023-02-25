@@ -62,11 +62,15 @@ public class AdditionalEffectLevelMetadata
     [XmlElement(Order = 23)]
     public EffectSpecialMetadata SpecialEffect;
     [XmlElement(Order = 24)]
-    public EffectRideMetadata Ride;
+    public EffectRideMetadata? Ride;
     [XmlElement(Order = 25)]
-    public List<SkillCondition> SplashSkill;
+    public List<SkillCondition> SplashSkill = new();
     [XmlElement(Order = 26)]
-    public List<SkillCondition> ConditionSkill;
+    public List<SkillCondition> ConditionSkill = new();
+    [XmlElement(Order = 27)]
+    public bool HasConditionalStats;
+    [XmlElement(Order = 28)]
+    public bool HasStats;
 }
 
 [XmlType]
@@ -163,6 +167,15 @@ public class EffectBasicPropertyMetadata
 
     [XmlElement(Order = 23)]
     public EffectResetCondition ResetCondition;
+
+    [XmlElement(Order = 24)]
+    public int Level;
+
+    [XmlElement(Order = 25)]
+    public int[] AllowedSkillAttacks;
+
+    [XmlElement(Order = 26)]
+    public int[] AllowedDotEffectAttacks;
 }
 
 [XmlType]
@@ -203,11 +216,11 @@ public class EffectImmuneEffectMetadata
 public class EffectResetSkillCooldownTimeMetadata
 {
     [XmlElement(Order = 1)]
-    public long[] SkillCodes;
+    public int[] SkillCodes;
 
     public EffectResetSkillCooldownTimeMetadata()
     {
-        SkillCodes = Array.Empty<long>();
+        SkillCodes = Array.Empty<int>();
     }
 }
 
@@ -239,6 +252,16 @@ public class EffectStatusMetadata
 {
     [XmlElement(Order = 1)]
     public Dictionary<StatAttribute, EffectStatMetadata> Stats;
+    [XmlElement(Order = 2)]
+    public long DeathResistanceHp;
+    [XmlElement(Order = 3)]
+    public Dictionary<StatAttribute, float> Resistances;
+    [XmlElement(Order = 4)]
+    public CompulsionEventType CompulsionEventType;
+    [XmlElement(Order = 5)]
+    public float CompulsionEventRate;
+    [XmlElement(Order = 6)]
+    public int[] CompulsionEventSkillCodes = Array.Empty<int>();
 }
 
 [XmlType]
@@ -314,11 +337,13 @@ public class EffectDotDamageMetadata
     [XmlElement(Order = 2)]
     public float Rate;
     [XmlElement(Order = 3)]
-    public float Value;
+    public long Value;
     [XmlElement(Order = 4)]
     public int Element;
     [XmlElement(Order = 5)]
     public bool UseGrade;
+    [XmlElement(Order = 6)]
+    public double DamageByTargetMaxHp;
 }
 
 [XmlType]
@@ -348,7 +373,8 @@ public class EffectUiMetadata
 [XmlType]
 public class EffectShieldMetadata
 {
-
+    [XmlElement(Order = 1)]
+    public int HpValue;
 }
 
 [XmlType]
@@ -385,7 +411,8 @@ public class EffectSpecialMetadata
 [XmlType]
 public class EffectRideMetadata
 {
-
+    [XmlElement(Order = 1)]
+    public int RideId;
 }
 
 [XmlType]

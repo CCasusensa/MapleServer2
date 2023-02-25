@@ -1,6 +1,6 @@
-﻿using System.Drawing;
-using Maple2.Trigger.Enum;
+﻿using Maple2.Trigger.Enum;
 using Maple2Storage.Enums;
+using Maple2Storage.Types;
 using MaplePacketLib2.Tools;
 using MapleServer2.Commands.Core;
 using MapleServer2.Database;
@@ -73,8 +73,8 @@ public class SetJobCommand : InGameCommand
             string[] classes = Enum.GetNames(typeof(JobCode));
 
             player.Session.Send(NoticePacket.Notice(
-                "You have to give a classname and specify awakening (1 or 0)\nAvailable classes:\n".Bold().Color(Color.DarkOrange) +
-                $"{string.Join(", ", classes).Color(Color.Aquamarine)}", NoticeType.Chat));
+                "You have to give a classname and specify awakening (1 or 0)\nAvailable classes:\n".Bold().Color(System.Drawing.Color.DarkOrange) +
+                $"{string.Join(", ", classes).Color(System.Drawing.Color.Aquamarine)}", NoticeType.Chat));
 
             return;
         }
@@ -214,47 +214,33 @@ public class AttributeCommand : InGameCommand
             itemStat = new BasicStat(newAttribute, value, attributeType);
         }
 
-        if (category == 0)
+        switch (category)
         {
-            if (value == 0)
-            {
+            case 0 when value == 0:
                 item.Stats.Constants.Remove(newAttribute);
-            }
-            else
-            {
+                break;
+            case 0:
                 item.Stats.Constants[newAttribute] = itemStat;
-            }
-
-        }
-        else if (category == 1)
-        {
-            if (value == 0)
-            {
+                break;
+            case 1 when value == 0:
                 item.Stats.Statics.Remove(newAttribute);
-            }
-            else
-            {
+                break;
+            case 1:
                 item.Stats.Statics[newAttribute] = itemStat;
-            }
-        }
-        else if (category == 2)
-        {
-            if (value == 0)
-            {
+                break;
+            case 2 when value == 0:
                 item.Stats.Randoms.Remove(newAttribute);
-            }
-            else
-            {
+                break;
+            case 2:
                 item.Stats.Randoms[newAttribute] = itemStat;
-            }
+                break;
         }
 
         if (!isPet)
         {
             trigger.Session.FieldManager.BroadcastPacket(EquipmentPacket.EquipItem(player.FieldPlayer, item, itemSlot));
         }
-
-        if (isPet)
+        else
         {
             player.Inventory.RemoveItem(player.Session, item.Uid, out Item _);
             player.Inventory.AddItem(player.Session, item, true);
@@ -529,6 +515,516 @@ public class BonusPointsCommand : InGameCommand
     }
 }
 
+public class DebugPrintCommand : InGameCommand
+{
+    private enum DebugType
+    {
+        HitTarget,
+        CastedEffects,
+        OwnEffects,
+        EffectsFromOthers,
+        EffectEvents,
+        IncludeTickEvent,
+        WatchList,
+        IgnoreList
+    }
+
+    private enum ListMode
+    {
+        Add,
+        Set,
+        Disable,
+        Remove
+    }
+
+    public DebugPrintCommand()
+    {
+        Aliases = new()
+        {
+            "debugprint"
+        };
+        Description = "Enables and disables debug print settings";
+        Usage = "/debugprint type [setting] [settingList]";
+        Parameters = new()
+        {
+            new Parameter<string>("type", "The debug setting type to configure. Enter 'list' to display available types."),
+            new Parameter<string>("setting", "The value to set the setting to. Enter 'List' to display what the valid values are."),
+            new Parameter<string>("settingList", "Used to set the watch & ignore lists. Multiple values can be entered by separating with commas without spaces.")
+        };
+    }
+
+    public override void Execute(GameCommandTrigger trigger)
+    {
+        Player player = trigger.Session.Player;
+
+        string type = trigger.Get<string>("type");
+        string setting = trigger.Get<string>("setting");
+        string? settingList = trigger.Get<string>("settingList");
+
+        if (string.IsNullOrEmpty(type))
+        {
+            trigger.Session.Send(NoticePacket.Notice("Enter a setting to set", NoticeType.Chat));
+
+            return;
+        }
+
+        type = type.ToLower();
+
+        if (type == "list")
+        {
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint HitTarget amount - Displays the target ids of hit targets. 'amount' is the number of targets to print. -1 means no limit while 0 means disabling it.", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint CastedEffects enabled - Prints out additional effects that get applied on targets in chat", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint OwnEffects enabled - Enables & disables printing effects originating from you", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint EffectsFromOthers enabled - Enables & disables printing effects applied to you by something else", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint EffectEvents enabled - Enables & disables printing events that get fired on effects", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint IncludeTickEvent enabled - Enables & disables printing the tick event with EffectEvents", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint WatchList mode idList - Sets the watch list to filter which effects are printed. Valid modes are: add, set, disable, remove", NoticeType.Chat));
+            trigger.Session.Send(NoticePacket.Notice($"/debugprint IgnoreList mode idList - Sets the ignore list to filter which effects are printed", NoticeType.Chat));
+
+            return;
+        }
+
+        if (!Enum.TryParse(type, ignoreCase: true, out DebugType typeValue))
+        {
+            trigger.Session.Send(NoticePacket.Notice($"{type} is not a valid debug print setting type. Available: int HitTarget, bool CastedEffects, bool OwnEffects, bool EffectsFromOthers", NoticeType.Chat));
+
+            return;
+        }
+
+        List<int>? listToSet = null;
+        string listName = "";
+
+        switch (typeValue)
+        {
+            case DebugType.HitTarget:
+                if (string.IsNullOrEmpty(setting))
+                {
+                    player.DebugPrint.TargetsToPrint = player.DebugPrint.TargetsToPrint != 0 ? 0 : -1;
+                }
+                else
+                {
+                    player.DebugPrint.TargetsToPrint = int.Parse(setting);
+                }
+
+                trigger.Session.Send(NoticePacket.Notice($"Set HitTarget to {player.DebugPrint.TargetsToPrint}", NoticeType.Chat));
+
+                break;
+            case DebugType.CastedEffects:
+                player.DebugPrint.PrintCastedEffects = setting is null ? !player.DebugPrint.PrintCastedEffects : (setting == "true" || setting == "1");
+
+                trigger.Session.Send(NoticePacket.Notice($"Set CastedEffects to {player.DebugPrint.PrintCastedEffects}", NoticeType.Chat));
+
+                break;
+            case DebugType.OwnEffects:
+                player.DebugPrint.PrintOwnEffects = setting is null ? !player.DebugPrint.PrintOwnEffects : (setting == "true" || setting == "1");
+
+                trigger.Session.Send(NoticePacket.Notice($"Set OwnEffects to {player.DebugPrint.PrintOwnEffects}", NoticeType.Chat));
+
+                break;
+            case DebugType.EffectsFromOthers:
+                player.DebugPrint.PrintEffectsFromOthers = setting is null ? !player.DebugPrint.PrintEffectsFromOthers : (setting == "true" || setting == "1");
+
+                trigger.Session.Send(NoticePacket.Notice($"Set EffectsFromOthers to {player.DebugPrint.PrintEffectsFromOthers}", NoticeType.Chat));
+
+                break;
+            case DebugType.EffectEvents:
+                player.DebugPrint.PrintEffectEvents = setting is null ? !player.DebugPrint.PrintEffectEvents : (setting == "true" || setting == "1");
+
+                trigger.Session.Send(NoticePacket.Notice($"Set EffectEvents to {player.DebugPrint.PrintEffectEvents}", NoticeType.Chat));
+
+                break;
+            case DebugType.IncludeTickEvent:
+                player.DebugPrint.IncludeEffectTickEvent = setting is null ? !player.DebugPrint.IncludeEffectTickEvent : (setting == "true" || setting == "1");
+
+                trigger.Session.Send(NoticePacket.Notice($"Set IncludeTickEvent to {player.DebugPrint.IncludeEffectTickEvent}", NoticeType.Chat));
+
+                break;
+            case DebugType.WatchList:
+                listToSet = player.DebugPrint.EffectWatchList;
+                listName = "WatchList";
+
+                break;
+            case DebugType.IgnoreList:
+                listToSet = player.DebugPrint.EffectIgnoreList;
+                listName = "IgnoreList";
+
+                break;
+        }
+
+        if (listToSet is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(setting))
+        {
+            trigger.Session.Send(NoticePacket.Notice("Please enter a list modification mode. Valid modes are: add, set, disable, remove", NoticeType.Chat));
+
+            return;
+        }
+
+        setting = setting.ToLower();
+
+        if (!Enum.TryParse(setting, true, out ListMode mode))
+        {
+            trigger.Session.Send(NoticePacket.Notice($"Invalid mode '{setting}'. Please enter a mode. Valid modes are: add, set, disable, remove", NoticeType.Chat));
+
+            return;
+        }
+
+        if (mode == ListMode.Disable)
+        {
+            listToSet.Clear();
+
+            trigger.Session.Send(NoticePacket.Notice($"Cleared {listName}", NoticeType.Chat));
+
+            return;
+        }
+
+        if (string.IsNullOrEmpty(settingList))
+        {
+            trigger.Session.Send(NoticePacket.Notice($"Please enter a list of ids to {setting}", NoticeType.Chat));
+
+            return;
+        }
+
+        int[] idList = settingList.Split(',')
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Select(int.Parse)
+            .Except(new int[] { 0 })
+            .ToArray();
+
+        if (idList.Length == 0)
+        {
+            trigger.Session.Send(NoticePacket.Notice("Invalid id list entered. Please enter at least one valid id.", NoticeType.Chat));
+
+            return;
+        }
+
+        string modeName = mode switch
+        {
+            ListMode.Add => "Adding",
+            ListMode.Set => "Setting",
+            ListMode.Remove => "Removing",
+            _ => "[error]"
+        };
+
+        trigger.Session.Send(NoticePacket.Notice($"{modeName} {listName} items: {string.Join(", ", idList)}", NoticeType.Chat));
+
+        if (mode == ListMode.Set)
+        {
+            listToSet.Clear();
+        }
+
+        if (mode != ListMode.Remove)
+        {
+            listToSet.AddRange(idList);
+        }
+
+        if (mode == ListMode.Remove)
+        {
+            int removing = 0;
+
+            for (int i = 0; i < listToSet.Count; ++i)
+            {
+                if (idList.Contains(listToSet[i]))
+                {
+                    ++removing;
+                }
+                else
+                {
+                    listToSet[i - removing] = listToSet[i];
+                }
+            }
+
+            if (removing > 0)
+            {
+                listToSet.RemoveRange(listToSet.Count - removing, removing);
+            }
+        }
+
+        trigger.Session.Send(NoticePacket.Notice($"{listName} items: {string.Join(", ", listToSet)}", NoticeType.Chat));
+    }
+}
+
+public class PrintEffectsCommand : InGameCommand
+{
+    public PrintEffectsCommand()
+    {
+        Aliases = new()
+        {
+            "printeffects"
+        };
+        Description = "Prints the effects currently applied to you.";
+        Usage = "/printeffects";
+    }
+
+    public override void Execute(GameCommandTrigger trigger)
+    {
+        Player player = trigger.Session.Player;
+
+        trigger.Session.Send(NoticePacket.Notice($"Effects currently on {player.Name}:", NoticeType.Chat));
+
+        foreach (AdditionalEffect effect in player.AdditionalEffects.Effects)
+        {
+            string enabledTag = effect.IsActive ? "" : " [Disabled]";
+
+            trigger.Session.Send(NoticePacket.Notice($"\tEffect: {effect.Id} Level {effect.Level} with {effect.Stacks} stacks{enabledTag}", NoticeType.Chat));
+        }
+    }
+}
+
+public class ResetCooldownsCommand : InGameCommand
+{
+    private enum CooldownType
+    {
+        Both = 0,
+        Skill = 1,
+        Skills = 1,
+        Effect = 2,
+        Effects = 2,
+        TrackNextHit = 3,
+        ClearTracked = 4,
+    }
+
+    public ResetCooldownsCommand()
+    {
+        Aliases = new()
+        {
+            "resetcooldowns"
+        };
+        Description = "Resets cooldowns of skills or effects on yourself or another entity";
+        Usage = "/resetcooldowns [type] [ids] [targets]";
+        Parameters = new()
+        {
+            new Parameter<string>("type", "Picks whether to reset cooldowns of skills, effects, or both. Use: skill(s), effect(s), both. Use TrackNextHit or ClearTracked to track other objects."),
+            new Parameter<string>("ids", "Picks which ids to reset. Use commas without spaces to separate ids. Leave blank or use '0' to reset all."),
+            new Parameter<string>("targets", "Picks targets to reset cooldowns on")
+        };
+    }
+
+    public override void Execute(GameCommandTrigger trigger)
+    {
+        string typeString = trigger.Get<string>("type");
+        string idsString = trigger.Get<string>("ids");
+        string targetsString = trigger.Get<string>("targets");
+
+        CooldownType type = CooldownType.Both;
+
+        Enum.TryParse(typeString, true, out type);
+
+        if (type == CooldownType.TrackNextHit)
+        {
+            if (trigger.Session.Player.FieldPlayer is not null)
+            {
+                trigger.Session.Player.FieldPlayer.SkillTriggerHandler.TrackNextTargetHit = true;
+            }
+
+            return;
+        }
+
+        if (type == CooldownType.ClearTracked)
+        {
+            if (trigger.Session.Player.FieldPlayer is not null)
+            {
+                trigger.Session.Player.FieldPlayer.SkillTriggerHandler.TrackTargetsForCooldowns.Clear();
+            }
+
+            return;
+        }
+
+        int[]? ids = null;
+
+        if (!string.IsNullOrEmpty(idsString))
+        {
+            ids = targetsString.Split(',')
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Select(int.Parse)
+                .Except(new int[] { 0 })
+                .ToArray();
+        }
+
+        Player player = trigger.Session.Player;
+
+        List<IFieldActor> targets = new();
+
+        if (string.IsNullOrEmpty(targetsString))
+        {
+            if (player.FieldPlayer is not null)
+            {
+                targets.Add(player.FieldPlayer);
+                targets.AddRange(player.FieldPlayer.SkillTriggerHandler.TrackTargetsForCooldowns);
+            }
+        }
+        else
+        {
+            int[] idList = targetsString.Split(',')
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Select(int.Parse)
+                .Except(new int[] { 0 })
+                .ToArray();
+
+            foreach (int targetId in idList)
+            {
+                IFieldActor? target = trigger.Session.FieldManager.State.GetActor(targetId);
+
+                if (target is not null)
+                {
+                    targets.Add(target);
+                }
+            }
+        }
+
+        foreach (IFieldActor target in targets)
+        {
+            if (type == CooldownType.Both || type == CooldownType.Skill)
+            {
+                target.SkillTriggerHandler.ResetSkillCooldowns(ids);
+            }
+
+            if (type == CooldownType.Both || type == CooldownType.Effect)
+            {
+                target.SkillTriggerHandler.ResetEffectCooldowns(ids);
+            }
+        }
+    }
+}
+
+public class SimulateHitCommand : InGameCommand
+{
+    private enum SimulateHitType
+    {
+        Hit,
+        Missed,
+        Blocked,
+        Crit,
+        Natural
+    }
+
+    public SimulateHitCommand()
+    {
+        Aliases = new()
+        {
+            "simulatehit"
+        };
+        Description = "Simulates a hit to the user from the nearest mob";
+        Usage = "/simulatehit [type] [times] [interval]";
+        Parameters = new()
+        {
+            new Parameter<string>("type", "The type of hit to simulate. Options are: Hit, Missed, Blocked, Crit, Natural"),
+            new Parameter<string>("times", "The number of times to hit. Default is 1"),
+            new Parameter<string>("interval", "The time between hits in milliseconds. Default is 1000 ms"),
+        };
+    }
+
+    private void RollHit(GameCommandTrigger trigger, IFieldActor character, IFieldActor attacker, SimulateHitType simulateType)
+    {
+        HitType type = simulateType switch
+        {
+            SimulateHitType.Hit => HitType.Normal,
+            SimulateHitType.Missed => HitType.Miss,
+            SimulateHitType.Blocked => HitType.Block,
+            SimulateHitType.Crit => HitType.Critical,
+            SimulateHitType.Natural => HitType.Normal,
+            _ => HitType.Normal
+        };
+
+        if (simulateType == SimulateHitType.Natural)
+        {
+            DamageHandler damage = DamageHandler.CalculateDamage(new SkillCast(1000001, 1), character, attacker); // basic attack id
+
+            type = damage.HitType;
+        }
+
+        bool missed = type == HitType.Miss;
+        bool crit = type == HitType.Critical;
+        bool blocked = type == HitType.Block;
+
+        trigger.Session.Send(NoticePacket.Notice($"{type}", NoticeType.Chat));
+
+        trigger.Session.FieldManager.BroadcastPacket(SkillDamagePacket.DotDamage(attacker.ObjectId, character.ObjectId, Environment.TickCount, type, 100));
+
+        character.SkillTriggerHandler.OnAttacked(attacker, 0, true, crit, missed, blocked);
+    }
+
+    public override void Execute(GameCommandTrigger trigger)
+    {
+        IFieldActor? character = trigger.Session.Player.FieldPlayer;
+
+        if (trigger.Session.FieldManager is null || character is null)
+        {
+            return;
+        }
+
+        IFieldActor? attacker = null;
+        float closest = float.MaxValue;
+
+        foreach ((int uid, Npc mob) in trigger.Session.FieldManager.State.Mobs)
+        {
+            float distance = CoordF.Distance(mob.Coord, character.Coord);
+
+            if (distance < closest)
+            {
+                closest = distance;
+                attacker = mob;
+            }
+        }
+
+        if (attacker is null)
+        {
+            return;
+        }
+
+        string typeString = trigger.Get<string>("type");
+        int times = 1;
+        int interval = 1000;
+
+        int.TryParse(trigger.Get<string>("times") ?? "1", out times);
+        int.TryParse(trigger.Get<string>("times") ?? "1000", out interval);
+
+        SimulateHitType type = SimulateHitType.Hit;
+
+        Enum.TryParse(typeString, true, out type);
+
+        int fires = 3;
+
+        trigger.Session.Send(NoticePacket.Notice($"Hit in {fires}", NoticeType.Chat));
+
+        character.TaskScheduler.QueueTask(new(1000)
+        {
+            Executions = 3,
+        }, (currentTick, task) =>
+        {
+            --fires;
+
+            if (fires > 0)
+            {
+                trigger.Session.Send(NoticePacket.Notice($"Hit in {fires}", NoticeType.Chat));
+            }
+
+            return 0;
+        }, (currentTick, task) =>
+        {
+            RollHit(trigger, character, attacker, type);
+
+            if (times <= 1)
+            {
+                return;
+            }
+
+            character.TaskScheduler.QueueTask(new(Math.Max(10, interval))
+            {
+                Executions = times - 1
+            }, (currentTick, task) =>
+            {
+                RollHit(trigger, character, attacker, type);
+
+                return 0;
+            });
+        });
+    }
+}
+
 public class GMShopCommand : InGameCommand
 {
     public GMShopCommand()
@@ -543,7 +1039,7 @@ public class GMShopCommand : InGameCommand
 
     public override void Execute(GameCommandTrigger trigger)
     {
-        ShopHelper.OpenSystemShop(trigger.Session, 999999, 29000307);
+        ShopHelper.OpenShop(trigger.Session, 999999, 29000307);
     }
 }
 

@@ -132,7 +132,7 @@ public enum EffectEvent : byte
 
     OnBuffStacksReached = 10, // owner, caster
     OnInvestigate = 11, // owner. not fired in homes
-    OnBuffTimeExpiring = 13, // owner
+    OnDeath = 13, // owner
     OnSkillCastEnd = 14, // owner. unsure
     OnEffectApplied = 16, // owner
     OnEffectRemoved = 17, // owner
@@ -142,6 +142,13 @@ public enum EffectEvent : byte
     UnknownKritiasPuzzleEvent = 20, // owner
     UnknownWizardEvent = 102,
     UnknownStrikerEvent = 103 // owner
+}
+
+public enum EffectEventOrigin : byte
+{
+    Owner,
+    Caster,
+    Target
 }
 
 public enum TargetAllieganceType : byte
@@ -241,4 +248,12 @@ public enum InvokeEffectType : byte
     ReduceSpiritCost = 56, // flame wave 0 spirit cost? value=0, rate=2 on 10300250. subtract rate from cost (10500201, rate=20%)
     // 57 (90050351)
     IncreaseHealing = 58
+}
+
+public enum CompulsionEventType : byte
+{
+    None = 0,
+    CritChanceOverride = 1,
+    EvasionChanceOverride = 2,
+    BlockChance = 3
 }

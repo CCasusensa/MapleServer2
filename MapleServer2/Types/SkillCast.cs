@@ -20,21 +20,23 @@ public class SkillCast
     public int Interval;
     public SkillCast? ParentSkill;
 
-    public SkillAttack SkillAttack;
+    public SkillAttack? SkillAttack;
 
     public CoordF Position;
     public CoordF Direction;
     public CoordF Rotation;
     public short LookDirection;
     public float AimAngle;
+    public bool UseDirection = true;
 
-    public IFieldActor Caster;
-    public IFieldActor Target;
-    public IFieldActor Owner; // who the skill was casted at, not necessarily the same as caster
+    public IFieldActor? Caster;
+    public IFieldActor? Target;
+    public IFieldActor? Owner; // who the skill was casted at, not necessarily the same as caster
 
-    public bool MetadataExists => GetSkillMetadata() is not null;
-
+    public long MagicPath = 0;
     public List<CoordF> EffectCoords = new();
+    public int ActiveCoord = -1;
+    public bool UsingCasterDirection = false;
 
     public SkillCast()
     {
@@ -79,6 +81,8 @@ public class SkillCast
     }
 
     public float GetDamageRate() => SkillAttack?.DamageProperty.DamageRate ?? 0;
+
+    public long GetDamageValue() => SkillAttack?.DamageProperty.DamageValue ?? 0;
 
     public double GetCriticalDamage() => 2 * GetDamageRate();
 
@@ -138,7 +142,7 @@ public class SkillCast
 
     public bool HasCompulsionType(int type)
     {
-        if (SkillAttack.CompulsionType == null)
+        if (SkillAttack?.CompulsionType is null)
         {
             return false;
         }
@@ -152,7 +156,7 @@ public class SkillCast
         return skillData.Type == SkillType.Active && skillData.SubType == SkillSubType.None;
     }
 
-    public List<SkillMotion> GetSkillMotions() => GetCurrentLevel()?.SkillMotions;
+    public List<SkillMotion> GetSkillMotions() => GetCurrentLevel()?.SkillMotions ?? new();
 
     private bool VerifySkillTypeOf(SkillType type, SkillSubType subType)
     {
@@ -221,7 +225,7 @@ public class SkillCast
 
     private SkillMetadata GetSkillMetadata() => SkillMetadataStorage.GetSkill(SkillId);
 
-    private SkillLevel GetCurrentLevel() => GetSkillMetadata()?.SkillLevels.FirstOrDefault(s => s.Level == SkillLevel);
+    public SkillLevel GetCurrentLevel() => GetSkillMetadata()?.SkillLevels.FirstOrDefault(s => s.Level == SkillLevel);
 
     // Some skills don't have SkillAdditionalData for specific levels, if its null try to use the first level
     private SkillAdditionalData GetAdditionalData() =>

@@ -7,13 +7,13 @@ namespace MapleServer2.Types;
 public class Cube
 {
     public long Uid;
-    public Item Item;
+    public Item? Item;
     public int PlotNumber;
     public CoordF CoordF;
     public CoordF Rotation;
     public long HomeId;
     public long LayoutUid;
-    public CubePortalSettings PortalSettings;
+    public CubePortalSettings? PortalSettings;
     public bool InUse;
 
     public Cube() { }

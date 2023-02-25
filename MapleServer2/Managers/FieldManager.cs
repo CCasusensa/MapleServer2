@@ -28,11 +28,14 @@ public class FieldManager
 
     public readonly int MapId;
     public readonly long InstanceId;
-    public readonly int Capacity;
-    public readonly bool IsTutorialMap;
+    private readonly int Capacity;
+    private readonly bool IsTutorialMap;
+    // ReSharper disable once NotAccessedField.Local -- Remove when implemented
+    private bool IsDungeonMap;
     public readonly FieldState State = new();
     public readonly CoordS[]? BoundingBox;
     public readonly TriggerScript[] Triggers;
+    public readonly TickingTaskScheduler FieldTaskScheduler;
 
     private static int GlobalIdCounter = 1_000_000;
     private int LocalIdCounter = 10_000_000;
@@ -42,14 +45,18 @@ public class FieldManager
     private Task? MapLoopTask;
     private Task? TriggerTask;
     private Task? NpcMovementTask;
+    private Task? FieldLogicTask;
     private Timer? UGCBannerTimer;
     private static readonly TriggerLoader TriggerLoader = new();
     public readonly FieldNavigator? Navigator;
+    public readonly MapMetadata Metadata;
 
     #region Constructors
 
     public FieldManager(Player player)
     {
+        FieldTaskScheduler = new(this);
+
         MapMetadata? metadata = MapMetadataStorage.GetMetadata(player.MapId);
 
         if (metadata is null)
@@ -57,9 +64,12 @@ public class FieldManager
             throw new($"No metadata found for map {player.MapId}");
         }
 
+        Metadata = metadata;
+
         MapId = player.MapId;
         Capacity = metadata.Property.Capacity;
         IsTutorialMap = metadata.Property.IsTutorialMap;
+        IsDungeonMap = DungeonStorage.IsDungeonMap(player.MapId);
         if (File.Exists(Paths.NAVMESH_DIR + $"/{metadata.XBlockName}.tok"))
         {
             Navigator = new(metadata.XBlockName);
@@ -71,8 +81,7 @@ public class FieldManager
 
         BoundingBox = MapEntityMetadataStorage.GetBoundingBox(MapId);
 
-        // Capacity 0 means solo instances
-        if (Capacity == 0 || IsTutorialMap)
+        if (IsTutorialMap)
         {
             // Set instance id to player id so it's unique
             InstanceId = player.CharacterId;
@@ -376,6 +385,7 @@ public class FieldManager
             TriggerSkill triggerSkill = new(mapTriggerSkill.Id,
                 mapTriggerSkill.SkillId,
                 mapTriggerSkill.SkillLevel,
+                mapTriggerSkill.Interval,
                 mapTriggerSkill.Count,
                 mapTriggerSkill.Position,
                 null);
@@ -599,11 +609,30 @@ public class FieldManager
 
         MapLoopTask ??= StartMapLoop();
         NpcMovementTask ??= StartNpcLoop();
+        FieldLogicTask ??= StartLogicLoop();
         TriggerTask ??= StartTriggerTask();
 
         UGCBannerTimer ??= TaskScheduler.Instance.ScheduleTask(0, 0, 60, () => { GameServer.UGCBannerManager.UGCBannerLoop(this); });
 
+        player.FieldPlayer.TaskScheduler.FieldManager = this;
+        player.FieldPlayer.TaskScheduler.OnFieldMoved();
         player.Inventory.RecomputeSetBonuses(player.Session);
+
+        MapProperty? mapProperty = MapMetadataStorage.GetMapProperty(player.MapId);
+        if (mapProperty is not null)
+        {
+            player.FieldPlayer.TaskScheduler.QueueBufferedTask(() =>
+            {
+                for (int i = 0; i < mapProperty.EnterBuffIds.Count; i++)
+                {
+                    player.FieldPlayer.AdditionalEffects.AddEffect(new(mapProperty.EnterBuffIds[i], mapProperty.EnterBuffLevels[i]));
+                }
+            });
+        }
+
+        player.InitializeEffects();
+
+        //player.Session.SendNotice($"added to field with capacity: {Capacity} instanceId: {InstanceId} IsDungeonMap {IsDungeonMap}");
     }
 
     public void RemovePlayer(Player player)
@@ -631,7 +660,7 @@ public class FieldManager
 
         if (Decrement() <= 0)
         {
-            FreezeField(player);
+            HandleEmptyField(player);
             return;
         }
 
@@ -681,8 +710,10 @@ public class FieldManager
             // TODO: Find a better place to do this when buffs are implemented
             for (int i = 0; i < fieldNpc.Value.NpcMetadataEffect.EffectIds.Length; i++)
             {
-                SkillCast effectCast = new(fieldNpc.Value.NpcMetadataEffect.EffectIds[i], fieldNpc.Value.NpcMetadataEffect.EffectLevels[i]);
-                session.Send(BuffPacket.AddBuff(new(effectCast, fieldNpc.ObjectId, fieldNpc.ObjectId, 1)));
+                int effectId = fieldNpc.Value.NpcMetadataEffect.EffectIds[i];
+                byte effectLevel = fieldNpc.Value.NpcMetadataEffect.EffectLevels[i];
+
+                fieldNpc.TaskScheduler.QueueBufferedTask(() => fieldNpc.AdditionalEffects.AddEffect(new(effectId, effectLevel)));
             }
         });
     }
@@ -943,7 +974,7 @@ public class FieldManager
     {
         foreach (Character player in State.Players.Values)
         {
-            action?.Invoke(player.Value.Session);
+            action?.Invoke(player.Value.Session!);
         }
     }
 
@@ -1036,12 +1067,15 @@ public class FieldManager
 
     public bool RemoveRegionSkillEffect(SkillCast skillCast)
     {
-        if (!RemoveSkillCast(skillCast.SkillSn, out skillCast))
+        if (!RemoveSkillCast(skillCast.SkillSn, out SkillCast outSkillCast) && skillCast.SkillObjectId == 0)
         {
             return false;
         }
 
         BroadcastPacket(RegionSkillPacket.Remove(skillCast.SkillObjectId));
+
+        skillCast.SkillObjectId = 0;
+
         return true;
     }
 
@@ -1122,15 +1156,83 @@ public class FieldManager
         }
     }
 
-    private void FreezeField(Player player)
+    private void HandleEmptyField(Player player)
     {
+        int originMapId = MapId;
+        int originInstanceId = (int) InstanceId;
         UGCBannerTimer?.Dispose();
         UGCBannerTimer = null;
         MapLoopTask = null;
         TriggerTask = null;
         NpcMovementTask = null;
+        FieldLogicTask = null;
 
-        if (Capacity == 0 || IsTutorialMap)
+        if (player.DungeonSessionId != -1) //player is in a solo dungeon session
+        {
+            //player.Session?.SendNotice($"Leaving Field: Solo DS {player.DungeonSessionId}");
+            DungeonSession? dungeonSession = GameServer.DungeonManager.GetBySessionId(player.DungeonSessionId);
+            Debug.Assert(dungeonSession != null); // if the player id is not -1, there should always be a corresponding dungeon session
+
+            if (dungeonSession.IsTravelingBetweenDungeonMaps(this, player))
+            {
+                //player.Session?.SendNotice($"Leaving Field: Solo DS {player.DungeonSessionId} traveled within dungeon maps");
+                //do idle state which is apparently different from frozen
+                Freeze();
+                return;
+            }
+
+            //if not traveling between dungeon maps (including lobby<->dungeon) delete dungeon session and instance
+            //not traveling between dungeon maps -> destroy dungeon Session
+            //also checks the instance to ensure it is a dungeon session map
+            if (dungeonSession.IsDungeonReservedField(originMapId, originInstanceId)) //is left map a dungeon map?
+            {
+                //player.Session?.SendNotice($"Leaving Dungeon Field: Solo SD: Deleting DS {player.DungeonSessionId} and Instance {InstanceId}");
+                GameServer.DungeonManager.RemoveDungeonSession(dungeonSession.SessionId, DungeonType.Solo, player);
+                FieldManagerFactory.ReleaseManager(this);
+                return;
+            }
+        }
+
+        //check if player is in a group dungeon, so check whether player is in party, if not in party they cannot be in a dungeon session
+        //as removing from party is the same as not being in the dungeon session anymore
+        //player is not in a solo dungeon session
+        if (player.Party is not null)
+        {
+            Party? party = GameServer.PartyManager.GetPartyById(player.Party.Id);
+            if (party is not null && party.DungeonSessionId != -1)
+            {
+                DungeonSession? dungeonSession = GameServer.DungeonManager.GetBySessionId(party.DungeonSessionId);
+                Debug.Assert(dungeonSession != null); // if the dungeon session id is not -1, there should always be a corresponding dungeon session
+                //player.Session?.SendNotice($"Leaving Field: Party DS not -1: Player DS: {player.DungeonSessionId} Group DS {player.Party?.DungeonSessionId}");
+
+                if (dungeonSession.IsTravelingBetweenDungeonMaps(this, player))
+                {
+                    //do idle state which is apparently different from frozen, so this case needs to be handled separately here.
+                    Freeze();
+                    //player.Session?.SendNotice($"Leaving Dungeon Field: Group Dungeon: Travel between Dungeon Maps: Froze Map {MapId}");
+                    return;
+                }
+
+                if (dungeonSession.IsDungeonReservedField(originMapId, originInstanceId)) // leaving a completed dungeon map
+                {
+                    if (dungeonSession.IsCompleted == false)
+                    {
+                        //player.Session?.SendNotice($"Leaving Dungeon Field: Group SD: Dungeon is not completed, map Frozen {MapId}");
+                        Freeze();
+                        return;
+                    }
+
+                    //player.Session?.SendNotice($"Leaving Dungeon Field: Group SD: Dungeon is completed Deleting mapId: {MapId} with Instance {InstanceId}");
+                    FieldManagerFactory.ReleaseManager(this);
+                    dungeonSession.IsCompleted = true;
+                    return;
+                }
+            }
+        }
+
+        //2 people in party: one leaves the party-> both leave the dungeon map, last player will not be in a party
+        //this case is also handled by IsInstancedOnly
+        if (IsTutorialMap || MapMetadataStorage.IsInstancedOnly(MapId))
         {
             foreach (IFieldObject<Item> item in State.Items.Values)
             {
@@ -1139,26 +1241,21 @@ public class FieldManager
             }
 
             FieldManagerFactory.ReleaseManager(this);
-        }
-
-        // --- Dungeon Session ---
-        // Is only called if the leaving player is the last player on the map
-        // Get the DungeonSession that corresponds with the about to be released instance, in case that the player is in a party (group session) and solo session
-        if (GameServer.DungeonManager.IsDungeonUsingFieldInstance(this, player))
-        {
+            //player.Session?.SendNotice($"Leaving Field: Tutorial or Instanced map only {MapId}, field was deleted");
             return;
         }
 
-        DungeonSession? dungeonSession = GameServer.DungeonManager.GetDungeonSessionBySessionId(player.DungeonSessionId);
+        Freeze();
+        //player.Session?.SendNotice($"Leaving Field: Froze map {MapId}");
+    }
 
-        //If instance is destroyed, reset dungeonSession
-        //further conditions for dungeon completion could be checked here.
-        if (dungeonSession is null || !dungeonSession.IsDungeonSessionMap(MapId))
-        {
-            return;
-        }
-
-        GameServer.DungeonManager.ResetDungeonSession(player, dungeonSession);
+    private void Freeze()
+    {
+        UGCBannerTimer?.Dispose();
+        UGCBannerTimer = null;
+        MapLoopTask = null;
+        TriggerTask = null;
+        NpcMovementTask = null;
     }
 
     #region Map loop
@@ -1169,13 +1266,78 @@ public class FieldManager
         {
             while (PlayerCount > 0)
             {
-                UpdateMobEvents();
                 UpdatePetEvents();
                 UpdateObjects();
                 HealingSpot();
                 SendUpdates();
 
                 await Task.Delay(1000);
+            }
+        });
+    }
+
+    private long InternalLogicLoopTick = 0;
+    public long TickCount64 { get => InternalLogicLoopTick; }
+    public int TickCount { get => (int) TickCount64; }
+
+    private void UpdateActors(long delta)
+    {
+        try
+        {
+            FieldTaskScheduler.Update(delta);
+
+            foreach (Npc mob in State.Mobs.Values)
+            {
+                mob.Update(delta);
+            }
+
+            foreach (Npc npc in State.Npcs.Values)
+            {
+                npc.Update(delta);
+            }
+
+            foreach (Pet pet in State.Pets.Values)
+            {
+                pet.Update(delta);
+            }
+
+            foreach (Character player in State.Players.Values)
+            {
+                player.Update(delta);
+            }
+        }
+        catch (Exception e)
+        {
+            Logger.Error("Error in field logic loop {0}", e);
+        }
+    }
+
+    private Task StartLogicLoop()
+    {
+        const int delta = 10; // use constant update interval to enforce deterministic behavior. required to be 1 to handle additional effects properly
+        const int maxIterations = 3; // maximum number of times an iteration can be attempted. more than one will be attempted in the case of lag spikes up to maxIterations
+
+        InternalLogicLoopTick = Environment.TickCount64;
+
+        return Task.Run(async () =>
+        {
+            while (PlayerCount > 0)
+            {
+                long currentTick = Environment.TickCount64;
+
+                for (int i = 0; i < maxIterations && InternalLogicLoopTick + delta < currentTick; ++i)
+                {
+                    InternalLogicLoopTick += delta;
+
+                    UpdateActors(delta);
+                }
+
+                while (InternalLogicLoopTick + delta < currentTick)
+                {
+                    InternalLogicLoopTick += delta;
+                }
+
+                Thread.Sleep(delta);
             }
         });
     }
@@ -1251,32 +1413,6 @@ public class FieldManager
         return updates;
     }
 
-    private void UpdateMobEvents()
-    {
-        // Manage mob aggro + targets
-        foreach (IFieldActor<Player> player in State.Players.Values)
-        {
-            foreach (Npc mob in State.Mobs.Values)
-            {
-                float playerMobDist = CoordF.Distance(player.Coord, mob.Coord);
-                if (playerMobDist <= mob.Value.NpcMetadataDistance.Sight)
-                {
-                    mob.State = NpcState.Combat;
-                    mob.Target = player;
-                    continue;
-                }
-
-                if (mob.State != NpcState.Combat)
-                {
-                    continue;
-                }
-
-                mob.State = NpcState.Normal;
-                mob.Target = null;
-            }
-        }
-    }
-
     private void UpdatePetEvents()
     {
         // TODO: loop trough all mobs and check if pet should attack mob
@@ -1308,7 +1444,7 @@ public class FieldManager
     {
         foreach (Npc mob in State.Mobs.Values)
         {
-            mob.Act();
+            mob.Behavior?.Next();
         }
 
         foreach (Pet pet in State.Pets.Values)
@@ -1329,7 +1465,7 @@ public class FieldManager
                     continue;
                 }
 
-                player.AdditionalEffects.AddEffect(new(70000018, 1)); // applies a healing effect to the player
+                player.TaskScheduler.QueueBufferedTask(() => player.AdditionalEffects.AddEffect(new(70000018, 1))); // applies a healing effect to the player
             }
         }
     }
@@ -1367,7 +1503,7 @@ public class FieldManager
         int spawnTimer = mobSpawn.Value.SpawnData.SpawnTime * 1000;
         return Task.Run(async () =>
         {
-            await Task.Delay(spawnTimer);
+            await Task.Delay(spawnTimer); // change to tick based system
 
             if (mobSpawn.Value.Mobs.Count == 0)
             {

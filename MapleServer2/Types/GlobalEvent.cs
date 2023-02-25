@@ -10,7 +10,7 @@ public class GlobalEvent
     public int Id;
     public int FirstHour;
     public int FirstMinutesOnHour;
-    public int MinutesToRunPerDay;
+    public int MinutesInterval;
     public List<GlobalEventType> Events = new();
 
     public GlobalEvent()
@@ -29,7 +29,7 @@ public class GlobalEvent
         Id = GuidGenerator.Int();
         GameServer.GlobalEventManager.AddEvent(this);
 
-        List<Player> onlinePlayers = GameServer.PlayerManager.GetAllPlayers().Where(x => !MapMetadataStorage.MapIsInstancedOnly(x.MapId)).ToList();
+        List<Player> onlinePlayers = GameServer.PlayerManager.GetAllPlayers().Where(x => !MapMetadataStorage.IsInstancedOnly(x.MapId)).ToList();
         foreach (Player player in onlinePlayers)
         {
             player.Session?.Send(GlobalPortalPacket.Notice(this));

@@ -4,9 +4,6 @@ using MapleServer2.Data.Static;
 using MapleServer2.Enums;
 using MapleServer2.Managers.Actors;
 using MapleServer2.Packets;
-using MapleServer2.Servers.Game;
-using MapleServer2.Tools;
-using Serilog;
 
 namespace MapleServer2.Types;
 
@@ -17,7 +14,7 @@ public struct AdditionalEffectParameters
     public int Stacks;
     public IFieldActor? Caster;
     public bool IsBuff;
-    public bool AdjustDuration;
+    public int Duration = 0;
     public SkillCast? ParentSkill;
 
     public AdditionalEffectParameters(int id, int level)
@@ -27,9 +24,15 @@ public struct AdditionalEffectParameters
         Stacks = 1;
         Caster = null;
         IsBuff = false;
-        AdjustDuration = true;
         ParentSkill = null;
     }
+}
+
+public class CompulsionEventRate
+{
+    public CompulsionEventType Type = CompulsionEventType.None;
+    public float Rate = 0;
+    public int[] SkillCodes = Array.Empty<int>();
 }
 
 public class AdditionalEffects
@@ -38,30 +41,86 @@ public class AdditionalEffects
     public IFieldActor? Parent;
     public bool AlwaysCrit;
     public bool Invincible;
+    public long MinimumHp;
+    public Dictionary<StatAttribute, float> Resistances = new();
+    public AdditionalEffect? ActiveShield = null;
+    public List<CompulsionEventRate> CompulsionEvents = new();
     private Dictionary<EffectEvent, List<AdditionalEffect>> ListeningEvents = new();
+    private Dictionary<EffectEvent, List<AdditionalEffect>> ListeningTickEvents = new();
 
     public AdditionalEffects(IFieldActor? parent = null)
     {
         Effects = new();
         Parent = parent;
+
+        ResetStatus();
+    }
+
+    public void ResetStatus()
+    {
         AlwaysCrit = false;
         Invincible = false;
+        MinimumHp = 0;
+        Resistances.Clear();
+        ActiveShield = null;
+        CompulsionEvents.Clear();
+    }
+
+    public float GetCompulsionRate(CompulsionEventType type, int skillCode = 0)
+    {
+        float rate = 0;
+
+        foreach (CompulsionEventRate compulsion in CompulsionEvents)
+        {
+            if (compulsion.Type == type && (compulsion.SkillCodes.Length == 0 || compulsion.SkillCodes.Contains(skillCode)))
+            {
+                rate += compulsion.Rate;
+            }
+        }
+
+        return rate;
+    }
+
+    public void UpdateStatsIfStale(EffectEvent effectEvent = EffectEvent.Tick)
+    {
+        if (Parent is null)
+        {
+            return;
+        }
+
+        foreach (AdditionalEffect effect in Effects)
+        {
+            bool recompute = effect.UpdateIfStale(Parent, false, effectEvent);
+
+            if (recompute)
+            {
+                Parent.ComputeStats();
+
+                return;
+            }
+        }
     }
 
     public bool CanApplyEffect(AdditionalEffect effect, out AdditionalEffect? oldEffect)
     {
         oldEffect = null;
 
+        int effectId = effect.Id;
+        int effectGroup = effect.LevelMetadata.Basic.Group;
+
         foreach (AdditionalEffect activeEffect in Effects)
         {
-            EffectImmuneEffectMetadata immune = activeEffect.LevelMetadata.ImmuneEffect;
+            int activeId = activeEffect.Id;
+            int activeGroup = activeEffect.LevelMetadata.Basic.Group;
 
-            if (immune.ImmuneEffectCodes.Contains(effect.Id))
+            EffectImmuneEffectMetadata? immune = activeEffect.LevelMetadata.ImmuneEffect;
+
+            if (immune?.ImmuneEffectCodes.Contains(effect.Id) ?? false)
             {
                 return false;
             }
 
-            if (activeEffect.Id != effect.Id && effect.LevelMetadata.Basic.Group != activeEffect.Id)
+            if (effectId != activeId && effectGroup != activeId && effectId != activeGroup && (effectGroup + activeGroup == 0 || effectGroup != activeGroup))
             {
                 continue;
             }
@@ -81,10 +140,12 @@ public class AdditionalEffects
 
     public bool UpdateEffect(AdditionalEffect? effect, AdditionalEffect newEffect, AdditionalEffectParameters parameters)
     {
-        if (effect is null)
+        if (effect is null || Parent is null)
         {
             return false;
         }
+
+        bool wasBelowMax = effect.Stacks < effect.LevelMetadata.Basic.MaxBuffCount;
 
         effect.Stacks = Math.Max(Math.Min(effect.LevelMetadata.Basic.MaxBuffCount, parameters.Stacks + effect.Stacks), 0);
 
@@ -107,16 +168,88 @@ public class AdditionalEffects
 
         if (effect.Stacks > 1)
         {
-            Parent.SkillTriggerHandler.FireEvents(new ConditionSkillTarget(Parent, Parent, newEffect.Caster ?? Parent), EffectEvent.OnBuffStacksReached, effect.Id);
+            Parent.SkillTriggerHandler.FireEvents(Parent, null, EffectEvent.OnBuffStacksReached, effect.Id);
+
+            if (wasBelowMax && effect.Stacks == effect.LevelMetadata.Basic.MaxBuffCount)
+            {
+                Parent.SkillTriggerHandler.FireEvents(Parent, null, EffectEvent.UnknownWizardEvent, effect.Id);
+                Parent.SkillTriggerHandler.FireEvents(Parent, null, EffectEvent.UnknownStrikerEvent, effect.Id);
+            }
         }
 
-        Parent.FieldManager?.BroadcastPacket(BuffPacket.UpdateBuff(effect, Parent.ObjectId));
+        if (effect.BuffId != 0)
+        {
+            Parent.FieldManager?.BroadcastPacket(BuffPacket.UpdateBuff(effect, Parent.ObjectId));
+        }
+
+        Parent.EffectUpdated(effect);
+        effect.Process(Parent);
 
         return true;
     }
 
+    public void DebugPrint(AdditionalEffect effect, EffectEvent effectEvent, ConditionSkillTarget effectInfo, int parameter = 0)
+    {
+        Player? ownerPlayer = (Parent as Character)?.Value;
+        Player? casterPlayer = (effect.Caster as Character)?.Value;
+        bool debugPrintOwner = false;
+        bool debugPrintCaster = false;
+
+        if (ownerPlayer is not null)
+        {
+            debugPrintOwner = ownerPlayer.DebugPrint.PrintOwnEffects && (effect.Caster == Parent || ownerPlayer.DebugPrint.PrintEffectsFromOthers);
+            debugPrintOwner &= ownerPlayer.DebugPrint.PrintEffectEvents && (effectEvent != EffectEvent.Tick || ownerPlayer.DebugPrint.IncludeEffectTickEvent);
+        }
+
+        if (casterPlayer is not null && casterPlayer != ownerPlayer)
+        {
+            debugPrintCaster = casterPlayer.DebugPrint.PrintCastedEffects;
+            debugPrintCaster &= casterPlayer.DebugPrint.PrintEffectEvents && (effectEvent != EffectEvent.Tick || casterPlayer.DebugPrint.IncludeEffectTickEvent);
+        }
+
+        if (debugPrintOwner)
+        {
+            ownerPlayer?.Session?.Send(NoticePacket.Notice($"Event {effectEvent} ({parameter}) fired on {effect.Id} [{effect.Level}] x{effect.Stacks}", NoticeType.Chat));
+        }
+
+        if (debugPrintCaster)
+        {
+            casterPlayer?.Session?.Send(NoticePacket.Notice($"Event {effectEvent} ({parameter}) fired on {effect.Id} [{effect.Level}] x{effect.Stacks} on target {Parent?.ObjectId}", NoticeType.Chat));
+        }
+    }
+
+    private void DebugPrint(string message, AdditionalEffect effect)
+    {
+        Player? ownerPlayer = (Parent as Character)?.Value;
+        Player? casterPlayer = (effect.Caster as Character)?.Value;
+        bool debugPrintOwner = ownerPlayer is not null && ownerPlayer.DebugPrint.PrintOwnEffects && (effect.Caster == Parent || ownerPlayer.DebugPrint.PrintEffectsFromOthers);
+        bool debugPrintCaster = casterPlayer is not null && casterPlayer != ownerPlayer && casterPlayer.DebugPrint.PrintCastedEffects;
+
+        if (debugPrintOwner)
+        {
+            if (effect.Caster is not null)
+            {
+                ownerPlayer?.Session?.Send(NoticePacket.Notice($"{message} {effect.Id} [{effect.Level}] x{effect.Stacks} from caster {effect.Caster.ObjectId}", NoticeType.Chat));
+            }
+            else
+            {
+                ownerPlayer?.Session?.Send(NoticePacket.Notice($"{message} {effect.Id} [{effect.Level}] x{effect.Stacks}", NoticeType.Chat));
+            }
+        }
+
+        if (debugPrintCaster)
+        {
+            casterPlayer?.Session?.Send(NoticePacket.Notice($"{message} {effect.Id} [{effect.Level}] x{effect.Stacks} to target {Parent?.ObjectId}", NoticeType.Chat));
+        }
+    }
+
     public AdditionalEffect? AddEffect(AdditionalEffectParameters parameters)
     {
+        if (Parent is null)
+        {
+            return null;
+        }
+
         // current default behavior of remove and replace, and add stacks
         // doesnt check for shared buff categories (sigils, whetstones, etc)
         // TODO: add correct refreshing behavior based on attributes from the xmls
@@ -133,23 +266,43 @@ public class AdditionalEffects
 
         if (!CanApplyEffect(effect, out AdditionalEffect? activeEffect))
         {
+            DebugPrint("Failed to apply effect", effect);
+
             return null;
         }
 
-        if (UpdateEffect(activeEffect, effect, parameters))
+        if (activeEffect is not null && activeEffect.Level != parameters.Level)
         {
+            if (activeEffect.Level > parameters.Level)
+            {
+                return null;
+            }
+
+            if (activeEffect.Level < parameters.Level)
+            {
+                activeEffect.Stop(Parent);
+
+                activeEffect = null;
+            }
+        }
+
+        if (activeEffect is not null && UpdateEffect(activeEffect, effect, parameters))
+        {
+            DebugPrint("Updated effect", activeEffect);
+
             return activeEffect;
         }
 
         if (parameters.Stacks == 0)
         {
+            DebugPrint("Attempted to add effect with 0 stacks", effect);
+
             return null;
         }
 
         effect.Stacks = parameters.Stacks;
         effect.Start = start;
-        effect.Duration = effect.LevelMetadata.Basic.DurationTick;
-        effect.BuffId = GuidGenerator.Int();
+        effect.Duration = parameters.Duration != 0 ? parameters.Duration : effect.LevelMetadata.Basic.DurationTick;
 
         InvokeStatValue invokeStat = effect.Caster.Stats.GetEffectStats(effect.Id, effect.LevelMetadata.Basic.Group, InvokeEffectType.IncreaseDuration);
 
@@ -162,20 +315,40 @@ public class AdditionalEffects
 
         Effects.Add(effect);
 
-        Parent?.FieldManager?.BroadcastPacket(BuffPacket.AddBuff(effect, Parent.ObjectId));
-
         AddListeningEvents(effect);
-        Parent?.EffectAdded(effect);
+
+        Parent.EffectAdded(effect);
         effect.Process(Parent);
+
+        DebugPrint("Applied effect", effect);
 
         return effect;
     }
 
     public void EffectStopped(AdditionalEffect effect)
     {
+        Player? ownerPlayer = (Parent as Character)?.Value;
+        Player? casterPlayer = (effect.Caster as Character)?.Value;
+        bool debugPrintOwner = ownerPlayer is not null && ownerPlayer.DebugPrint.PrintOwnEffects && (effect.Caster == Parent || ownerPlayer.DebugPrint.PrintEffectsFromOthers);
+        bool debugPrintCaster = casterPlayer is not null && casterPlayer.DebugPrint.PrintCastedEffects;
+
+        foreach (SkillCondition condition in effect.LevelMetadata.ConditionSkill)
+        {
+            if (condition.BeginCondition.Caster is not null)
+            {
+                effect.Caster?.SkillTriggerHandler.RemoveListeningExternalEffect(condition.BeginCondition.Caster.EventCondition, effect);
+            }
+        }
+
         Effects.Remove(effect);
         Parent?.EffectRemoved(effect);
-        Parent?.FieldManager?.BroadcastPacket(BuffPacket.RemoveBuff(effect, Parent.ObjectId));
+
+        if (effect.HasEvents)
+        {
+            RefreshEffectEvents();
+        }
+
+        DebugPrint("Removed effect", effect);
     }
 
     public static bool CompareValues<T>(T target, T value, ConditionOperator comparison) where T : IComparable
@@ -192,7 +365,7 @@ public class AdditionalEffects
         };
     }
 
-    public AdditionalEffect? GetEffect(int effectId, int stacks = 0, ConditionOperator comparison = ConditionOperator.GreaterEquals, int level = 0, IFieldActor? caster = null)
+    public AdditionalEffect? GetEffect(int effectId, int stacks = 0, ConditionOperator comparison = ConditionOperator.GreaterEquals, int level = 0, IFieldActor? caster = null, bool allowInactive = true)
     {
         foreach (AdditionalEffect effect in Effects)
         {
@@ -211,6 +384,11 @@ public class AdditionalEffects
                 continue;
             }
 
+            if (!allowInactive && !effect.IsActive)
+            {
+                continue;
+            }
+
             if (!CompareValues(effect.Stacks, stacks, comparison))
             {
                 continue;
@@ -224,12 +402,34 @@ public class AdditionalEffects
 
     public bool HasEffect(int effectId, int stacks = 0, ConditionOperator comparison = ConditionOperator.GreaterEquals, int level = 0, IFieldActor? caster = null)
     {
-        return GetEffect(effectId, stacks, comparison, level, caster) is not null;
+        return GetEffect(effectId, stacks, comparison, level, caster, false) is not null;
+    }
+
+    public void AddListeningEventTick(AdditionalEffect effect, BeginConditionSubject subject)
+    {
+        if (subject is null || subject.EventCondition == EffectEvent.Activate)
+        {
+            return;
+        }
+
+        effect.HasEvents = true;
+
+        if (!ListeningTickEvents.TryGetValue(subject.EventCondition, out List<AdditionalEffect>? list))
+        {
+            list = new();
+
+            ListeningTickEvents.Add(subject.EventCondition, list);
+        }
+
+        if (!list.Contains(effect))
+        {
+            list.Add(effect);
+        }
     }
 
     public void AddListeningEvent(AdditionalEffect effect, BeginConditionSubject subject)
     {
-        if (subject == null || subject.EventCondition == EffectEvent.Activate)
+        if (subject is null || subject.EventCondition == EffectEvent.Activate)
         {
             return;
         }
@@ -249,9 +449,24 @@ public class AdditionalEffects
         }
     }
 
+    public void AddListeningEvent(AdditionalEffect effect, BeginConditionSubject subject, IFieldActor? listeningTo, EffectEventOrigin origin)
+    {
+        if (subject is null || subject.EventCondition == EffectEvent.Activate || listeningTo is null)
+        {
+            return;
+        }
+
+        effect.HasEvents = true;
+
+        listeningTo.SkillTriggerHandler.AddListeningExternalEffect(subject.EventCondition, effect, origin);
+    }
+
     public void AddListeningEvents(AdditionalEffect effect)
     {
-        if (effect.LevelMetadata.ConditionSkill == null)
+        AddListeningEventTick(effect, effect.LevelMetadata.BeginCondition.Owner);
+        AddListeningEventTick(effect, effect.LevelMetadata.BeginCondition.Target);
+
+        if (effect.LevelMetadata.ConditionSkill is null)
         {
             return;
         }
@@ -260,7 +475,7 @@ public class AdditionalEffects
         {
             AddListeningEvent(effect, condition.BeginCondition.Owner);
             AddListeningEvent(effect, condition.BeginCondition.Target);
-            AddListeningEvent(effect, condition.BeginCondition.Caster);
+            AddListeningEvent(effect, condition.BeginCondition.Caster, effect.Caster, EffectEventOrigin.Caster);
         }
     }
 
@@ -271,9 +486,21 @@ public class AdditionalEffects
         return events;
     }
 
+    public List<AdditionalEffect>? GetListeningTickEvents(EffectEvent effectEvent)
+    {
+        ListeningTickEvents.TryGetValue(effectEvent, out List<AdditionalEffect>? events);
+
+        return events;
+    }
+
     public void RefreshEffectEvents()
     {
         foreach ((EffectEvent type, List<AdditionalEffect> listeners) in ListeningEvents)
+        {
+            listeners.Clear();
+        }
+
+        foreach ((EffectEvent type, List<AdditionalEffect> listeners) in ListeningTickEvents)
         {
             listeners.Clear();
         }

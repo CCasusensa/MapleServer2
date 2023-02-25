@@ -1,5 +1,4 @@
 ﻿using Maple2Storage.Enums;
-using Maple2Storage.Types.Metadata;
 using MapleServer2.Servers.Game;
 
 namespace MapleServer2.Types;
@@ -10,11 +9,12 @@ public interface IInventory
     long Id { get; }
     Dictionary<ItemSlot, Item> Equips { get; }
     Dictionary<ItemSlot, Item> Cosmetics { get; }
-    Item[] Badges { get; }
+    Item?[] Badges { get; }
     Item[] LapenshardStorage { get; }
     List<SetBonus> SetBonuses { get; }
     Dictionary<long, Item> TemporaryStorage { get; }
-    void RecomputeSetBonuses(GameSession session);
+    void RecomputeSetBonuses(GameSession? session);
+    void RefreshRequippedItemEffects(GameSession session);
     void ItemEquipped(GameSession session, Item item);
     void ItemUnequipped(GameSession session, Item item);
     void AddItem(GameSession session, Item item, bool isNew);

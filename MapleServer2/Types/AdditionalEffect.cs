@@ -5,6 +5,7 @@ using MapleServer2.Enums;
 using MapleServer2.Managers.Actors;
 using MapleServer2.Packets;
 using MapleServer2.Servers.Game;
+using MapleServer2.Tools;
 using Serilog;
 
 namespace MapleServer2.Types;
@@ -25,8 +26,14 @@ public class AdditionalEffect
     public bool IsAlive = true;
     public SkillCast? ParentSkill;
     public bool HasEvents = false;
+    public long ShieldHealth = 0;
     private GameSession? Session = null;
     public IFieldActor Parent;
+    public IFieldObject<Mount>? Mount = null;
+    private bool WasActiveLastUpdate = false;
+    private bool ShouldBeActive = false;
+    public ProximityQuery? ProximityQuery = null;
+    public bool IsActive { get => ShouldBeActive; }
 
     public AdditionalEffect(IFieldActor parent, int id, int level, int stacks = 1)
     {
@@ -61,6 +68,7 @@ public class AdditionalEffect
 
         Metadata = metadata;
         LevelMetadata = levelMetadata;
+        ShieldHealth = LevelMetadata.Shield?.HpValue ?? 0;
     }
 
     public bool Matches(int id)
@@ -68,11 +76,126 @@ public class AdditionalEffect
         return Id == id;
     }
 
-    public void Invoke(IFieldActor parent)
+    public void SendBuffStatus(IFieldActor parent)
     {
-        ConditionSkillTarget effectInfo = new ConditionSkillTarget(parent, parent, Caster);
+        if (!IsAlive)
+        {
+            if (BuffId != -1)
+            {
+                parent?.FieldManager?.BroadcastPacket(BuffPacket.RemoveBuff(this, Parent.ObjectId));
 
-        if (!parent.SkillTriggerHandler.ShouldTick(LevelMetadata.BeginCondition, effectInfo, EffectEvent.Tick))
+                BuffId = -1;
+            }
+
+            return;
+        }
+
+        if (BuffId == -1)
+        {
+            BuffId = GuidGenerator.Int();
+
+            parent.FieldManager?.BroadcastPacket(BuffPacket.AddBuff(this, Parent.ObjectId));
+
+            return;
+        }
+
+        if (ShieldHealth > 0)
+        {
+            parent.FieldManager?.BroadcastPacket(BuffPacket.UpdateShieldBuff(this, Parent.ObjectId));
+
+            return;
+        }
+
+        parent.FieldManager?.BroadcastPacket(BuffPacket.UpdateBuff(this, Parent.ObjectId));
+    }
+
+    public bool AreStatsStale(IFieldActor parent, bool forceCheck = false, EffectEvent effectEvent = EffectEvent.Tick, ConditionSkillTarget? eventEffectInfo = null, int eventIdArgument = 0)
+    {
+        bool hasSubjectCondition = LevelMetadata.BeginCondition.Owner is not null;
+        hasSubjectCondition |= LevelMetadata.BeginCondition.Caster is not null;
+        hasSubjectCondition |= LevelMetadata.BeginCondition.Target is not null;
+
+        if (hasSubjectCondition && effectEvent == EffectEvent.Tick)
+        {
+            bool hasEvent = (LevelMetadata.BeginCondition.Owner?.EventCondition ?? EffectEvent.Tick) != EffectEvent.Tick;
+            hasEvent |= (LevelMetadata.BeginCondition.Caster?.EventCondition ?? EffectEvent.Tick) != EffectEvent.Tick;
+            hasEvent |= (LevelMetadata.BeginCondition.Target?.EventCondition ?? EffectEvent.Tick) != EffectEvent.Tick;
+
+            if (hasEvent)
+            {
+                return false;
+            }
+        }
+
+        bool shouldCheckStatus = LevelMetadata.HasStats || hasSubjectCondition || LevelMetadata.BeginCondition.RequireSkillCodes?.Codes.Length > 0;
+
+        if (!shouldCheckStatus && !forceCheck)// && ShouldBeActive)
+        {
+            return false;
+        }
+
+        ConditionSkillTarget effectInfo = eventEffectInfo ?? new ConditionSkillTarget(parent, parent, Caster);
+
+        ShouldBeActive = parent.SkillTriggerHandler.ShouldTick(LevelMetadata.BeginCondition, effectInfo, effectEvent, eventIdArgument, ProximityQuery);
+
+        return (ShouldBeActive != WasActiveLastUpdate || forceCheck) && IsAlive;
+    }
+
+    public bool UpdateStatStatus(IFieldActor parent)
+    {
+        WasActiveLastUpdate = ShouldBeActive;
+
+        SendBuffStatus(parent);
+
+        return LevelMetadata.HasStats;
+    }
+
+    public bool UpdateIfStale(IFieldActor parent, bool forceCheck = false, EffectEvent effectEvent = EffectEvent.Tick, ConditionSkillTarget? eventEffectInfo = null, int eventIdArgument = 0)
+    {
+        if (AreStatsStale(parent, forceCheck, effectEvent, eventEffectInfo, eventIdArgument))
+        {
+            bool recompute = UpdateStatStatus(parent);
+
+            if (recompute)
+            {
+                parent.ComputeStats();
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool FirstInvoke = false;
+
+    public void InvokeInitial(IFieldActor parent)
+    {
+        if (FirstInvoke)
+        {
+            return;
+        }
+
+        FirstInvoke = true;
+
+        if (LevelMetadata.CancelEffect is not null)
+        {
+            CancelEffects(parent, LevelMetadata.CancelEffect);
+        }
+
+        if (LevelMetadata.ResetCoolDownTime is not null)
+        {
+            ResetCooldown(parent, LevelMetadata.ResetCoolDownTime);
+        }
+    }
+
+    public void Invoke(IFieldActor parent, EffectEvent effectEvent = EffectEvent.Tick, ConditionSkillTarget? effectEventInfo = null, int eventIdArgument = 0)
+    {
+        ConditionSkillTarget effectInfo = effectEventInfo ?? new ConditionSkillTarget(parent, parent, Caster);
+
+        parent.AdditionalEffects.DebugPrint(this, EffectEvent.Tick, effectInfo);
+
+        if (!parent.SkillTriggerHandler.ShouldTick(LevelMetadata.BeginCondition, effectInfo, effectEvent, eventIdArgument, ProximityQuery))
         {
             return;
         }
@@ -82,6 +205,8 @@ public class AdditionalEffect
             Session = character.Value.Session;
         }
 
+        InvokeInitial(parent);
+
         if (LevelMetadata.ModifyOverlapCount is not null)
         {
             ModifyOverlap(parent, LevelMetadata.ModifyOverlapCount);
@@ -90,11 +215,6 @@ public class AdditionalEffect
         if (LevelMetadata.ModifyEffectDuration is not null)
         {
             ModifyDuration(parent, LevelMetadata.ModifyEffectDuration);
-        }
-
-        if (LevelMetadata.ResetCoolDownTime is not null)
-        {
-            ResetCooldown(parent, LevelMetadata.ResetCoolDownTime);
         }
 
         if (LevelMetadata.Recovery is not null)
@@ -107,9 +227,20 @@ public class AdditionalEffect
             DotDamage(parent, LevelMetadata.DotDamage);
         }
 
-        FireEvent(parent, effectInfo, EffectEvent.OnEffectApplied);
-        parent.SkillTriggerHandler.FireTriggerSkills(LevelMetadata.ConditionSkill, ParentSkill, effectInfo);
-        parent.SkillTriggerHandler.FireTriggerSkills(LevelMetadata.SplashSkill, ParentSkill, effectInfo);
+        SkillCast skillCast = new(0, 0, ParentSkill?.SkillSn ?? 0, (int) parent.TaskScheduler.CurrentTick)
+        {
+            Owner = effectInfo.Owner,
+            Caster = effectInfo.Caster,
+            Position = effectInfo.Target?.Coord ?? default,
+            Rotation = effectInfo.Caster?.Rotation ?? default,
+            Direction = effectInfo.Caster is not null ? Maple2Storage.Types.CoordF.From(1, effectInfo.Caster.LookDirection) : default,
+            LookDirection = effectInfo.Caster?.LookDirection ?? default,
+            ParentSkill = ParentSkill
+        };
+
+        FireEvent(parent, Caster, EffectEvent.OnEffectApplied);
+        parent.SkillTriggerHandler.FireTriggerSkills(LevelMetadata.ConditionSkill, skillCast, effectInfo);
+        parent.SkillTriggerHandler.FireTriggerSkills(LevelMetadata.SplashSkill, skillCast, effectInfo);
     }
 
     public void ModifyOverlap(IFieldActor parent, EffectModifyOverlapCountMetadata modifyOverlap)
@@ -133,7 +264,6 @@ public class AdditionalEffect
             parent.AdditionalEffects.AddEffect(new(affectedEffect.Id, affectedEffect.Level)
             {
                 Stacks = modifyOverlap.OffsetCounts[i],
-                AdjustDuration = false,
                 Caster = Caster
             });
         }
@@ -143,7 +273,7 @@ public class AdditionalEffect
     {
         int[] durationCodes = modifyDuration.EffectCodes;
 
-        if (durationCodes is null || durationCodes?.Length == 0)
+        if (durationCodes is null || durationCodes.Length == 0)
         {
             return;
         }
@@ -170,7 +300,14 @@ public class AdditionalEffect
             return;
         }
 
-        parent.FieldManager?.BroadcastPacket(SkillCooldownPacket.SetCooldowns(resetCooldown.SkillCodes, new int[resetCooldown.SkillCodes.Length]));
+        int[] originSkillIds = new int[resetCooldown.SkillCodes.Length];
+
+        for (int i = 0; i < resetCooldown.SkillCodes.Length; ++i)
+        {
+            originSkillIds[i] = SkillMetadataStorage.GetChangeOriginSkillId(resetCooldown.SkillCodes[i]);
+        }
+
+        parent.SkillTriggerHandler.SetSkillCooldowns(resetCooldown.SkillCodes, originSkillIds, null);
     }
 
     public void Recovery(IFieldActor parent, EffectRecoveryMetadata recovery)
@@ -182,13 +319,16 @@ public class AdditionalEffect
             session = character.Value.Session;
         }
 
-        int healedAmount = (int) (Caster.Stats[StatAttribute.MagicAtk].TotalLong * recovery.RecoveryRate);
+        int healedAmount = (int) ((Caster?.Stats?[StatAttribute.MagicAtk]?.TotalLong ?? 0) * recovery.RecoveryRate);
         healedAmount += (int) (parent.Stats[StatAttribute.Hp].BonusLong * recovery.HpRate) + (int) recovery.HpValue;
 
-        float healRate = (float) (1000 + Caster.Stats[StatAttribute.Heal].TotalLong) / 1000;
-        InvokeStatValue invokeStat = Caster.Stats.GetEffectStats(Id, LevelMetadata.Basic.Group, InvokeEffectType.IncreaseHealing);
+        float healRate = (float) (1000 + (Caster?.Stats?[StatAttribute.Heal]?.TotalLong ?? 0)) / 1000;
+        InvokeStatValue? invokeStat = Caster?.Stats?.GetEffectStats(Id, LevelMetadata.Basic.Group, InvokeEffectType.IncreaseHealing);
 
-        healRate *= Math.Max(0, 1 + invokeStat.Rate);
+        if (invokeStat is not null)
+        {
+            healRate *= Math.Max(0, 1 + invokeStat.Rate);
+        }
 
         if (healedAmount > 0)
         {
@@ -212,26 +352,67 @@ public class AdditionalEffect
 
     public void DotDamage(IFieldActor parent, EffectDotDamageMetadata dotDamage)
     {
-        if (dotDamage.Rate == 0 || Session is null || ParentSkill is null)
+        if ((dotDamage.Rate == 0 && dotDamage.Value == 0 && dotDamage.DamageByTargetMaxHp == 0) || Session is null)
         {
             return;
         }
 
+        AdditionalEffect? activeShield = parent.AdditionalEffects.ActiveShield;
+
+        if (activeShield is not null)
+        {
+            int[]? allowedSkills = activeShield.LevelMetadata?.Basic?.AllowedSkillAttacks;
+            int[]? allowedDotEffects = activeShield.LevelMetadata?.Basic?.AllowedDotEffectAttacks;
+
+            if ((allowedSkills?.Length > 0 || allowedDotEffects?.Length > 0) && allowedDotEffects?.Contains(Id) != true)
+            {
+                return;
+            }
+        }
+
+        bool damageVarianceEnabled = true;
+
+        if (Caster is Managers.Actors.Character character)
+        {
+            damageVarianceEnabled = character.Value.DamageVarianceEnabled;
+        }
+
+        Stat hp = parent.Stats[StatAttribute.Hp];
+
         DamageSourceParameters dotParameters = new()
         {
             IsSkill = false,
-            GuaranteedCrit = Caster.AdditionalEffects.AlwaysCrit,
+            GuaranteedCrit = Caster?.AdditionalEffects?.AlwaysCrit ?? false,
+            CritRateOverride = Caster?.AdditionalEffects?.GetCompulsionRate(CompulsionEventType.CritChanceOverride) ?? 0,
+            EvadeRateOverride = Parent.AdditionalEffects.GetCompulsionRate(CompulsionEventType.EvasionChanceOverride),
+            BlockRate = Parent.AdditionalEffects.GetCompulsionRate(CompulsionEventType.BlockChance),
             CanCrit = LevelMetadata.DotDamage.UseGrade,
             Element = (Element) dotDamage.Element,
             RangeType = SkillRangeType.Special,
             DamageType = (DamageType) dotDamage.DamageType,
             DamageRate = dotDamage.Rate * Stacks,
+            DamageValue = dotDamage.Value + (long) (dotDamage.DamageByTargetMaxHp * hp.BonusLong),
             ParentSkill = ParentSkill,
             Id = Id,
-            EventGroup = LevelMetadata.Basic.Group
+            EventGroup = LevelMetadata.Basic.Group,
+            DamageVarianceEnabled = damageVarianceEnabled
         };
 
         DamageHandler.ApplyDotDamage(Session, Caster, parent, dotParameters);
+    }
+
+    public void DamageShield(IFieldActor parent, long amount)
+    {
+        ShieldHealth = Math.Max(0, ShieldHealth - amount);
+
+        if (ShieldHealth == 0)
+        {
+            Stop(parent);
+
+            return;
+        }
+
+        parent.FieldManager?.BroadcastPacket(BuffPacket.UpdateShieldBuff(this, parent.ObjectId));
     }
 
     public void CancelEffects(IFieldActor parent, EffectCancelEffectMetadata cancel)
@@ -243,6 +424,7 @@ public class AdditionalEffect
             if (cancel?.CancelEffectCodes?.Contains(oldEffect.Id) == true)
             {
                 oldEffect.Stop(parent);
+                --i;
             }
         }
     }
@@ -256,15 +438,60 @@ public class AdditionalEffect
 
         IsAlive = false;
 
+        SendBuffStatus(parent);
+
+        if (Mount is not null && parent is Character character)
+        {
+            character.Value.Mount = null; // Remove mount from player
+            Mount = null;
+            character.FieldManager?.BroadcastPacket(MountPacket.StopRide(character, true));
+        }
+
         parent.AdditionalEffects.EffectStopped(this);
 
-        FireEvent(parent, new ConditionSkillTarget(parent, parent, Caster), EffectEvent.OnEffectRemoved);
+        parent.TaskScheduler.QueueBufferedTask(() => FireEvent(parent, Caster, EffectEvent.OnEffectRemoved));
+
+        parent.TaskScheduler.RemoveTasksFromSubject(this);
+
+        if (ProximityQuery is not null)
+        {
+            parent.ProximityTracker.Queries.Remove(ProximityQuery);
+
+            ProximityQuery = null;
+        }
     }
 
     public void ApplyStatuses(IFieldActor parent)
     {
         parent.AdditionalEffects.AlwaysCrit |= LevelMetadata.Offensive.AlwaysCrit;
         parent.AdditionalEffects.Invincible |= LevelMetadata.Defesive.Invincible;
+        parent.AdditionalEffects.MinimumHp = Math.Max(parent.AdditionalEffects.MinimumHp, LevelMetadata.Status.DeathResistanceHp);
+
+        if (LevelMetadata.Shield?.HpValue > 0)
+        {
+            parent.AdditionalEffects.ActiveShield = this;
+        }
+
+        if (LevelMetadata.Status.CompulsionEventType != CompulsionEventType.None)
+        {
+            parent.AdditionalEffects.CompulsionEvents.Add(new()
+            {
+                Type = LevelMetadata.Status.CompulsionEventType,
+                Rate = LevelMetadata.Status.CompulsionEventRate * Stacks,
+                SkillCodes = LevelMetadata.Status.CompulsionEventSkillCodes
+            });
+        }
+
+        if (LevelMetadata.Status.Resistances is null)
+        {
+            return;
+        }
+
+        foreach ((StatAttribute attribute, float value) in LevelMetadata.Status.Resistances)
+        {
+            parent.AdditionalEffects.Resistances.TryAdd(attribute, 0);
+            parent.AdditionalEffects.Resistances[attribute] += value;
+        }
     }
 
     public bool IsStillAlive(IFieldActor parent, ConditionSkillTarget effectInfo)
@@ -279,11 +506,11 @@ public class AdditionalEffect
         return true;
     }
 
-    public void FireEvent(IFieldActor parent, ConditionSkillTarget castInfo, EffectEvent effectEvent)
+    public void FireEvent(IFieldActor parent, IFieldActor? attacker, EffectEvent effectEvent)
     {
-        if (LevelMetadata.Basic.InvokeEvent)
+        if (LevelMetadata.Basic.InvokeEvent || true)
         {
-            parent.SkillTriggerHandler.FireEvents(castInfo, effectEvent, Id);
+            parent.SkillTriggerHandler.FireEvents(parent, attacker, effectEvent, Id);
         }
     }
 
@@ -294,98 +521,112 @@ public class AdditionalEffect
             return;
         }
 
-        FireEvent(parent, effectInfo, EffectEvent.OnBuffTimeExpiring);
-
         Stop(parent);
+    }
+
+    public long OnTick(IFieldActor parent, ConditionSkillTarget effectInfo)
+    {
+        if (!IsStillAlive(parent, effectInfo))
+        {
+            return TriggerTask.End;
+        }
+
+        Invoke(parent);
+
+        return TriggerTask.SameInterval;
     }
 
     public void Process(IFieldActor parent)
     {
-        if (LevelMetadata.CancelEffect is not null)
-        {
-            CancelEffects(parent, LevelMetadata.CancelEffect);
-        }
-
-        ApplyStatuses(parent);
-
         ConditionSkillTarget effectInfo = new(parent, parent, Caster);
 
-        FireEvent(parent, new ConditionSkillTarget(parent, parent, Caster), EffectEvent.OnEffectApplied);
+        FireEvent(parent, Caster, EffectEvent.OnEffectApplied);
 
-        if (LevelMetadata.Basic.IntervalTick == 0)
-        {
-            if (LevelMetadata.Basic.DotCondition != EffectDotCondition.ImmediateFire && LevelMetadata.Basic.DelayTick > 0)
-            {
-                Task.Run(async () =>
-                {
-                    await Task.Delay(LevelMetadata.Basic.IntervalTick);
+        int delay = LevelMetadata.Basic.DelayTick;
+        int duration = LevelMetadata.Basic.DurationTick;
+        int interval = LevelMetadata.Basic.IntervalTick;
 
-                    if (IsStillAlive(parent, effectInfo))
-                    {
-                        Invoke(parent);
-                    }
+        bool delayFirstInterval = LevelMetadata.Basic.DotCondition != EffectDotCondition.ImmediateFire && interval != 0;
 
-                    TimedOut(parent, effectInfo);
-                });
+        UpdateIfStale(parent, true);
 
-                return;
-            }
-
-            Invoke(parent);
-
-            if (LevelMetadata.Basic.KeepCondition != EffectKeepCondition.UnlimitedDuration)
-            {
-                Task.Run(async () =>
-                {
-                    while (IsAlive && (Environment.TickCount - Start < Duration))
-                    {
-                        await Task.Delay(100);
-                    }
-
-                    TimedOut(parent, effectInfo);
-                });
-            }
-
-            return;
-        }
-
-        if (LevelMetadata.Basic.DelayTick == 0 && LevelMetadata.Basic.DotCondition == EffectDotCondition.ImmediateFire)
+        if (delay == 0 && !delayFirstInterval)
         {
             Invoke(parent);
         }
 
-        Task.Run(async () =>
+        if (LevelMetadata.Basic.DotCondition != EffectDotCondition.ImmediateFire)
         {
-            if (LevelMetadata.Basic.DelayTick > 0)
+            delay += LevelMetadata.Basic.IntervalTick;
+
+            if (duration > 0 && interval > 0 && duration % interval == 0)
             {
-                await Task.Delay(LevelMetadata.Basic.DelayTick);
-
-                if (!IsStillAlive(parent, effectInfo))
-                {
-                    return;
-                }
-
-                if (LevelMetadata.Basic.DotCondition == EffectDotCondition.ImmediateFire)
-                {
-                    Invoke(parent);
-                }
+                ++duration;
             }
+        }
 
-            bool repeatUntilRemoved = Duration == 0 && LevelMetadata.Basic.KeepCondition == EffectKeepCondition.UnlimitedDuration;
+        Action<long, TriggerTask>? taskFinishedCallback = null;
 
-            while (IsAlive && (Environment.TickCount - Start < Duration || repeatUntilRemoved))
+        if (LevelMetadata.Basic.KeepCondition != EffectKeepCondition.UnlimitedDuration)
+        {
+            taskFinishedCallback = (currentTick, task) => TimedOut(parent, effectInfo);
+        }
+        else
+        {
+            duration = -1;
+        }
+
+        Character? character = parent as Character;
+
+        if (LevelMetadata.Ride is not null && parent.FieldManager is not null && character is not null)
+        {
+            Mount = parent.FieldManager.RequestFieldObject(new Mount
             {
-                await Task.Delay(LevelMetadata.Basic.IntervalTick);
+                Type = RideType.AdditionalEffect,
+                Id = LevelMetadata.Ride.RideId,
+                Uid = 0
+            });
 
-                if (!IsStillAlive(parent, effectInfo))
-                {
-                    break;
-                }
+            Mount.Value.Players[0] = character;
+            character.Value.Mount = Mount;
 
-                Invoke(parent);
-            }
+            parent.FieldManager.BroadcastPacket(MountPacket.StartRide(character));
+        }
 
-            TimedOut(parent, effectInfo);
-        });
+        BeginConditionSubject? owner = LevelMetadata.BeginCondition.Owner;
+
+        if (owner is not null && (owner.TargetCheckRange != 0 || owner.TargetCheckMinRange != 0))
+        {
+            ProximityQuery = new()
+            {
+                TargetRange = owner.TargetCheckRange,
+                TargetMinRange = owner.TargetCheckMinRange,
+                Type = owner.TargetFriendly
+            };
+
+            parent.ProximityTracker.Queries.Add(ProximityQuery);
+        }
+
+        parent.TaskScheduler.RemoveTasks(Caster, this);
+
+        parent.TaskScheduler.QueueTask(new(interval)
+        {
+            Delay = delay,
+            Duration = duration,
+            Executions = interval == 0 ? 1 : -1,
+            Origin = Caster,
+            Subject = this,
+        }, (currentTick, task) => OnTick(parent, effectInfo));
+
+        if (taskFinishedCallback is not null)
+        {
+            parent.TaskScheduler.QueueTask(new(delay + duration)
+            {
+                Delay = delay + duration,
+                Executions = 1,
+                Origin = Caster,
+                Subject = this,
+            }, (currentTick, task) => { taskFinishedCallback(currentTick, task); return 0; });
+        }
     }
 }

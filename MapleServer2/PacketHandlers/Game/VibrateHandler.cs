@@ -1,4 +1,5 @@
-﻿using Maple2Storage.Types;
+﻿using System.Diagnostics;
+using Maple2Storage.Types;
 using MaplePacketLib2.Tools;
 using MapleServer2.Constants;
 using MapleServer2.Data.Static;
@@ -28,6 +29,13 @@ public class VibrateHandler : GamePacketHandler<VibrateHandler>
             return;
         }
 
-        session.FieldManager.BroadcastPacket(VibratePacket.Vibrate(entityId, player.FieldPlayer.SkillCast));
+        CastedSkill? skill = player.FieldPlayer?.SkillCastTracker.GetSkillCast(skillSN);
+
+        if (skill is null)
+        {
+            return;
+        }
+
+        session.FieldManager.BroadcastPacket(VibratePacket.Vibrate(entityId, skill?.Cast));
     }
 }

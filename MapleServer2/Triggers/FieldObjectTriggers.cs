@@ -164,23 +164,28 @@ public partial class TriggerContext
         foreach (int triggerId in triggerIds)
         {
             IFieldObject<TriggerSkill> triggerSkill = Field.State.GetTriggerSkill(triggerId);
-            if (triggerSkill != null)
+
+            // this is 100% not perfect.
+            SkillCast skillCast = new(triggerSkill.Value.SkillId, triggerSkill.Value.SkillLevel, GuidGenerator.Long(), Environment.TickCount)
             {
-                // this is 100% not perfect.
-                SkillCast skillCast = new(triggerSkill.Value.SkillId, triggerSkill.Value.SkillLevel, GuidGenerator.Long(), Environment.TickCount)
-                {
-                    SkillObjectId = triggerSkill.ObjectId,
-                    Position = triggerSkill.Coord
-                };
-                RegionSkillHandler.HandleEffect(Field, skillCast);
-            }
+                SkillObjectId = triggerSkill.ObjectId,
+                Position = triggerSkill.Coord
+            };
+
+            RegionSkillHandler.CastRegionSkill(Field, skillCast, triggerSkill.Value.Count, 0, triggerSkill.Value.Interval, triggerSkill.Value.Interval);
         }
     }
 
     public void SetSound(int soundId, bool isEnabled)
     {
-        Field.State.TriggerSounds[soundId].IsEnabled = isEnabled;
-        Field.BroadcastPacket(TriggerPacket.UpdateTrigger(Field.State.TriggerSounds[soundId]));
+        TriggerSound? triggerSound = Field.State.TriggerSounds.GetValueOrDefault(soundId);
+        if (triggerSound is null)
+        {
+            return;
+        }
+
+        triggerSound.IsEnabled = isEnabled;
+        Field.BroadcastPacket(TriggerPacket.UpdateTrigger(triggerSound));
     }
 
     public void SetVisibleBreakableObject(int[] arg1, bool arg2) { }

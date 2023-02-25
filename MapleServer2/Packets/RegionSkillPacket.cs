@@ -19,7 +19,7 @@ public static class RegionSkillPacket
 
         pWriter.Write(Mode.Add);
         pWriter.WriteInt(skill.SkillObjectId);
-        pWriter.WriteInt(skill.Caster?.ObjectId ?? 0);
+        pWriter.WriteInt(skill.Caster?.ObjectId);
         pWriter.WriteInt(skill.ServerTick);
         pWriter.WriteByte((byte) skill.EffectCoords.Count);
         if (skill.EffectCoords.Count == 0)
@@ -34,7 +34,7 @@ public static class RegionSkillPacket
 
         pWriter.WriteInt(skill.SkillId);
         pWriter.WriteShort(skill.SkillLevel);
-        pWriter.WriteFloat(skill.Rotation.Z);
+        pWriter.WriteFloat(skill.UseDirection ? skill.Rotation.Z : default);
         pWriter.WriteFloat();
 
         return pWriter;

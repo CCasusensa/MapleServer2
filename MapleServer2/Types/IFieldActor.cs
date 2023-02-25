@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Enums;
-using Maple2Storage.Types;
+﻿using Maple2Storage.Types;
 using MapleServer2.Managers;
 using MapleServer2.Servers.Game;
 
@@ -8,7 +7,10 @@ namespace MapleServer2.Types;
 public interface IFieldActor : IFieldObject
 {
     public CoordF Velocity { get; }
-    public short Animation { get; set; }
+    public short Animation { get; set; } // State
+    public short SubAnimation { get; set; } // Sub State
+    public long LastMovedTick { get; set; }
+    public long TimeSinceLastMove { get; }
 
     public Stats Stats { get; }
     public bool IsDead { get; }
@@ -19,6 +21,10 @@ public interface IFieldActor : IFieldObject
     public bool OnCooldown { get; set; }
     public AdditionalEffects AdditionalEffects { get; }
     public SkillTriggerHandler SkillTriggerHandler { get; }
+    public TickingTaskScheduler TaskScheduler { get; }
+    public ProximityTracker ProximityTracker { get; }
+    public SkillCastTracker SkillCastTracker { get; }
+    public AnimationHandler AnimationHandler { get; }
 
     public FieldManager? FieldManager { get; }
     public FieldNavigator Navigator { get; }
@@ -40,11 +46,13 @@ public interface IFieldActor : IFieldObject
     public void Animate(string sequenceName, float duration = -1);
 
     public void EffectAdded(AdditionalEffect effect);
+    public void EffectUpdated(AdditionalEffect effect);
     public void EffectRemoved(AdditionalEffect effect);
     public void InitializeEffects();
 
     public void ComputeStats();
     public void StatsComputed();
+    public void Update(long delta);
 }
 
 public interface IFieldActor<out T> : IFieldActor, IFieldObject<T>

@@ -1,5 +1,4 @@
-﻿using Maple2Storage.Enums;
-using Maple2Storage.Types.Metadata;
+﻿using Maple2Storage.Types.Metadata;
 using MapleServer2.Data.Static;
 
 namespace MapleServer2.Types;
@@ -11,7 +10,7 @@ public class SetBonus
     public SetItemInfoMetadata SetInfo;
     public SetItemOptionMetadata Bonuses;
 
-    private SetBonus(SetItemInfoMetadata optionInfo)
+    public SetBonus(SetItemInfoMetadata optionInfo)
     {
         SetInfo = optionInfo;
         Bonuses = SetItemOptionMetadataStorage.GetMetadata(optionInfo.Id);

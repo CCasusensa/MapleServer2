@@ -60,7 +60,7 @@ public class PrestigeExpCommand : InGameCommand
 
         if (exp > 0)
         {
-            trigger.Session.Player.Levels.GainPrestigeExp(exp);
+            trigger.Session.Player.Account.Prestige.GainExp(trigger.Session, exp);
             return;
         }
 
@@ -120,7 +120,7 @@ public class PrestigeLevelCommand : InGameCommand
 
         if (level > 0)
         {
-            trigger.Session.Player.Levels.SetPrestigeLevel(level);
+            trigger.Session.Player.Account.Prestige.SetLevel(trigger.Session, level);
             return;
         }
 
@@ -243,34 +243,77 @@ public class BuffCommand : InGameCommand
             new Parameter<int>("id", "ID of the status."),
             new Parameter<short>("level", "The level of the status. (OPTIONAL)"),
             new Parameter<int>("duration", "Duration for the status in seconds. (OPTIONAL)"),
-            new Parameter<int>("stacks", "Stacks for the status. (OPTIONAL)")
+            new Parameter<int>("stacks", "Stacks for the status. (OPTIONAL)"),
+            new Parameter<int>("targetId", "Target object id. (OPTIONAL)"),
+            new Parameter<bool>("setCaster", "Sets the caster as the command user. (OPTIONAL)"),
         };
-        Usage = "/buff [id] [level] [duration] [stacks]";
+        Usage = "/buff [id] [level] [duration] [stacks] [targetId] [setCaster]";
     }
 
     public override void Execute(GameCommandTrigger trigger)
     {
         int id = trigger.Get<int>("id");
-        if (SkillMetadataStorage.GetSkill(id) == null)
+        short level = trigger.Get<short>("level") <= 10 && trigger.Get<short>("level") != 0 ? trigger.Get<short>("level") : (short) 1;
+        if (AdditionalEffectMetadataStorage.GetLevelMetadata(id, level) == null)
         {
             trigger.Session.SendNotice($"No skill found with id: {id}");
             return;
         }
 
-        short level = trigger.Get<short>("level") <= 10 && trigger.Get<short>("level") != 0 ? trigger.Get<short>("level") : (short) 1;
         // The Status packet needs this in miliseconds, we are converting them here for the user to just input the actual seconds.
         int duration = trigger.Get<int>("duration") <= 3600 && trigger.Get<int>("duration") != 0 ? trigger.Get<int>("duration") * 1000 : 10000;
         int stacks = trigger.Get<int>("stacks") == 0 ? 1 : trigger.Get<int>("stacks");
+        int targetId = trigger.Get<int>("targetId") == 0 ? 0 : trigger.Get<int>("targetId");
+        bool setCaster = trigger.Get<bool>("setCaster");
 
-        SkillCast skillCast = new(id, level);
-        if (skillCast.IsBuffToOwner() || skillCast.IsBuffToEntity() || skillCast.IsBuffShield() || skillCast.IsGM() || skillCast.IsGlobal() ||
-            skillCast.IsRecoveryFromBuff())
+        IFieldActor? target = trigger.Session.Player.FieldPlayer;
+
+        if (targetId != 0)
         {
-            Status status = new(skillCast, trigger.Session.Player.FieldPlayer.ObjectId, trigger.Session.Player.FieldPlayer.ObjectId, stacks);
-            StatusHandler.Handle(trigger.Session, status);
+            target = trigger.Session.FieldManager.State.GetActor(targetId);
+        }
+
+        target?.TaskScheduler.QueueBufferedTask(() =>
+        {
+            target.AdditionalEffects.AddEffect(new(id, level)
+            {
+                Stacks = stacks,
+                Duration = duration,
+                Caster = setCaster ? trigger.Session.Player.FieldPlayer : null
+            });
+        });
+    }
+}
+
+public class DamageVarianceCommand : InGameCommand
+{
+    public DamageVarianceCommand()
+    {
+        Aliases = new()
+        {
+            "damagevariance"
+        };
+        Description = "Level up all the skills available.";
+        Parameters = new()
+        {
+            new Parameter<string>("enabled", "1/true to enable damage variance, 0/false to disable")
+        };
+        Usage = "/damagevariance [enabled]";
+    }
+
+    public override void Execute(GameCommandTrigger trigger)
+    {
+        string? enabled = trigger.Get<string>("enabled");
+
+        if (string.IsNullOrEmpty(enabled))
+        {
+            trigger.Session.Player.DamageVarianceEnabled ^= true;
+
             return;
         }
 
-        trigger.Session.SendNotice($"Skill with id: {id} is not a buff to the owner.");
+        enabled = enabled.ToLower();
+
+        trigger.Session.Player.DamageVarianceEnabled = enabled == "true" || enabled == "1";
     }
 }

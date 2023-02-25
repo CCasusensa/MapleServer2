@@ -12,14 +12,19 @@ public class DamageSourceParameters
     public bool IsSkill;
     public bool GuaranteedCrit;
     public bool CanCrit;
+    public float CritRateOverride = 0;
+    public float EvadeRateOverride = 0;
+    public float BlockRate = 0;
     public Element Element;
     public SkillRangeType RangeType;
     public DamageType DamageType;
-    public int[] SkillGroups;
+    public int[]? SkillGroups;
     public int EventGroup;
     public float DamageRate;
-    public SkillCast ParentSkill;
+    public long DamageValue;
+    public SkillCast? ParentSkill;
     public int Id;
+    public bool DamageVarianceEnabled = true;
 
     public DamageSourceParameters()
     {
@@ -39,12 +44,12 @@ public class DamageSourceParameters
 
 public class DamageHandler
 {
-    public IFieldActor Source { get; }
+    public IFieldActor? Source { get; }
     public IFieldActor Target { get; }
     public double Damage { get; }
     public HitType HitType { get; }
 
-    private DamageHandler(IFieldActor source, IFieldActor target, double damage, HitType hitType)
+    private DamageHandler(IFieldActor? source, IFieldActor target, double damage, HitType hitType)
     {
         Source = source;
         Target = target;
@@ -52,16 +57,8 @@ public class DamageHandler
         HitType = hitType;
     }
 
-    public static DamageHandler CalculateDamage(SkillCast skill, IFieldActor source, IFieldActor target)
+    public static DamageHandler CalculateDamage(SkillCast skill, IFieldActor? source, IFieldActor target)
     {
-        if (source is Managers.Actors.Character character)
-        {
-            if (character.Value.GmFlags.Contains("oneshot"))
-            {
-                return new(source, target, target.Stats[StatAttribute.Hp].Total, HitType.Critical);
-            }
-        }
-
         if (target.AdditionalEffects.Invincible)
         {
             return new(source, target, 0, HitType.Miss);
@@ -70,22 +67,40 @@ public class DamageHandler
         DamageSourceParameters parameters = new()
         {
             IsSkill = true,
-            GuaranteedCrit = skill.IsGuaranteedCrit() || source.AdditionalEffects.AlwaysCrit,
+            GuaranteedCrit = skill.IsGuaranteedCrit() || (source?.AdditionalEffects?.AlwaysCrit ?? false),
+            CritRateOverride = source?.AdditionalEffects.GetCompulsionRate(CompulsionEventType.CritChanceOverride, skill.SkillId) ?? 0,
+            EvadeRateOverride = target.AdditionalEffects.GetCompulsionRate(CompulsionEventType.EvasionChanceOverride, skill.SkillId),
+            BlockRate = target.AdditionalEffects.GetCompulsionRate(CompulsionEventType.BlockChance, skill.SkillId),
             Element = skill.GetElement(),
             RangeType = skill.GetRangeType(),
             DamageType = skill.GetSkillDamageType(),
             SkillGroups = skill.GetSkillGroups(),
             DamageRate = skill.GetDamageRate(),
+            DamageValue = skill.GetDamageValue(),
             Id = skill.SkillId
         };
 
-        // get luck coefficient from class. new stat recommended, can be refactored away like isCrit was
-        return CalculateDamage(parameters, source, target);
+        if (source is Managers.Actors.Character character)
+        {
+            if (character.Value.GmFlags.Contains("oneshot"))
+            {
+                return new(source, target, target.Stats[StatAttribute.Hp].Total, HitType.Critical);
+            }
+
+            parameters.DamageVarianceEnabled = character.Value.DamageVarianceEnabled;
+        }
+
+        if (source is not null)
+        {
+            return CalculateDamage(parameters, source, target);
+        }
+
+        return CalculateFieldDamage(parameters, target);
     }
 
     public static double FetchMultiplier(Stats stats, StatAttribute attribute)
     {
-        if (stats.Data.TryGetValue(attribute, out Stat stat))
+        if (stats.Data.TryGetValue(attribute, out Stat? stat))
         {
             return (double) stat.Total / 1000;
         }
@@ -93,7 +108,7 @@ public class DamageHandler
         return 0;
     }
 
-    public static void ApplyDotDamage(GameSession session, IFieldActor sourceActor, IFieldActor target, DamageSourceParameters dotParameters)
+    public static void ApplyDotDamage(GameSession session, IFieldActor? sourceActor, IFieldActor target, DamageSourceParameters dotParameters)
     {
         if (sourceActor == null)
         {
@@ -102,23 +117,139 @@ public class DamageHandler
 
         if (target.AdditionalEffects.Invincible)
         {
-            target.FieldManager.BroadcastPacket(SkillDamagePacket.DotDamage(sourceActor.ObjectId, target.ObjectId, Environment.TickCount, HitType.Miss, 0));
+            target.FieldManager?.BroadcastPacket(SkillDamagePacket.DotDamage(sourceActor.ObjectId, target.ObjectId, Environment.TickCount, HitType.Miss, 0));
 
             return;
         }
 
-        DamageHandler damage = CalculateDamage(dotParameters, sourceActor, target);
+        DamageHandler damage = new(null, target, 0, HitType.Normal);
+
+        if (sourceActor is not null)
+        {
+            damage = CalculateDamage(dotParameters, sourceActor, target);
+        }
+        else
+        {
+            damage = CalculateFieldDamage(dotParameters, target);
+        }
+
+        if (target.AdditionalEffects.ActiveShield is not null)
+        {
+            target.AdditionalEffects.ActiveShield.DamageShield(target, (long) damage.Damage);
+
+            return;
+        }
 
         target.Damage(damage, session);
 
-        target.FieldManager.BroadcastPacket(SkillDamagePacket.DotDamage(sourceActor.ObjectId, target.ObjectId, Environment.TickCount, damage.HitType, (int) damage.Damage));
+        target.FieldManager?.BroadcastPacket(SkillDamagePacket.DotDamage(sourceActor?.ObjectId ?? 0, target.ObjectId, Environment.TickCount, damage.HitType, (int) damage.Damage));
+    }
+
+    public static DamageHandler CalculateFieldDamage(DamageSourceParameters parameters, IFieldActor target)
+    {
+        if (parameters.BlockRate >= 1 || (parameters.BlockRate > 0 && Random.Shared.NextDouble() <= parameters.BlockRate))
+        {
+            return new(null, target, 0, HitType.Block); // blocked
+        }
+
+        if (parameters.EvadeRateOverride > 0 && Random.Shared.NextDouble() <= parameters.EvadeRateOverride)
+        {
+            return new(null, target, 0, HitType.Miss); // we missed
+        }
+
+        // super scuffed. there are a lot of unknowns relating to how skills from map triggers calculate damage
+
+        //double hitRate = (source.Stats[StatAttribute.Accuracy].Total + AccuracyWeakness) / Math.Max(target.Stats[StatAttribute.Evasion].Total, 0.1);
+        //
+        //if (Random.Shared.NextDouble() > hitRate)
+        //{
+        //    return new(source, target, 0, HitType.Miss); // we missed
+        //}
+
+        double attackDamage = 0; // need a better way to get the damage value
+
+        // attackDamage = minDamage + (maxDamage - minDamage) * Random.Shared.NextDouble();
+
+        // TODO: properly fetch enemy pierce resistance from enemy buff. new stat recommended
+        const double EnemyPierceResistance = 1;
+
+        double damageMultiplier = 1;
+
+        double defensePierce = 1 - Math.Min(0.3, EnemyPierceResistance * 1);
+        damageMultiplier *= 1 / (Math.Max(target.Stats[StatAttribute.Defense].Total, 1) * defensePierce);
+
+        DamageType damageType = parameters.DamageType;
+
+        bool isPhysical = damageType == DamageType.Physical;
+        double attackType = 0;
+
+        if (damageType == DamageType.Primary)
+        {
+            double physAttack = 0;//source.Stats[StatAttribute.PhysicalAtk].Total;
+            double magAttack = 0;//source.Stats[StatAttribute.MagicAtk].Total;
+
+            attackType = Math.Max(physAttack, magAttack) * 0.5f;
+            isPhysical = physAttack > magAttack;
+        }
+
+        StatAttribute resistanceStat = isPhysical ? StatAttribute.PhysicalRes : StatAttribute.MagicRes;
+        StatAttribute attackStat = isPhysical ? StatAttribute.PhysicalAtk : StatAttribute.MagicAtk;
+        StatAttribute piercingStat = isPhysical ? StatAttribute.PhysicalPiercing : StatAttribute.MagicPiercing;
+
+        if (damageType != DamageType.Primary)
+        {
+            attackType = 1;//source.Stats[attackStat].Total;
+        }
+
+        double targetRes = target.Stats[resistanceStat].Total;
+        double resistance = (1500.0 - Math.Max(0, targetRes)) / 1500;
+
+        // does this need to be divided by anything at all to account for raw physical attack?
+        damageMultiplier *= attackType * resistance;
+
+        // TODO: apply special standalone multipliers like Spicy Maple Noodles buff? it seems to have had it's own multiplier. new stat recommended
+        const double FinalDamageMultiplier = 1;
+        damageMultiplier *= FinalDamageMultiplier;
+
+        const double magicNumber = 4; // random constant of an unknown origin, but the formula this was pulled from was always off by a factor of 4
+
+        attackDamage *= damageMultiplier * magicNumber;
+        attackDamage += parameters.DamageValue;
+
+        return new(null, target, Math.Max(1, attackDamage), HitType.Normal);
+    }
+
+    private static double GetResistance(IFieldActor actor, StatAttribute attribute)
+    {
+        if (!actor.AdditionalEffects.Resistances.TryGetValue(attribute, out float resistance))
+        {
+            return 0;
+        }
+
+        return resistance;
     }
 
     public static DamageHandler CalculateDamage(DamageSourceParameters parameters, IFieldActor source, IFieldActor target)
     {
-        // TODO: get accuracyWeakness from enemy stats from enemy buff. new stat recommended
-        const double AccuracyWeakness = 0;
-        double hitRate = (source.Stats[StatAttribute.Accuracy].Total + AccuracyWeakness) / Math.Max(target.Stats[StatAttribute.Evasion].Total, 0.1);
+        if (parameters.BlockRate >= 1 || (parameters.BlockRate > 0 && Random.Shared.NextDouble() <= parameters.BlockRate))
+        {
+            return new(source, target, 0, HitType.Block); // blocked
+        }
+
+        if (parameters.EvadeRateOverride > 0 && Random.Shared.NextDouble() <= parameters.EvadeRateOverride)
+        {
+            return new(source, target, 0, HitType.Miss); // we missed
+        }
+
+        double AccuracyWeakness = GetResistance(target, StatAttribute.Accuracy);
+        double EvasionWeakness = GetResistance(source, StatAttribute.Evasion);
+
+        double accuracy = source.Stats[StatAttribute.Accuracy].Total * (1 - AccuracyWeakness);
+        double evasion = target.Stats[StatAttribute.Evasion].Total * (1 - EvasionWeakness);
+        int dexterity = target.Stats[StatAttribute.Dex].Total;
+        int luck = source.Stats[StatAttribute.Luk].Total;
+
+        double hitRate = (accuracy - 10) / (evasion + (0.8 * accuracy)) * 2 + Math.Min(0.05, dexterity / (dexterity + 50) * 0.05) - Math.Min(0.05, luck / (luck + 50) * 0.05);
 
         if (Random.Shared.NextDouble() > hitRate)
         {
@@ -126,7 +257,7 @@ public class DamageHandler
         }
 
         double luckCoefficient = 1;
-        double attackDamage = 300;
+        double attackDamage = 0;
 
         if (source is IFieldActor<Player> player)
         {
@@ -134,31 +265,30 @@ public class DamageHandler
 
             double bonusAttack = player.Stats[StatAttribute.BonusAtk].Total + Constant.PetAttackMultiplier * player.Stats[StatAttribute.PetBonusAtk].Total;
 
-            // TODO: properly fetch enemy bonus attack weakness from enemy buff. new stat recommended
-            const double BonusAttackWeakness = 1;
+            double BonusAttackWeakness = 1 / (1 + GetResistance(target, StatAttribute.BonusAtk));
+            double WeaponAttackWeakness = 1 / (1 + GetResistance(target, StatAttribute.MaxWeaponAtk));
 
             double bonusAttackCoeff = BonusAttackWeakness * GetBonusAttackCoefficient(player.Value);
-            double minDamage = player.Stats[StatAttribute.MinWeaponAtk].Total + bonusAttackCoeff * bonusAttack;
-            double maxDamage = player.Stats[StatAttribute.MaxWeaponAtk].Total + bonusAttackCoeff * bonusAttack;
+            double minDamage = WeaponAttackWeakness * player.Stats[StatAttribute.MinWeaponAtk].Total + bonusAttackCoeff * bonusAttack;
+            double maxDamage = WeaponAttackWeakness * player.Stats[StatAttribute.MaxWeaponAtk].Total + bonusAttackCoeff * bonusAttack;
 
-            attackDamage = minDamage + (maxDamage - minDamage) * Random.Shared.NextDouble();
+            double damageRoll = parameters.DamageVarianceEnabled ? Random.Shared.NextDouble() : 1;
+
+            attackDamage = minDamage + (maxDamage - minDamage) * damageRoll;
         }
 
-        bool isCrit = parameters.CanCrit && (parameters.GuaranteedCrit || RollCrit(source, target, luckCoefficient));
+        bool isCrit = parameters.CanCrit && (parameters.GuaranteedCrit || RollCrit(source, target, luckCoefficient, parameters.CritRateOverride));
 
         double finalCritDamage = 1;
 
         if (isCrit)
         {
-            // TODO: get critResist from enemy stats from enemy buff. new stat recommended
-            const double CritResist = 1;
+            double CritResist = 1 / (1 + GetResistance(target, StatAttribute.CritDamage));
             double critDamage = 1000 + source.Stats[StatAttribute.CritDamage].Total + source.Stats[StatAttribute.CriticalDamage].Total;
             finalCritDamage = CritResist * ((critDamage / 1000) - 1) + 1;
         }
 
         double damageBonus = 1 + FetchMultiplier(source.Stats, StatAttribute.TotalDamage) + FetchMultiplier(source.Stats, StatAttribute.Damage);
-
-        damageBonus *= finalCritDamage;
 
         switch (parameters.Element)
         {
@@ -198,10 +328,11 @@ public class DamageHandler
 
         damageBonus += isBoss ? FetchMultiplier(source.Stats, StatAttribute.BossDamage) : 0;
 
-        // TODO: properly fetch enemy attack speed weakness from enemy buff. new stat recommended
-        const double AttackSpeedWeakness = 0;
+        double AttackSpeedWeakness = -GetResistance(target, StatAttribute.AttackSpeed);
 
         damageBonus += AttackSpeedWeakness * FetchMultiplier(source.Stats, StatAttribute.AttackSpeed);
+
+        damageBonus *= finalCritDamage;
 
         InvokeStatValue skillModifier;
 
@@ -216,8 +347,7 @@ public class DamageHandler
 
         double damageMultiplier = damageBonus * (1 + skillModifier.Rate) * (parameters.DamageRate + skillModifier.Value);
 
-        // TODO: properly fetch enemy pierce resistance from enemy buff. new stat recommended
-        const double EnemyPierceResistance = 1;
+        double EnemyPierceResistance = 1 / (1 + GetResistance(target, StatAttribute.Pierce));
 
         double defensePierce = 1 - Math.Min(0.3, EnemyPierceResistance * (FetchMultiplier(source.Stats, StatAttribute.Pierce) - 1));
         damageMultiplier *= 1 / (Math.Max(target.Stats[StatAttribute.Defense].Total, 1) * defensePierce);
@@ -259,11 +389,12 @@ public class DamageHandler
         const double magicNumber = 4; // random constant of an unknown origin, but the formula this was pulled from was always off by a factor of 4
 
         attackDamage *= damageMultiplier * magicNumber;
+        attackDamage += parameters.DamageValue;
 
         return new(source, target, Math.Max(1, attackDamage), isCrit ? HitType.Critical : HitType.Normal);
     }
 
-    private static bool RollCrit(IFieldActor source, IFieldActor target, double luckCoefficient)
+    private static bool RollCrit(IFieldActor source, IFieldActor target, double luckCoefficient, double critRateOverride)
     {
         // used to weigh crit rate in the formula, like how class luck coefficients weigh luck
         const double CritConstant = 5.3;
@@ -278,7 +409,7 @@ public class DamageHandler
         double critEvasion = Math.Max(target.Stats[StatAttribute.CritEvasion].Total, 1) * 2;
         double critChance = Math.Min(critRate / critEvasion * PercentageConversion, MaxCritRate);
 
-        return Random.Shared.Next(1000) < 1000 * critChance;
+        return Random.Shared.NextDouble() < Math.Max(critChance, critRateOverride);
     }
 
     private static double GetRarityBonusAttackMultiplier(Item item)
@@ -297,15 +428,19 @@ public class DamageHandler
 
     private static double GetWeaponBonusAttackMultiplier(Player player)
     {
-        player.Inventory.Equips.TryGetValue(ItemSlot.RH, out Item rightHand);
+        if (!player.Inventory.Equips.TryGetValue(ItemSlot.RH, out Item? rightHand))
+        {
+            return 0;
+        }
 
         double weaponBonusAttackCoeff = GetRarityBonusAttackMultiplier(rightHand);
 
-        if (rightHand != null && ItemMetadataStorage.GetItemSlots(rightHand.Id).Count < 2)
+        if (ItemMetadataStorage.GetItemSlots(rightHand.Id)?.Count < 2)
         {
-            player.Inventory.Equips.TryGetValue(ItemSlot.LH, out Item leftHand);
-
-            weaponBonusAttackCoeff = 0.5 * (weaponBonusAttackCoeff + GetRarityBonusAttackMultiplier(rightHand));
+            if (player.Inventory.Equips.TryGetValue(ItemSlot.LH, out Item? leftHand))
+            {
+                weaponBonusAttackCoeff = 0.5 * (weaponBonusAttackCoeff + GetRarityBonusAttackMultiplier(leftHand));
+            }
         }
 
         return weaponBonusAttackCoeff;

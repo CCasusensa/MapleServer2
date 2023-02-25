@@ -27,7 +27,7 @@ public class GameSession : Session
         Send(ChatPacket.Send(Player, message, ChatType.NoticeAlert));
     }
 
-    // Called first time when starting a new session
+    // Called when character goes into world
     public void InitPlayer(Player player)
     {
         Debug.Assert(player.FieldPlayer == null, "Not allowed to reinitialize player.");
@@ -35,19 +35,22 @@ public class GameSession : Session
         Player = player;
         FieldManager = FieldManagerFactory.GetManager(player);
         player.FieldPlayer = FieldManager.RequestCharacter(player);
+        player.TaskScheduler = player.FieldPlayer.TaskScheduler;
         player.LastLogTime = TimeInfo.Now();
     }
 
     public void EnterField(Player player)
     {
-        // If moving maps, need to get the FieldManager for new map
+        // If changing maps, need to get the FieldManager for new map
         if (player.MapId != FieldManager.MapId || player.InstanceId != FieldManager.InstanceId)
         {
             // Initialize for new Map
             FieldManager = FieldManagerFactory.GetManager(player);
             player.FieldPlayer = FieldManager.RequestCharacter(player);
+            player.TaskScheduler = player.FieldPlayer.TaskScheduler;
+            player.TaskScheduler.FieldManager = FieldManager;
+            player.TaskScheduler.OnFieldMoved();
         }
-
         FieldManager.AddPlayer(this);
     }
 
@@ -94,7 +97,8 @@ public class GameSession : Session
 
             Player.IsMigrating = false;
 
-            if (MapMetadataStorage.MapIsInstancedOnly(Player.MapId) && !MapMetadataStorage.MapIsTutorial(Player.MapId))
+            //move to safe map
+            if (MapMetadataStorage.IsInstancedOnly(Player.MapId) && !MapMetadataStorage.IsTutorialMap(Player.MapId))
             {
                 Player.SavedCoord = Player.ReturnCoord;
                 Player.MapId = Player.ReturnMapId;

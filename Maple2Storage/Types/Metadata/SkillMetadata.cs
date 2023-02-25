@@ -34,6 +34,8 @@ public class SkillMetadata
     public SkillRangeType RangeType;
     [XmlElement(Order = 14)]
     public int[] GroupIDs;
+    [XmlElement(Order = 15)]
+    public bool ImmediateActive;
 
     public SkillMetadata() { }
 
@@ -44,7 +46,7 @@ public class SkillMetadata
     }
 
     public SkillMetadata(int id, List<SkillLevel> skillLevels, string state, byte damageType, SkillType type, SkillSubType subType, byte element,
-        byte superArmor, bool isSpRecovery, SkillRangeType rangeType, int[] groupIds)
+        byte superArmor, bool isSpRecovery, SkillRangeType rangeType, int[] groupIds, bool immediateActive)
     {
         SkillId = id;
         SkillLevels = skillLevels;
@@ -57,6 +59,7 @@ public class SkillMetadata
         IsSpRecovery = isSpRecovery;
         RangeType = rangeType;
         GroupIDs = groupIds;
+        ImmediateActive = immediateActive;
     }
 
     public override string ToString()
@@ -69,7 +72,7 @@ public class SkillMetadata
 public class SkillLevel
 {
     [XmlElement(Order = 1)]
-    public readonly int Level;
+    public readonly short Level;
     [XmlElement(Order = 2)]
     public readonly int Spirit;
     [XmlElement(Order = 3)]
@@ -85,13 +88,22 @@ public class SkillLevel
     [XmlElement(Order = 8)]
     public readonly float CooldownTime;
     [XmlElement(Order = 9)]
-    public readonly List<SkillCondition> ConditionSkills;
+    public readonly List<SkillCondition> ConditionSkills = new();
     [XmlElement(Order = 10)]
     public readonly SkillBeginCondition BeginCondition;
+    [XmlElement(Order = 11)]
+    public readonly RangeProperty DetectProperty;
+    [XmlElement(Order = 12)]
+    public readonly RangeProperty SensorProperty;
+    [XmlElement(Order = 13)]
+    public readonly ChangeSkillProperty ChangeSkill;
+    [XmlElement(Order = 14)]
+    public readonly ComboProperty Combo;
 
     public SkillLevel() { }
 
-    public SkillLevel(int level, int spirit, int stamina, string feature, List<SkillCondition> conditionSkills, List<SkillMotion> skillMotions, SkillUpgrade skillUpgrade, float cooldownTime, SkillBeginCondition beginCondition)
+    public SkillLevel(short level, int spirit, int stamina, string feature, List<SkillCondition> conditionSkills, List<SkillMotion> skillMotions,
+        SkillUpgrade skillUpgrade, float cooldownTime, SkillBeginCondition beginCondition, RangeProperty detectProperty, RangeProperty sensorProperty, ChangeSkillProperty changeSkill, ComboProperty combo)
     {
         Level = level;
         Spirit = spirit;
@@ -102,6 +114,10 @@ public class SkillLevel
         SkillUpgrade = skillUpgrade;
         CooldownTime = cooldownTime;
         BeginCondition = beginCondition;
+        DetectProperty = detectProperty;
+        SensorProperty = sensorProperty;
+        ChangeSkill = changeSkill;
+        Combo = combo;
     }
 
     public override string ToString()
@@ -157,10 +173,12 @@ public class SkillAttack
     public readonly int[] CompulsionType;
     [XmlElement(Order = 9)]
     public readonly SkillDirection Direction;
+    [XmlElement(Order = 10)]
+    public readonly ArrowProperty ArrowProperty;
 
     public SkillAttack() { }
 
-    public SkillAttack(byte attackPoint, short targetCount, long magicPathId, long cubeMagicPathId, RangeProperty rangeProperty,
+    public SkillAttack(byte attackPoint, short targetCount, long magicPathId, long cubeMagicPathId, RangeProperty rangeProperty, ArrowProperty arrowProperty,
         List<SkillCondition> skillConditions,
         DamageProperty damageProperty, int[] compulsionType, SkillDirection direction)
     {
@@ -169,6 +187,7 @@ public class SkillAttack
         MagicPathId = magicPathId;
         CubeMagicPathId = cubeMagicPathId;
         RangeProperty = rangeProperty;
+        ArrowProperty = arrowProperty;
         SkillConditions = skillConditions;
         DamageProperty = damageProperty;
         CompulsionType = compulsionType;
@@ -190,15 +209,18 @@ public class DamageProperty
     public readonly float HitSpeedRate;
     [XmlElement(Order = 3)]
     public readonly int Count;
+    [XmlElement(Order = 4)]
+    public readonly long DamageValue;
     // TODO: Parse push attributes.
 
     public DamageProperty() { }
 
-    public DamageProperty(float damageRate, float hitSpeedRate, int count)
+    public DamageProperty(float damageRate, float hitSpeedRate, int count, long damageValue)
     {
         DamageRate = damageRate;
         HitSpeedRate = hitSpeedRate;
         Count = count;
+        DamageValue = damageValue;
     }
 }
 
@@ -212,14 +234,20 @@ public class SkillMotion
     public string MotionEffect = "";
     [XmlElement(Order = 3)]
     public List<SkillAttack> SkillAttacks = new();
+    [XmlElement(Order = 4)]
+    public int SplashLifeTick;
+    [XmlElement(Order = 5)]
+    public int SplashInvokeCoolTick;
 
     public SkillMotion() { }
 
-    public SkillMotion(string sequenceName, string motionEffect, List<SkillAttack> skillAttacks)
+    public SkillMotion(string sequenceName, string motionEffect, int splashLifeTick, int splashInvokeCoolTick, List<SkillAttack> skillAttacks)
     {
         SequenceName = sequenceName;
         MotionEffect = motionEffect;
         SkillAttacks = skillAttacks;
+        SplashLifeTick = splashLifeTick;
+        splashInvokeCoolTick = splashInvokeCoolTick;
     }
 
     public override string ToString()
@@ -294,7 +322,7 @@ public class SkillCondition
     [XmlElement(Order = 13)]
     public bool RandomCast;
     [XmlElement(Order = 14)]
-    public int[] LinkSkillId;
+    public int LinkSkillId;
     [XmlElement(Order = 15)]
     public int OverlapCount;
     [XmlElement(Order = 16)]
@@ -365,7 +393,7 @@ public class SkillBeginCondition
     public StatCondition? Stat;
 
     [XmlElement(Order = 12)]
-    public List<RequireSkillCodeCondition> RequireSkillCodes;
+    public RequireSkillCodeCondition? RequireSkillCodes;
 
     [XmlElement(Order = 13)]
     public List<RequireMapCodeCondition> RequireMapCodes;
@@ -396,7 +424,7 @@ public class BeginConditionSubject
     public int RequireBuffId;
 
     [XmlElement(Order = 4)]
-    public int RequireBuffCount;
+    public int[] RequireBuffCount;
 
     [XmlElement(Order = 5)]
     public int HasNotBuffId;
@@ -426,12 +454,15 @@ public class BeginConditionSubject
     public ConditionOperator TargetCountSign;
 
     [XmlElement(Order = 13)]
-    public CompareStatCondition? CompareStat;
+    public CompareStatCondition? CompareStatLess;
 
     [XmlElement(Order = 14)]
-    public ConditionOperator RequireBuffCountCompare;
+    public CompareStatCondition? CompareStatGreater;
 
     [XmlElement(Order = 15)]
+    public ConditionOperator[] RequireBuffCountCompare;
+
+    [XmlElement(Order = 16)]
     public int RequireBuffLevel;
 }
 
@@ -439,9 +470,15 @@ public class BeginConditionSubject
 public class CompareStatCondition
 {
     [XmlElement(Order = 1)]
-    public int Hp;
+    public double Rate;
 
     [XmlElement(Order = 2)]
+    public long Value;
+
+    [XmlElement(Order = 3)]
+    public StatAttribute Attribute;
+
+    [XmlElement(Order = 4)]
     public ConditionOperator Func;
 }
 
@@ -459,7 +496,7 @@ public class StatCondition
 public class RequireSkillCodeCondition
 {
     [XmlElement(Order = 1)]
-    public int[] Code;
+    public int[] Codes;
 }
 
 [XmlType]
@@ -508,6 +545,22 @@ public class WeaponCondition
 }
 
 [XmlType]
+public class ChangeSkillProperty
+{
+    [XmlElement(Order = 1)]
+    public int OriginSkillId;
+    [XmlElement(Order = 2)]
+    public short OriginSkillLevel;
+}
+
+[XmlType]
+public class ComboProperty
+{
+    [XmlElement(Order = 1)]
+    public int ComboOriginSkill;
+}
+
+[XmlType]
 public class RangeProperty
 {
     [XmlElement(Order = 1)]
@@ -522,10 +575,24 @@ public class RangeProperty
     public readonly CoordF RangeOffset;
     [XmlElement(Order = 6)]
     public readonly ApplyTarget ApplyTarget;
+    [XmlElement(Order = 7)]
+    public readonly int SensorStartDelay;
+    [XmlElement(Order = 8)]
+    public readonly int SensorSplashStartDelay;
+    [XmlElement(Order = 9)]
+    public readonly bool SensorForceInvokeByInterval;
+    [XmlElement(Order = 10)]
+    public readonly int TargetSelectType;
+    [XmlElement(Order = 11)]
+    public readonly int TargetHasBuffID;
+    [XmlElement(Order = 12)]
+    public readonly int TargetHasNotBuffID;
+    [XmlElement(Order = 13)]
+    public readonly bool TargetHasBuffOwner;
 
     public RangeProperty() { }
 
-    public RangeProperty(bool includeCaster, string rangeType, int distance, CoordF rangeAdd, CoordF rangeOffset, ApplyTarget applyTarget)
+    public RangeProperty(bool includeCaster, string rangeType, int distance, CoordF rangeAdd, CoordF rangeOffset, ApplyTarget applyTarget, int sensorStartDelay, int sensorSplashStartDelay, bool sensorForceInvokeByInterval, int targetSelectType, int targetHasBuffId, int targetHasNotBuffId, bool targetHasBuffOwner)
     {
         IncludeCaster = includeCaster;
         RangeType = rangeType;
@@ -533,5 +600,47 @@ public class RangeProperty
         RangeAdd = rangeAdd;
         RangeOffset = rangeOffset;
         ApplyTarget = applyTarget;
+        SensorStartDelay = sensorStartDelay;
+        SensorSplashStartDelay = sensorSplashStartDelay;
+        SensorForceInvokeByInterval = sensorForceInvokeByInterval;
+        TargetSelectType = targetSelectType;
+        TargetHasBuffID = targetHasBuffId;
+        TargetHasNotBuffID = targetHasNotBuffId;
+        TargetHasBuffOwner = targetHasBuffOwner;
     }
+}
+
+public enum BounceType : byte
+{
+    None = 0,
+    Unknown1 = 1,
+    Unknown2 = 2,
+    Unknown3 = 3,
+    Unknown5 = 5
+}
+
+[XmlType]
+public class ArrowProperty
+{
+    [XmlElement(Order = 1)]
+    public readonly BounceType BounceType;
+    [XmlElement(Order = 2)]
+    public readonly int BounceCount;
+    [XmlElement(Order = 3)]
+    public readonly bool BounceOverlap;
+    [XmlElement(Order = 4)]
+    public readonly int BounceRadius;
+    [XmlElement(Order = 5)]
+    public readonly bool NonTarget;
+
+    public ArrowProperty(BounceType bounceType, int bounceCount, bool bounceOverlap, int bounceRadius, bool nonTarget)
+    {
+        BounceType = bounceType;
+        BounceCount = bounceCount;
+        BounceOverlap = bounceOverlap;
+        BounceRadius = bounceRadius;
+        NonTarget = nonTarget;
+    }
+
+    public ArrowProperty() { }
 }
